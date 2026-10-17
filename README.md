@@ -2,7 +2,7 @@
 
 OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。开发依据为原样保留的 [V4.3 方案](<STRM Generator Go.md>)。
 
-**Slice 1「安全的单轮生成闭环」已 ACTIVE，Base 固定为开发准备提交 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；下一步由 B 规划首个 Task。环境已准备，同步程序尚未实现。**
+**Slice 1「安全的单轮生成闭环」已 ACTIVE，Base 固定为开发准备提交 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；[Task 1.1](TASK.md)「首次生成、归属登记与安全重复运行」已规划为 PLANNED，待 Developer 实施。环境已准备，同步程序尚未实现。**
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
 
