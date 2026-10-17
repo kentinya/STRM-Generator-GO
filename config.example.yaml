@@ -1,0 +1,24 @@
+# 目标配置合同；当前还没有配置解析器或 strmgen 可执行程序。
+# 所有相对文件路径以启动工作目录为基准；从仓库根目录运行。
+openlist:
+  api_url: "http://127.0.0.1:15244"
+  public_url: "https://openlist.example.invalid"
+  token_env: "OPENLIST_TOKEN"
+
+sources:
+  - remote: "/Movies"
+    output: "./artifacts/dev-env/strm/Movies"
+
+sync:
+  interval_minutes: 60
+  directory_workers: 4
+  atomic_write: true
+  skip_unchanged: true
+  mirror: true
+
+cleanup:
+  enabled: true
+  missing_confirmations: 2
+
+database:
+  path: "./artifacts/dev-env/data/strmgen.db"

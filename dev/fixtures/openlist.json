@@ -1,0 +1,15 @@
+{
+  "directories": {
+    "/": [{"name": "Movies", "is_dir": true, "size": 0, "hash_info": null}],
+    "/Movies": [
+      {"name": "科幻", "is_dir": true, "size": 0, "hash_info": null},
+      {"name": "Sample.mkv", "is_dir": false, "size": 10737418240, "hash_info": {"sha1": "aabbccddeeff0011223344556677889900112233"}},
+      {"name": "NoHash.mp4", "is_dir": false, "size": 2048, "hash_info": null},
+      {"name": "notes.txt", "is_dir": false, "size": 8, "hash_info": null}
+    ],
+    "/Movies/科幻": [
+      {"name": "A #100%.mkv", "is_dir": false, "size": 4096, "hash_info": {"sha1": "00112233445566778899aabbccddeeff00112233"}},
+      {"name": "InvalidHash.mkv", "is_dir": false, "size": 0, "hash_info": {"sha1": "not-a-content-hash"}}
+    ]
+  }
+}

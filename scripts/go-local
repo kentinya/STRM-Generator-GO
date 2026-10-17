@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+task_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+task_version="$(tr -d '\r\n' < "$task_root/.go-version")"
+task_base="$task_root/artifacts/dev-env"
+export GOROOT="$task_base/sdk/go$task_version"
+export GOTOOLCHAIN=local GOENV=off GOWORK=off
+export CGO_ENABLED="${CGO_ENABLED:-0}"
+export GOPATH="$task_base/gopath" GOCACHE="$task_base/go-build" GOMODCACHE="$task_base/gopath/pkg/mod"
+if [[ ! -x "$GOROOT/bin/go" ]]; then
+  echo 'Pinned SDK missing; run: python3 scripts/development_environment.py install' >&2
+  exit 2
+fi
+task_actual="$("$GOROOT/bin/go" version)"
+if [[ "$task_actual" != "go version go$task_version "* ]]; then
+  echo 'Pinned SDK version mismatch' >&2
+  exit 2
+fi
+exec "$GOROOT/bin/go" "$@"

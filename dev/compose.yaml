@@ -1,0 +1,24 @@
+name: strm-generator-dev
+services:
+  openlist-fixture:
+    image: python@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
+    command: ["python3", "-B", "/fixture/scripts/mock_openlist.py", "--host", "0.0.0.0", "--port", "5244"]
+    ports:
+      - "127.0.0.1:15244:5244"
+    volumes:
+      - ../scripts/mock_openlist.py:/fixture/scripts/mock_openlist.py:ro
+      - ./fixtures:/fixture/dev/fixtures:ro
+    read_only: true
+    user: "65534:65534"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5244/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    networks: [fixture]
+networks:
+  fixture: {}

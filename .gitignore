@@ -1,0 +1,16 @@
+artifacts/
+.env
+.env.*
+!.env.example
+config.yaml
+*.local.yaml
+*.local.json
+*.db
+*.db-*
+*.sqlite*
+__pycache__/
+*.py[cod]
+bin/
+.DS_Store
+.idea/
+.vscode/

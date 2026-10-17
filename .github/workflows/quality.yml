@@ -1,0 +1,24 @@
+name: Repository quality
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install checksummed repository-local SDK
+        run: python3 scripts/development_environment.py install
+      - name: Verify development environment
+        run: python3 scripts/development_environment.py doctor
+      - name: Verify compiler and both Linux target builds
+        run: python3 scripts/development_environment.py smoke
+      - name: Check committed contracts and tool regressions
+        run: python3 scripts/quality.py
+      - name: Check committed patch whitespace
+        run: git show --format= --check HEAD
