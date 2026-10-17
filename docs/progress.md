@@ -12,10 +12,12 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 
 ## 当前指针
 
-- [Slice 1](../SLICE.md)：PLANNED；Base／Implementation Head 为NOT SET。
+2026-10-17：用户明确要求激活第一个Slice；A提交Slice 1「安全的单轮生成闭环」ACTIVE合同及同步Roadmap，固定开发准备基线 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`。本次只激活合同，没有产品实现或审查结论。
+
+- [Slice 1](../SLICE.md)：ACTIVE；Base为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，Implementation Head为NOT SET。
 - [Task](../TASK.md)：NO ACTIVE IMPLEMENTATION TASK。
 - 产品Go测试／构建、真实OpenList、插件解析、Jellyfin／代理、压力、产品发布：NOT RUN。
 - B独立审查与A产品最终审查：PENDING。
-- 下一步：用户授权产品开发后，由A以已提交的开发准备基线固定Base并提交ACTIVE合同，再由B规划首个Task。
+- 下一步：B读取已提交的ACTIVE合同，运行常规治理检查并规划首个Task；本次激活提交为后续Task的Contract Checkpoint，不移动Slice Base。
 
-初始工具证据仅本机保存在 `artifacts/validation-evidence/preparation-20261017/`；Git身份配置、基线与常规治理验证保存在 `artifacts/validation-evidence/git-baseline-20261017/`。旧证据中的无HEAD／身份缺失状态保留为当时事实，SDK与运行证据按可执行输入身份复用。后续Task／审查历史保存在可达Git检查点。
+初始工具证据仅本机保存在 `artifacts/validation-evidence/preparation-20261017/`；Git身份配置、基线与常规治理验证保存在 `artifacts/validation-evidence/git-baseline-20261017/`；合同激活及提交后的治理／质量检查保存在 `artifacts/validation-evidence/slice-1-activation-20261017/`。旧证据中的无HEAD／身份缺失状态保留为当时事实，SDK与运行证据按可执行输入身份复用。后续Task／审查历史保存在可达Git检查点。

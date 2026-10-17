@@ -1,10 +1,10 @@
-# Slice 1 — 安全的单轮生成闭环（规划）
+# Slice 1 — 安全的单轮生成闭环
 
 ```text
 Slice ID: 1
 Owner: A
-Status: PLANNED
-Base SHA: NOT SET
+Status: ACTIVE
+Base SHA: f90f9560e55b07fd2d6a20e8bac43741c39176c4
 Implementation Head: NOT SET
 ```
 
@@ -26,7 +26,7 @@ Implementation Head: NOT SET
 
 ## 排除范围
 
-Mirror 删除／移动旧路径清理、定时常驻、正式容器发布、百万级保证、真实 Jellyfin 播放验收；这些由后续 Slice 承接。无本次产品实施授权。
+Mirror 删除／移动旧路径清理、定时常驻、正式容器发布、百万级保证、真实 Jellyfin 播放验收；这些由后续 Slice 承接。实施单元由 B 按本合同规划，不因激活扩展到后续 Slice。
 
 ## 验收与最终验证
 
@@ -34,7 +34,7 @@ Mirror 删除／移动旧路径清理、定时常驻、正式容器发布、百�
 
 ## Closure Packet
 
-NOT STARTED。激活前先建立真实 Git 基线，由 A 固定 Base 并提交 ACTIVE 合同及 Roadmap，B 再规划 Task。不得把本次环境准备算作产品 Slice 完成。
+NOT STARTED。用户已要求激活第一个 Slice；A 以开发准备提交 `f90f9560e55b07fd2d6a20e8bac43741c39176c4` 固定 Base，本次提交 ACTIVE 合同及同步 Roadmap，B 随后规划首个 Task。当前没有产品实现，Implementation Head 保持 NOT SET，不得把环境准备或合同激活算作 Slice 完成。
 
 ## A Final Review
 
@@ -42,5 +42,5 @@ NOT STARTED。激活前先建立真实 Git 基线，由 A 固定 Base 并提交 
 Reviewed Range: NOT SET
 Decision: PENDING
 P0/P1 Blockers: NOT ASSESSED
-Next Action: A ACTIVATES SLICE AFTER PRODUCT DEVELOPMENT AUTHORIZATION
+Next Action: B PLANS THE FIRST TASK
 ```

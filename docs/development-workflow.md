@@ -29,7 +29,7 @@ Slice: PLANNED -> ACTIVE -> READY FOR A REVIEW -> PASS / CLOSED
 
 实施前执行 `python3 scripts/check_governance.py`，检查已提交合同与当前工作区一致、Roadmap、Task 身份和 SHA 祖先关系。没有 HEAD 时 `--bootstrap` 只接受 PLANNED／NOT SET／无活动 Task，输出不是实施准入。已初始化但未激活也不能开始产品实现。
 
-本次用户仅授权环境与文档。不得因 SDK 可用、Go module 存在或本文件已写完自动激活 Slice。
+开发准备基线已提交，用户随后明确要求激活第一个 Slice。A 将 Slice 1 设为 ACTIVE 并固定真实 Base；B 必须在合同激活提交后规划 Task，Developer 才能在活动 Task 内实施。SDK 可用、Go module 存在或合同激活本身都不代表产品验收通过。
 
 ## 3. 合同与 Task
 

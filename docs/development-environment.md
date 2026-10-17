@@ -69,6 +69,6 @@ docker compose -f dev/compose.yaml stop
 
 本目录原先只有方案，无Git。用户提供身份后，已仅在本仓库配置 `kentinya <szd123956@outlook.com>`，开发准备文件保存为main的首个本地基线提交；提交号可通过 `git log --reverse --format='%H %s'` 查看。未配置远程，未推送。原始方案的Markdown换行空格按文件属性保留，内容摘要不变。
 
-首次尚无HEAD的初始化阶段只使用治理／quality的 `--bootstrap`；基线提交后使用常规检查。当前Slice仍为PLANNED，Base／Implementation Head保持NOT SET；产品授权后由A选择真实基线并提交ACTIVE合同，不能把Git身份配置或初始化提交当成产品激活。
+首次尚无HEAD的初始化阶段只使用治理／quality的 `--bootstrap`；基线提交后使用常规检查。用户已要求激活Slice 1，Base固定为开发准备提交 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，Implementation Head保持NOT SET。合同激活提交后由B规划首个Task；Git身份配置、初始化或激活均不代表产品实现与验收。
 
 本机验证输出保存在 `artifacts/validation-evidence/preparation-20261017/`，包括输入SHA-256、精确命令、退出码与日志。文件被Git忽略，仅本机可读。当前交接事实见 [进度](progress.md)；没有产品代码、真实服务、性能或独立审查PASS。
