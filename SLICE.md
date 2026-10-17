@@ -5,7 +5,7 @@ Slice ID: 1
 Owner: A
 Status: ACTIVE
 Base SHA: f90f9560e55b07fd2d6a20e8bac43741c39176c4
-Implementation Head: NOT SET
+Implementation Head: 4752ec2057f998d762829cdb352c8b75198ee900
 ```
 
 ## 用户目标

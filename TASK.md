@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.1
 Parent Slice: 1
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -153,12 +153,12 @@ B 审查 Task Base..Developer Head 的全部实际差异，核对锁文件／配
 
 ## Developer Completion Report
 
-- Changed Files：NOT STARTED。
-- Implemented：NOT STARTED。
-- Tests and Results / Evidence：产品验证 NOT RUN；规划检查不作为产品证据。
-- Decisions / Risks / Deviations：待实施后填真实事实；偏离范围／门槛先交 B。
-- Remaining In-Slice Work：至少包括已拥有文件更新及恢复、真实 OpenList／固定插件解析实证；其余 RO 按实际实现重新核对。
-- Head SHA：NOT SET。
+- Changed Files：`cmd/strmgen/main.go`（+`main_test.go`）；`internal/config/config.go`（+测试）；`internal/openlist/openlist.go`（+测试）；`internal/pathmap/pathmap.go`（+测试）；`internal/strm/strm.go`（+测试）；`internal/storage/storage.go`（+测试）；`internal/reconciler/{syncer,fs,lock,lock_unix,lock_other}.go`（+`syncer_test.go`、`fs_test.go`）；`go.mod`／`go.sum`；`config.example.yaml`；`internal/README.md`；`scripts/development_environment.py`（`install-cc`）；`scripts/mock_openlist.py`（可编程 hooks）；`scripts/run_isolated_sync_integration.py`（新）；`tests/test_mock_openlist.py`、`tests/test_run_isolated_sync_integration.py`（新）；`dev/environment-spec.json`（cc 身份与新增文件清单）；`.github/workflows/quality.yml`；`README.md`、`docs/architecture.md`、`docs/development-environment.md`、`docs/progress.md`。
+- Implemented：`strmgen sync --config <file>` 与 `--dry-run`；严格 YAML（未知字段拒绝、token 仅来自环境变量、URL 拒绝 userinfo／query／fragment、remote 拒绝 `..`、输出根重叠／重复／符号链接拒绝、数据库不入输出根、cleanup 启用拒绝）；有界 OpenList list/get（显式分页、HTTP 状态／外层 code／data 形状、响应字节上限、total 一致性、提前空页／重复条目拒绝、`hash_info` 优先与 `hashinfo` 回退、缺失／无效哈希省略）；纯路径映射与稳定 `/d/` URL 逐段编码；版本 1 协议解析／序列化与 URL→SHA-1→Size 比较；SQLite 最小归属与完整轮次（dry-run 对 WAL 库读私有快照，不创建 DB／WAL／SHM）；有界 BFS 目录遍历（仅排队目录路径、队列上限、无每文件 goroutine）；同目录目标冲突拒绝；同目录临时文件 + `os.Link` 不覆盖发布；跨进程 flock 单轮互斥；需更新时保留原文件并非零退出；退出码 0／1／2。
+- Tests and Results / Evidence：证据目录 `artifacts/validation-evidence/task-1.1-final/`（本机，非远程可读）。治理 PASS；`mod download`／`mod verify` PASS；`quality.py`（gofmt／vet／Go test／build＋Python 39 项回归）PASS；`-race -count=1 ./...` PASS（test-level pass=86，fail=0，skip=0）；Linux amd64／arm64 CGO=0 `-trimpath` 构建 PASS（SHA-256 amd64 `e9dcc9…`、arm64 `fd0166…`）；`run_isolated_sync_integration.py --scenario all` 7/7 场景 PASS（首次、重复与比较、归属与路径、API 与限额、dry-run 边界、多进程、故障恢复）；`git diff --check` PASS。Go 依赖固定 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`；race 使用仓库固定 Zig `cc`（SHA-256 见 `dev/environment-spec.json`）。
+- Decisions / Risks / Deviations：SQLite 选 `modernc.org/sqlite`（纯 Go，CGO=0 可跨架构，无系统 SQLite 依赖）；同目标冲突按单目录 listing 检测，因此天然覆盖同一分页内与分页边界上的 `A.mkv`／`A.mp4`（同目录必在同一 listing）；跨进程互斥本 Task 保守为全局单轮串行（强于按输出范围），通过 `STRMGEN_LOCK_DIR` 在测试／驱动中隔离命名空间；已拥有文件需更新时本 Task 只报告并非零退出，不执行内容替换（合同允许）。无超出范围的偏离。
+- Remaining In-Slice Work：已拥有文件的内容替换与原子更新及其恢复证据（RO-4 未完成部分）；真实 OpenList 驱动／鉴权／无签名 `/d/` 实证与固定插件解析实证；`serve`／定时、Mirror 删除／移动清理、发布镜像、性能测量仍属后续 Slice／Task。
+- Head SHA：`4752ec2057f998d762829cdb352c8b75198ee900`。
 
 ## B Review Result
 
@@ -166,5 +166,5 @@ B 审查 Task Base..Developer Head 的全部实际差异，核对锁文件／配
 Reviewed: NOT SET
 Decision: PENDING
 Slice Required Outcomes all satisfied: PENDING
-Next: DEVELOPER IMPLEMENTS TASK 1.1
+Next: B REVIEWS TASK 1.1
 ```
