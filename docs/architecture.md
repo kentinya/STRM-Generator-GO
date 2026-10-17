@@ -2,7 +2,9 @@
 
 ## CURRENT
 
-只有开发方案、Go module／目录占位、仓库规则、Python 环境工具与 OpenList 合成 API 夹具。不存在生成器 Go 包、配置解析、SQLite schema、调度器、镜像或发布产物。环境 smoke 的临时 Go 文件在忽略目录，不是产品实现。
+开发准备基线（合同、需求、架构、夹具、Python 工具与 Go 1.27.2 固定 SDK）已交付。Slice 1 的 Task 1.1 已实现首个产品闭环：`cmd/strmgen` 提供 `sync` 与 `sync --dry-run`；`internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list／get 与分页、应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供纯路径／协议转换与比较；`internal/storage` 用 modernc.org/sqlite 记录最小归属与完整轮次；`internal/reconciler` 实现有界目录遍历、同目标冲突检测、原子发布（同目录临时文件 + `os.Link` 不覆盖）、跨进程 flock 互斥。已拥有文件的内容替换、Mirror 清理、serve／定时、发布镜像仍未实现。
+
+依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
 ## TARGET
 
@@ -25,6 +27,6 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 
 文件 rename 和数据库 commit 不可形成同一事务，Task 必须证明各崩溃窗口安全：未完成写入不能导致误认归属，残留记录不能授权删除陌生文件，恢复不能把中断轮当完整轮。内容外部修改、符号链接及同名目标冲突均需保守处理。
 
-SQLite 驱动和 YAML 库尚未选型；优先评估能支持 Linux amd64／arm64 的依赖与工具链，固定版本及 go.sum 后验证。若使用 CGO，必须补齐 C 编译器、race／交叉编译与运行依赖；不能把当前纯标准库 smoke 的 CGO=0 结论套用于未来产品。
+SQLite 驱动已选 `modernc.org/sqlite v1.60.1`（纯 Go、CGO=0），YAML 库已选 `gopkg.in/yaml.v3 v3.0.1`；版本与 go.sum 已提交。race 检测需要 C 编译器，仓库固定 Zig `cc` 入口；交叉编译使用 CGO=0。不能把 CGO=0 构建结论当成 race 或 ARM64 实机运行证明。
 
 生成器通过 STRM 文件交付给 Jellyfin；库扫描、插件决策／探测和媒体播放属于外部链路。协议对照见 [兼容性](compatibility.md)，分层证据见 [测试矩阵](test-matrix.md)。

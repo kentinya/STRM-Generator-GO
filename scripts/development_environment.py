@@ -153,6 +153,73 @@ func main() {
         print(f"PASS: linux/{arch} compiler smoke (not a product build)", flush=True)
 
 
+def install_cc(offline_archive=None):
+    """Install the pinned Zig cc used only for race/CGO gates."""
+    entry = SPEC["cc"]
+    BASE.mkdir(parents=True, exist_ok=True)
+    cc_root = BASE / "cc"
+    zig_dir = cc_root / f"zig-x86_64-linux-{entry['version']}"
+    binary = ROOT / entry["binary"]
+    if zig_dir.exists():
+        subprocess.run([str(binary), "--version"], check=True)
+        print("PASS: pinned C toolchain already installed")
+        return
+    downloads = BASE / "downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    archive = Path(offline_archive).resolve() if offline_archive else downloads / entry["source"].rsplit("/", 1)[1]
+    if not archive.exists():
+        if offline_archive:
+            raise ValueError("Offline C toolchain archive not found")
+        print("Downloading pinned Zig C toolchain", flush=True)
+        partial = archive.with_suffix(archive.suffix + ".partial")
+        try:
+            with urllib.request.urlopen(entry["source"], timeout=120) as response, partial.open("wb") as target:
+                shutil.copyfileobj(response, target)
+            if sha256(partial) != entry["sha256"]:
+                raise ValueError("C toolchain SHA-256 mismatch")
+            partial.replace(archive)
+        finally:
+            partial.unlink(missing_ok=True)
+    if sha256(archive) != entry["sha256"]:
+        raise ValueError("C toolchain SHA-256 mismatch; installation refused")
+    cc_root.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:xz") as bundle:
+        for member in bundle.getmembers():
+            parts = Path(member.name).parts
+            if (not parts or parts[0] != f"zig-x86_64-linux-{entry['version']}" or ".." in parts
+                    or Path(member.name).is_absolute()
+                    or not (member.isfile() or member.isdir() or member.issym())):
+                raise ValueError("Unsafe C toolchain archive member")
+            target = cc_root / member.name
+            if member.issym():
+                link = target.parent / member.linkname
+                if ".." in Path(member.linkname).parts or not link.resolve().is_relative_to(cc_root.resolve()):
+                    raise ValueError("Unsafe C toolchain symlink")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists() or target.is_symlink():
+                    target.unlink()
+                os.symlink(member.linkname, target)
+                continue
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with bundle.extractfile(member) as source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(member.mode & 0o777 or 0o644)
+    wrapper = cc_root / "bin"
+    wrapper.mkdir(parents=True, exist_ok=True)
+    cc = wrapper / "cc"
+    cc.write_text("#!/usr/bin/env bash\n"
+                  "# Local C compiler entry for race/CGO builds; delegates to pinned Zig cc.\n"
+                  "set -euo pipefail\n"
+                  "here=\"$(cd -- \"$(dirname -- \"${BASH_SOURCE[0]}\")\" && pwd)\"\n"
+                  f"exec \"$here/../zig-x86_64-linux-{entry['version']}/zig\" cc \"$@\"\n")
+    cc.chmod(0o755)
+    subprocess.run([str(cc), "--version"], check=True)
+    print("PASS: checksum and pinned C toolchain installation")
+
+
 def doctor():
     checks = []
 
@@ -172,6 +239,9 @@ def doctor():
     check("Git", lambda: subprocess.check_output(["git", "--version"], text=True).strip())
     check("original V4.3 identity", lambda: "unchanged" if sha256(ROOT / SPEC["plan"]["path"]) == SPEC["plan"]["sha256"]
           else (_ for _ in ()).throw(ValueError("Original plan changed")))
+    cc_binary = ROOT / SPEC["cc"]["binary"]
+    check("pinned C toolchain (race/CGO)", lambda: "missing" if not cc_binary.exists()
+          else subprocess.check_output([str(cc_binary), "--version"], text=True).splitlines()[0])
     if shutil.which("docker"):
         for args in (["docker", "compose", "version"], ["docker", "version", "--format", "{{.Server.Version}}"]):
             result = subprocess.run(args, text=True, capture_output=True)
@@ -184,12 +254,15 @@ def doctor():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("install", "doctor", "smoke"))
+    parser.add_argument("action", choices=("install", "install-cc", "doctor", "smoke"))
     parser.add_argument("--sdk-archive", help="Offline official archive, checked against the same SHA-256")
+    parser.add_argument("--cc-archive", help="Offline C toolchain archive, checked against the same SHA-256")
     args = parser.parse_args()
     try:
         if args.action == "install":
             install(args.sdk_archive)
+        elif args.action == "install-cc":
+            install_cc(args.cc_archive)
         elif args.action == "smoke":
             smoke()
         else:

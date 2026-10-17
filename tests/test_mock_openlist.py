@@ -81,3 +81,51 @@ class FixtureTests(unittest.TestCase):
                 status, response = self.request(body=body)
                 self.assertEqual(status, 400)
                 self.assertEqual(response["code"], 400)
+
+    def test_override_hook_can_inject_failures(self):
+        from mock_openlist import make_server
+
+        def override(endpoint, path, request, directories):
+            if endpoint.endswith("/list") and path == "/Movies":
+                return 200, 500, None
+            return None
+
+        server = make_server(port=0, hooks={"override": override})
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            payload = json.dumps({"path": "/Movies"}).encode()
+            req = urllib.request.Request(base + "/api/fs/list", data=payload,
+                                         headers={"Authorization": TOKEN, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as response:
+                body = json.load(response)
+            self.assertEqual(body["code"], 500)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)
+
+    def test_before_hook_runs_before_response(self):
+        from mock_openlist import make_server
+
+        seen = []
+
+        def before(endpoint, path, request):
+            seen.append((endpoint, path))
+
+        server = make_server(port=0, hooks={"before": before})
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            payload = json.dumps({"path": "/Movies"}).encode()
+            req = urllib.request.Request(base + "/api/fs/list", data=payload,
+                                         headers={"Authorization": TOKEN, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3):
+                pass
+            self.assertEqual(seen, [("/api/fs/list", "/Movies")])
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)

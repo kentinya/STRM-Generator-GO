@@ -90,6 +90,36 @@
     "scripts/quality.py",
     "tests/test_development_environment.py",
     "tests/test_governance.py",
-    "tests/test_mock_openlist.py"
-  ]
+    "tests/test_mock_openlist.py",
+    "go.sum",
+    "cmd/strmgen/main.go",
+    "cmd/strmgen/main_test.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/openlist/openlist.go",
+    "internal/openlist/openlist_test.go",
+    "internal/pathmap/pathmap.go",
+    "internal/pathmap/pathmap_test.go",
+    "internal/reconciler/fs.go",
+    "internal/reconciler/fs_test.go",
+    "internal/reconciler/lock.go",
+    "internal/reconciler/lock_other.go",
+    "internal/reconciler/lock_unix.go",
+    "internal/reconciler/syncer.go",
+    "internal/reconciler/syncer_test.go",
+    "internal/storage/storage.go",
+    "internal/storage/storage_test.go",
+    "internal/strm/strm.go",
+    "internal/strm/strm_test.go",
+    "scripts/run_isolated_sync_integration.py",
+    "tests/test_run_isolated_sync_integration.py"
+  ],
+  "cc": {
+    "version": "0.14.1",
+    "purpose": "race detector and CGO builds; not a product runtime dependency",
+    "license": "MIT",
+    "source": "https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz",
+    "sha256": "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c",
+    "binary": "artifacts/dev-env/cc/bin/cc"
+  }
 }

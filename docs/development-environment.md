@@ -8,6 +8,7 @@
 
 ```bash
 python3 scripts/development_environment.py install
+python3 scripts/development_environment.py install-cc
 python3 scripts/development_environment.py doctor
 bash scripts/go-local version
 python3 scripts/development_environment.py smoke
@@ -16,17 +17,30 @@ python3 scripts/quality.py
 
 Go 固定1.27.2，`.go-version`、go.mod 与环境规范保持一致。首次安装校验归档 SHA-256，安全解压至 `artifacts/dev-env/sdk/go1.27.2` 并检查版本；已有同版本安装复用。wrapper 禁止自动切换工具链，隔离 GOPATH／GOCACHE／GOMODCACHE，默认 CGO=0，不修改用户 Go 配置。安装器在 artifacts/dev-env 建立独立 go.mod，避免未来根模块 `./...` 遍历 SDK 和 smoke 源码。
 
-官方 tar 端点在本机实测404，改用官方模块代理 ZIP。amd64 与 arm64 归档均已下载、按官方 checksum database 的 h1 比对并固定 SHA-256；tar 官方元数据保留作来源记录。安装器当前使用规范中的 ZIP，失败退出2，不自动降级或忽略校验。
+`install-cc` 安装仓库固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，来源与 SHA-256 见环境规范），只用于 race／CGO 构建，不是产品运行时依赖。race 命令：
+
+```bash
+CC="$PWD/artifacts/dev-env/cc/bin/cc" CGO_ENABLED=1 bash scripts/go-local test -race -count=1 ./...
+```
 
 离线安装复制目标平台对应的同一官方 ZIP，再运行：
 
 ```bash
 python3 scripts/development_environment.py install --sdk-archive /path/to/v0.0.1-go1.27.2.linux-amd64.zip
+python3 scripts/development_environment.py install-cc --cc-archive /path/to/zig-x86_64-linux-0.14.1.tar.xz
 ```
 
 smoke 在忽略目录生成标准库 Go 样例，运行 JSON Int64／net/http／slog 编译检查，分别构建 Linux amd64／arm64。ARM64产物没有在本机执行。没有产品包时 quality 显式报告产品 Go build/test/vet 为 NOT RUN；以后有包自动启用常规门槛，具体集成／T4要求仍由Task提供。
 
 尚无 SQLite／YAML 第三方依赖，故当前没有 go.sum。SQLite驱动、YAML库、C编译器、race测试、正式打包和产品Dockerfile由活动Task确定，不能把编译 smoke 当成数据库或运行时兼容证明。CI定义已添加，尚未推送／远程运行。
+
+Task 1.1 已固定 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（纯 Go，CGO=0 可跨架构构建），go.sum 已提交。`quality.py` 在产品包存在后自动执行 gofmt／vet／test／build 与 Python 回归。隔离端到端驱动：
+
+```bash
+bash scripts/go-local build -trimpath -o artifacts/task-1.1/bin/strmgen-amd64 ./cmd/strmgen
+python3 scripts/run_isolated_sync_integration.py --binary artifacts/task-1.1/bin/strmgen-amd64 \
+  --scenario all --output-dir artifacts/validation-evidence/task-1.1-final
+```
 
 ## 原生 OpenList 夹具
 

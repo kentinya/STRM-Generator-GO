@@ -15,8 +15,9 @@ def load_fixture():
     return json.loads((ROOT / "dev/fixtures/openlist.json").read_text())
 
 
-def make_server(host="127.0.0.1", port=15244, fixture=None):
+def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
     directories = (fixture or load_fixture())["directories"]
+    hooks = hooks or {}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -29,7 +30,10 @@ def make_server(host="127.0.0.1", port=15244, fixture=None):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # A cancelled client may close the socket early.
 
         def do_GET(self):
             self.respond(200 if self.path == "/health" else 404)
@@ -56,6 +60,16 @@ def make_server(host="127.0.0.1", port=15244, fixture=None):
                 code = {"/error": 500, "/forbidden": 403, "/offline": 503}[path]
                 self.respond(code, status=503 if path == "/offline" else 200)
                 return
+            before = hooks.get("before")
+            if before is not None:
+                before(self.path, path, request)
+            override = hooks.get("override")
+            if override is not None:
+                custom = override(self.path, path, request, directories)
+                if custom is not None:
+                    status, code, data = custom
+                    self.respond(code, data, status=status)
+                    return
             if self.path.endswith("/list"):
                 if path not in directories:
                     self.respond(404)

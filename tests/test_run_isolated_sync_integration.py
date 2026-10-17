@@ -1,0 +1,65 @@
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import run_isolated_sync_integration as driver
+
+
+class DriverUnitTests(unittest.TestCase):
+    def test_output_dir_refuses_source_tree(self):
+        with self.assertRaises(SystemExit):
+            driver.validate_output_dir(driver.ROOT / "scripts")
+
+    def test_output_dir_refuses_non_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "evidence"
+            target.mkdir()
+            (target / "existing.txt").write_text("x")
+            with self.assertRaises(SystemExit):
+                driver.validate_output_dir(target)
+
+    def test_output_dir_accepts_fresh_evidence_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "artifacts" / "validation-evidence" / "run-1"
+            driver.ROOT.joinpath("artifacts")
+            resolved = driver.validate_output_dir(base)
+            self.assertTrue(resolved.is_dir())
+
+    def test_assert_valid_strm_accepts_good_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "A.strm"
+            path.write_bytes(b"# strm-probe-version:1\n# strm-probe-size:0\nhttps://e.invalid/d/A.mkv\n")
+            driver.assert_valid_strm(path, "https://e.invalid/d/A.mkv")
+
+    def test_assert_valid_strm_rejects_unsafe_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "A.strm"
+            path.write_bytes(b"# strm-probe-version:1\nhttps://e.invalid/d/A.mkv?sign=x\n")
+            with self.assertRaises(driver.Failure):
+                driver.assert_valid_strm(path, "https://e.invalid/d/A.mkv")
+
+    def test_assert_valid_strm_rejects_modified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "A.strm"
+            path.write_bytes(b"# strm-probe-version:1\n# Modified: 2020\nhttps://e.invalid/d/A.mkv\n")
+            with self.assertRaises(driver.Failure):
+                driver.assert_valid_strm(path, "https://e.invalid/d/A.mkv")
+
+    def test_sidecar_detection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "strmgen.db"
+            db.write_bytes(b"")
+            (Path(str(db) + "-wal")).write_bytes(b"x")
+            names = [name for name, _ in driver.sidecars(db)]
+            self.assertIn("strmgen.db-wal", names)
+
+    def test_summary_shape_is_json_serializable(self):
+        payload = {"scenarios": {"first_generation": {"status": "PASS"}}, "failures": []}
+        self.assertIn("first_generation", json.loads(json.dumps(payload))["scenarios"])
+
+
+if __name__ == "__main__":
+    unittest.main()

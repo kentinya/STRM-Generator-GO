@@ -14,10 +14,14 @@ jobs:
           python-version: '3.11'
       - name: Install checksummed repository-local SDK
         run: python3 scripts/development_environment.py install
+      - name: Install checksummed race/CGO C toolchain
+        run: python3 scripts/development_environment.py install-cc
       - name: Verify development environment
         run: python3 scripts/development_environment.py doctor
       - name: Verify compiler and both Linux target builds
         run: python3 scripts/development_environment.py smoke
+      - name: Race-enabled Go tests
+        run: CC="$PWD/artifacts/dev-env/cc/bin/cc" CGO_ENABLED=1 bash scripts/go-local test -race -count=1 ./...
       - name: Check committed contracts and tool regressions
         run: python3 scripts/quality.py
       - name: Check committed patch whitespace

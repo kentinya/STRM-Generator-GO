@@ -1,5 +1,5 @@
-# 目标配置合同；当前还没有配置解析器或 strmgen 可执行程序。
-# 所有相对文件路径以启动工作目录为基准；从仓库根目录运行。
+# 目标配置合同。所有相对文件路径以启动工作目录为基准。
+# Task 1.1 只支持 sync 与 sync --dry-run；serve、定时与清理尚未实现。
 openlist:
   api_url: "http://127.0.0.1:15244"
   public_url: "https://openlist.example.invalid"
@@ -16,8 +16,9 @@ sync:
   skip_unchanged: true
   mirror: true
 
+# 本 Task 不删除；enabled: true 会在任何同步写入前被明确拒绝。
 cleanup:
-  enabled: true
+  enabled: false
   missing_confirmations: 2
 
 database:

@@ -23,3 +23,7 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 初始工具证据仅本机保存在 `artifacts/validation-evidence/preparation-20261017/`；Git身份配置、基线与常规治理验证保存在 `artifacts/validation-evidence/git-baseline-20261017/`；合同激活及提交后的治理／质量检查保存在 `artifacts/validation-evidence/slice-1-activation-20261017/`。旧证据中的无HEAD／身份缺失状态保留为当时事实，SDK与运行证据按可执行输入身份复用。后续Task／审查历史保存在可达Git检查点。
 
 2026-10-17：B完成必读与实际仓库核查，规划前常规治理PASS，提交Task 1.1详细实施／验收／T4测试计划；规划验证证据见 `artifacts/validation-evidence/task-1.1-planning-20261017/`。本次没有产品实现或独立产品审查PASS，Slice／Roadmap／稳定需求保持不变。
+
+2026-10-17：Developer按Task 1.1实现首个产品闭环并提交检查点，状态置为READY FOR B REVIEW（待提交）。交付：`cmd/strmgen` 的 `sync`／`sync --dry-run`；`internal/config` 严格YAML校验；`internal/openlist` 有界list/get与分页／应用层错误；`internal/pathmap`／`internal/strm` 纯路径、稳定URL、版本1协议与比较；`internal/storage` 用 `modernc.org/sqlite v1.60.1` 记录最小归属与完整轮次，dry-run对WAL库读私有快照不产生sidecar；`internal/reconciler` 有界遍历、同目标冲突、原子发布（同目录临时文件 + 不覆盖link）与跨进程flock互斥。依赖 `gopkg.in/yaml.v3 v3.0.1`；race门槛使用仓库固定Zig `cc`。
+
+本机已执行（证据见 `artifacts/validation-evidence/task-1.1-final/`）：治理、mod download／verify、quality（gofmt／vet／Go test／build＋Python回归）、race、Linux amd64／arm64 CGO=0构建、以及隔离CLI全场景驱动（首次、重复与比较、归属与路径、API与限额、dry-run边界、多进程、故障恢复）全部PASS。产品未完成：已拥有文件内容替换、Mirror删除／移动、serve／定时、发布镜像；真实OpenList、固定插件解析、Jellyfin／代理、ARM64实机与性能仍NOT RUN。B独立审查PENDING，不预设Slice通过。
