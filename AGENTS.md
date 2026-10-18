@@ -4,7 +4,7 @@
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.3 原方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备已完成，用户已明确要求激活第一个 Slice；当前范围以 Slice 1 合同及后续 Task 为准。先提交 ACTIVE 合同，再由 B 规划 Task，实施不越过 Task 准入。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备与 Slice 1 已完成，Slice 1 为 PASS / CLOSED，当前无活动实施 Task。后续 Slice 由 A 在独立回合选择并提交 ACTIVE 合同，再由 B 规划 Task，实施不越过 Task 准入。用户会话授权优先于本文件。
 
 ## 固定业务边界
 

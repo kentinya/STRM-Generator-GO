@@ -3,7 +3,7 @@
 ```text
 Slice ID: 1
 Owner: A
-Status: READY FOR A REVIEW
+Status: PASS / CLOSED
 Base SHA: f90f9560e55b07fd2d6a20e8bac43741c39176c4
 Implementation Head: 248a609eb70dbb8591091463ed51c5146d7c378a
 ```
@@ -46,7 +46,7 @@ Mirror 删除／移动旧路径清理、定时常驻、正式容器发布、百�
 
 ## Closure Packet
 
-READY FOR A REVIEW。
+2026-10-18 A 已审查并接受本 Closure Packet；Task 1.1／1.2 均有独立 B PASS。
 
 - **Reviewed range:** `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`。
 - **Task index:** Task 1.1 historical B PASS (`951aaeeeca966e8ef79e8ac9500827ce27d0f035..15d749b3f151e94a6fb5e9850e6e21d7101aa603`); Task 1.2 B PASS (`15d749b3f151e94a6fb5e9850e6e21d7101aa603..248a609eb70dbb8591091463ed51c5146d7c378a`).
@@ -55,14 +55,34 @@ READY FOR A REVIEW。
 - **RO-3:** PASS in mapping, extension filtering, special-name, conflict, path and symlink-boundary evidence.
 - **RO-4:** PASS in protocol/compare, atomic update, ownership, SQLite ordering, F-15 recovery convergence and F-16 directory-sync failure evidence; unowned and ambiguous residuals remain protected.
 - **RO-5:** PASS in shared-lock, bounded enumeration, dry-run, failure feedback and isolated temporary-root evidence; F-14 enumeration regression and normal single-writer SW-1..SW-6 recovery are covered.
-- **Invariants:** No deletion/mirror, serve, permission hardening, media-version state, remote lock, ffprobe, Jellyfin database, plugin-internal API or production-tree changes. External integration, ARM64 execution, performance and release packaging are deferred/`NOT RUN` at their defined roadmap layers.
+- **Invariants:** No Mirror cleanup, serve, permission hardening, media-version state, remote lock, ffprobe, Jellyfin database, plugin-internal API or production-tree changes. Owned update staging cleanup is part of normal recovery. External integration, ARM64 execution, performance and release packaging are deferred/`NOT RUN` at their defined roadmap layers.
 - **Evidence:** B independent T4 index at `artifacts/validation-evidence/task-1.2-b-review-20261018-3rVdg8/`; Developer T4 and first-failure evidence remain at `artifacts/validation-evidence/task-1.2-convergence-20261018-dev2/`.
+
+### Slice Final 与证据复用
+
+- A 审查完整 Base..Implementation Head 的配置／CLI、API、协议／比较、路径、SQLite、互斥、原子创建／更新／恢复、测试及工具变更；未只审最后一次修复。最终合同 authority 为 `bfdceed5b3c564ca92aef47035dcced314f24d45`，没有改写 RO、安全不变量或验收含义。
+- A 在干净的 `315cc6fd22798c4c085f990fb2d223ce313811cf` 执行治理、quality（48 项 Python、Go 格式／vet／test／build）、F-14～F-16 及未归属／歧义残留聚焦回归、隔离 CLI `--scenario all`（9/9）和 diff check，全部 PASS。原始命令、退出码、耗时和二进制摘要见 `artifacts/validation-evidence/slice-1-a-final-20261018-ksy6lbym/index.json`。
+- B 的完整 T4 二进制构建于干净的纯文档后继 `2b51e74486414c1e109b9b5943be7fc00395c5a7`。A 核对它与实现 Head、审查入口之间的源码／测试／依赖／夹具／工具输入一致，并核对二进制 SHA-256；复用 B 的 mod download／verify、race 和双架构构建证据，不宣称 A 重跑了这些门槛。race 原始记录为 **180 个测试＋8 个包**通过事件，0 fail／skip；不是 188 个测试。
+- 真实 OpenList／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍为 **NOT RUN**。本次接受本地生成闭环及协议实现证据，不把合成 API、进程重启或交叉构建当作外部兼容／播放证明；外部验证保持既有路线图层级。
+- 仓库文件与可达提交主题未找到独立 V2 需求扩展；未推断其内容，也未将其列为已审查输入。本次结论限于已提交需求及当前 Slice 合同。
+
+### 非阻塞事项与延期
+
+- P2：恢复枚举虽按 128 项分批且独立游标，但每个目标仍遍历所在目录；宽目录成本留给后续实际性能测量，不作十万／百万或 512 MB 承诺。
+- P3：部分历史代码注释仍用绝对措辞描述外部替换保护；交付边界以 SW-1..SW-6 为准，F-10／F-13／外部来源 F-11 的历史 FAIL 未改称修复或 PASS。
+- Mirror 删除／旧路径清理、serve／定时与发布部署保持延期。当前没有 Mirror 旧 STRM 删除分支；未来不存在确认仍须满足 R-08，未使用的 `openlist.IsNotFound` 字符串判断不能直接作为权威缺失证据。
+
+### Closure Reconciliation
+
+本关闭检查点同步 SLICE、无活动 TASK、README、架构 CURRENT、Roadmap、Progress、范围／用户旅程、兼容性／测试矩阵、运行说明和角色经验；Base 与已审查 Implementation Head 保留。原方案、产品实现、测试、依赖和夹具未变；本地 ignored 原始证据保留，不宣称远端可读。后续 Slice 均未激活。
 
 ## A Final Review
 
 ```text
-Reviewed Range: NOT SET
-Decision: PENDING
-P0/P1 Blockers: NONE FOUND BY B; EXTERNAL INTEGRATION AND ARM64 EXECUTION REMAIN NOT RUN
-Next Action: A REVIEWS CLOSURE PACKET AND DECIDES SLICE 1
+Reviewed Range: f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a
+Decision: PASS
+P0/P1 Blockers: NONE
+Next Action: A SELECTS THE NEXT LARGE SLICE
 ```
+
+A 接受 RO-1..RO-5 的本地合同证据；必要安全不变式、正常单写者恢复和完整轮规则满足本 Slice。P2／P3 与分层 NOT RUN 不单独阻止本次 PASS。Slice 1：**PASS / CLOSED**。

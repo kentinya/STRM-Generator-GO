@@ -2,7 +2,7 @@
 
 OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。开发依据为原样保留的 [V4.3 方案](<STRM Generator Go.md>)。
 
-**Slice 1「安全的单轮生成闭环」仍 ACTIVE，Base 固定为开发准备提交 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`。Task 1.1 有历史 B PASS；[Task 1.2](TASK.md) 的更新／恢复候选仍 FIX REQUIRED。2026-10-18 A 按用户澄清撤回额外权限工程与任意外部写者绝对保护要求，聚焦正常失败后的重试收敛；合同调整不等于产品或 Slice PASS。**
+**Slice 1「安全的单轮生成闭环」已 PASS / CLOSED。** A 审查开发准备 Base `f90f9560e55b07fd2d6a20e8bac43741c39176c4` 至实现 Head `248a609eb70dbb8591091463ed51c5146d7c378a`，接受配置、单轮生成／更新／跳过、最小归属、正常中断恢复、dry-run 与互斥的本地闭环；Task 1.1／1.2 均有独立 B PASS。当前无活动 Task，后续 Slice 尚未激活；分层证据和限制见 [最终审查](SLICE.md)。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
 
@@ -23,19 +23,23 @@ python3 -m unittest discover -s tests -v
 ## 构建与运行
 
 ```bash
-bash scripts/go-local build -trimpath -o artifacts/task-1.1/bin/strmgen-amd64 ./cmd/strmgen
+mkdir -p artifacts/slice-1/bin
+bash scripts/go-local build -trimpath -o artifacts/slice-1/bin/strmgen-amd64 ./cmd/strmgen
 export OPENLIST_TOKEN=...   # 来自 openlist.token_env 指定变量
-./artifacts/task-1.1/bin/strmgen-amd64 sync --config config.yaml --dry-run
-./artifacts/task-1.1/bin/strmgen-amd64 sync --config config.yaml
+./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml --dry-run
+./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
 ```
 
-成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1。当前只支持 `sync` 与 `sync --dry-run`；`serve` 与清理尚未实现，`cleanup.enabled: true` 会被明确拒绝。Task 1.2 已接入已拥有文件的内容更新，但当前候选尚未获 B 接受，不能作为已验证安全的生产发布。
+成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1。当前支持 `sync` 与 `sync --dry-run`，按 URL／SHA-1／Size 规则更新已拥有文件；`serve` 与清理尚未实现，`cleanup.enabled: true` 会被明确拒绝。真实服务兼容、播放、性能和正式发布尚未验收。
 
-隔离端到端验收（自建动态端口假服务，不接触共享夹具或生产）：
+隔离 CLI 验收（自建动态端口假服务；故障二进制仅供测试）：
 
 ```bash
-RUN_DIR="$(mktemp -d artifacts/validation-evidence/task-1.1-local-XXXXXX)"
-python3 scripts/run_isolated_sync_integration.py --binary artifacts/task-1.1/bin/strmgen-amd64 \
+bash scripts/go-local build -tags strmgen_testhooks -trimpath \
+  -o artifacts/slice-1/bin/strmgen-testhooks-amd64 ./cmd/strmgen
+RUN_DIR="$(mktemp -d artifacts/validation-evidence/slice-1-local-XXXXXX)"
+python3 scripts/run_isolated_sync_integration.py --binary artifacts/slice-1/bin/strmgen-amd64 \
+  --fault-binary artifacts/slice-1/bin/strmgen-testhooks-amd64 \
   --scenario all --output-dir "$RUN_DIR"
 ```
 
@@ -49,13 +53,14 @@ python3 scripts/mock_openlist.py
 
 ## 安全操作与恢复
 
-- **正常写入边界（TARGET）：** 生成器写输出／暂存／DB，Jellyfin／插件等消费者只读；所有生成器共享同一锁对象，跨容器私有 /tmp 的同名路径不能协调共享输出。避免其他程序同时改写，可选专用身份或只读挂载；不要求新增 UID／权限管理能力或消费者 OS 拒写实验。不承诺无损抵御任意绕过锁的外部修改。已拥有可再生成 STRM 的可识别偏差与正常中断，按既有比较规则和恢复流程在后续成功同步中收敛，不保证下一次必然成功。详见 [需求 SW-1..SW-6](docs/requirements.md)；当前候选仍待复验。
+- **正常写入边界：** 生成器写输出／暂存／DB，Jellyfin／插件等消费者只读；所有生成器共享同一锁对象，跨容器私有 /tmp 的同名路径不能协调共享输出。避免其他程序同时改写，可选专用身份或只读挂载；不要求新增 UID／权限管理能力或消费者 OS 拒写实验。不承诺无损抵御任意绕过锁的外部修改。已拥有可再生成 STRM 的可识别偏差与正常中断，按既有比较规则和恢复流程在后续成功同步中收敛，不保证下一次必然成功。详见 [需求 SW-1..SW-6](docs/requirements.md)。
 
 - 相对配置中的 `sources[].output` 与 `database.path` 按启动工作目录解析，不按配置文件所在目录解析。输出路径的现有祖先必须是实际目录而非符号链接；真实同步需要对输出目录有目录遍历、建目录和创建文件的权限，读取既有 STRM 还需要读权限。数据库父目录需可访问并可写；token 必须存在于配置指定的环境变量中。
 - 单轮锁使用固定运行时位置 `/tmp/strmgen-locks/sync.lock`，目录需由当前有效 UID 所有且不可被组／其他用户写入。所有受支持 CLI 同步共享该 `flock`；环境变量、TMPDIR、数据库或源配置不能另选锁空间。锁文件会保留以避免 inode 替换；进程正常退出、SIGTERM 或 SIGKILL 后内核释放锁，不要在运行时手动删除锁文件。
 - SQLite 是文件归属的证据。数据库丢失后，已有 STRM 不会自动认领；同步会把没有数据库归属记录的目标作为冲突保留。数据库损坏／不可用会在媒体输出前失败。恢复时优先还原可信备份；若无法还原，先由管理员独立核验 STRM 与业务归属，不能用扫描结果自动重建所有权。
 - 人工维护建议先停止生成器并备份 DB、输出及残留；普通重试或已拥有 STRM 的可识别内容变化，不一律要求换新输出／新状态。真正未归属文件和无法安全解释的冲突先保留排查；不盲删暂存或伪造归属，数据库丢失后仍没有自动再认领功能。不要在生产路径试验恢复。
-- 发布或归属记录中断可能留下已发布但未登记的 STRM；再次运行会将其视为未归属冲突，不覆盖、不登记、不删除。失败前已成功发布并登记的文件可以保留；失败源不会提交完整轮次。当前 Task 不实现删除，未知文件不得作为“清理残留”盲目删除。
+- 发布或归属记录中断可能留下已发布但未登记的 STRM；再次运行会将其视为未归属冲突，不覆盖、不登记、不删除。失败前已成功发布并登记的文件可以保留；失败源不会提交完整轮次。当前不实现 Mirror 删除，未知文件不得作为“清理残留”盲目删除。
+- 已拥有更新使用确定性 `.update.tmp` 暂存；正常中断留下的唯一可识别暂存可在真实同步中恢复，再按当前远端信息比较。dry-run 只报告残留冲突；无归属、多个残留或无法解释的路径／类型冲突仍保留。
 - 正常失败会尽力移除同目录 `.strmgen-*.tmp`；SIGKILL、系统崩溃或突然断电可能遗留该临时文件。dry-run 读取 WAL 数据库时会在数据库父目录创建并正常清理私有 `.strmgen-ro-*` 快照目录，异常中断也可能残留。SQLite 的 `-wal`／`-shm`／`-journal` 文件由 SQLite 管理；确认相关进程退出前不得手工删除。对遗留项目先核实进程、目录和文件归属，不对未知文件做批量清理。
 
 更多安装、权限、夹具和证据说明见 [开发环境与交接](docs/development-environment.md)。

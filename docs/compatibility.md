@@ -21,7 +21,7 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 |---|---|
 | 解析器／决策源码人工对照 | 已完成源码核对 |
 | Python list/get 合成夹具 | 可用于开发工具验证，不是 OpenList 兼容证据 |
-| 生成器实际输出被固定插件解析 | NOT RUN（无产品实现） |
+| 生成器实际输出被固定插件解析 | NOT RUN（已有生成器实现及本地协议回归，未运行固定插件 reader） |
 | 真实 OpenList 驱动／鉴权／无签名 `/d/` | NOT RUN |
 | Jellyfin 库扫描／播放／插件检查 | NOT RUN |
 | JellyfinProxy 等外部代理链 | NOT RUN |

@@ -2,7 +2,13 @@
 
 ## CURRENT
 
-开发准备基线(合同、需求、架构、夹具、Python 工具与 Go 1.27.2 固定 SDK)已交付。Slice 1 的 Task 1.1 有 `cmd/strmgen` 的 `sync` 与 `sync --dry-run` 实现;`internal/config` 严格解析 YAML 并校验输出根/URL;`internal/openlist` 实现有界 list/get 与分页、应用层错误处理;`internal/pathmap` 与 `internal/strm` 提供纯路径/协议转换与比较;`internal/storage` 用 modernc.org/sqlite 记录最小归属与完整轮次;`internal/reconciler` 实现有界目录遍历、同目标冲突检测、同目录临时文件加不覆盖 link 的首次发布和固定运行时 flock;`internal/securepath` 使用 Linux 目录句柄和相对操作绑定输出根及数据库父目录。Task 1.2 候选通过确定性同目录暂存文件和 `RENAME_EXCHANGE` 接通内容更新,报告新增 `updated=`;候选还在比较前执行 `Recover`。暂存名编码上一次内容的 SHA-256 前缀;`Update` 在发布前后检查设备/inode 与内容,但检查不能绑定随后的按名删除／交换。B 对修正候选 `d0e2bacfb824b4876c647059e43c2996a9339417` 的历史复审为 FIX REQUIRED：F-10／F-13 是最终检查后外部替换引起的误清理／误发布，F-11 是外部注入后的冲突证据消费；这些观察不改写为 PASS，但按下述澄清边界不再自动要求无损抵御该类干预。F-14 是绑定根 dup 共享目录游标，导致后续根文件漏检残留并错误提交完整 round，与外部写者无关，仍须修正。正常更新／生成器中断恢复在新范围的收敛验收尚未完成；不能因排除外部干预就宣称候选通过。细节与修正准入见 TASK.md。Mirror 清理、serve/定时、发布镜像仍未实现。
+Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS，当前无活动实施 Task。可运行入口为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
+
+`internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属与完整轮次，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突和完整轮提交；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
+
+恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。
+
+正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份见 [SLICE.md](../SLICE.md)；真实 OpenList／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理、serve／定时、发布镜像未实现。
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
@@ -16,7 +22,7 @@
 
 未归属文件、归属丢失与确实无法解释的路径／类型冲突保守保留；合法 STRM、名字、哈希或 OS UID 本身不建立归属。已有可靠归属的可再生成内容出现可识别偏差，不等于必须丢弃旧 ownership 重建。无条件保护任意外部注入的所有字节不是本架构目标，也不能把同一干预转为静态 legacy 状态重新要求。扫描期间变化依现有比较规则后续纠正，不每次写入前查远端、不引入远端锁。
 
-CURRENT 差距：本轮仅协调合同和文档，没有修改产品代码／测试；F-14 与正常更新／中断／重试收敛仍须验证和修正，最新候选没有新 PASS。旧 F-10／F-13／外部来源 F-11 保留历史证据，B 明确测试映射；生成器自身 I/O／DB 失败、取消、重启、未归属保护与 T4 不降低。
+CURRENT 与 TARGET 的剩余差距是 Mirror／清理、调度部署、真实外部联调及规模实测；本地单轮生成／更新／正常中断恢复已在 Slice 1 接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
 
 ```text
 CLI / YAML / env

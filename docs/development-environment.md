@@ -39,10 +39,11 @@ python3 scripts/development_environment.py install-cc --cc-archive /path/to/zig-
 构建本机二进制并先预览：
 
 ```bash
-bash scripts/go-local build -trimpath -o artifacts/task-1.1/bin/strmgen-amd64 ./cmd/strmgen
+mkdir -p artifacts/slice-1/bin
+bash scripts/go-local build -trimpath -o artifacts/slice-1/bin/strmgen-amd64 ./cmd/strmgen
 export OPENLIST_TOKEN=...   # 必须与配置 openlist.token_env 一致
-./artifacts/task-1.1/bin/strmgen-amd64 sync --config config.yaml --dry-run
-./artifacts/task-1.1/bin/strmgen-amd64 sync --config config.yaml
+./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml --dry-run
+./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
 ```
 
 相对 `sources[].output` 与 `database.path` 都按**启动工作目录**解析，而不是配置文件目录。启动目录、配置文件以及 token 环境变量必须正确；日志不显示 token、完整远端根或数据库／输出的私有完整路径。生产二进制仅支持一次性 `sync`／`sync --dry-run`；`serve` 与清理尚未实现，`cleanup.enabled: true` 会在同步写入前被拒绝。
@@ -53,7 +54,7 @@ export OPENLIST_TOKEN=...   # 必须与配置 openlist.token_env 一致
 
 数据库是文件归属与完整轮次的唯一持久证据。数据库丢失、损坏或无法访问时，不能自动认领输出目录中的既有 STRM；丢失 DB 后再次同步会把无记录文件报告为未归属冲突并保留，损坏／不可读 DB 会先失败。恢复应优先使用可信备份；如无法恢复，管理员必须逐项核实文件归属，不能让工具自动重建所有权或据此删除未知文件。失败轮不会提交完整轮次；已成功发布并登记的文件可在重试时跳过，已发布但登记失败的文件仍是未归属冲突。
 
-同目录 `.strmgen-*.tmp` 正常错误路径会尽力清理；SIGKILL、断电或系统崩溃可能遗留临时 STRM 写文件。WAL 模式 dry-run 的 `.strmgen-ro-*` 快照目录也可能在进程未正常关闭时残留。SQLite `-wal`／`-shm`／`-journal` sidecar 由 SQLite 管理，不应在数据库进程仍可能运行时手工删除。对任何残留先确认进程状态、路径、所有者及内容来源；不对未知文件做盲目批量删除。当前 Task 不实现 Mirror 清理。
+同目录 `.strmgen-*.tmp` 正常错误路径会尽力清理；SIGKILL、断电或系统崩溃可能遗留临时 STRM 写文件。WAL 模式 dry-run 的 `.strmgen-ro-*` 快照目录也可能在进程未正常关闭时残留。SQLite `-wal`／`-shm`／`-journal` sidecar 由 SQLite 管理，不应在数据库进程仍可能运行时手工删除。对任何残留先确认进程状态、路径、所有者及内容来源；不对未知文件做盲目批量删除。当前不实现 Mirror 清理。
 
 ## 隔离 OpenList 夹具
 
@@ -94,7 +95,7 @@ docker compose -f dev/compose.yaml stop
 
 ## T4 验证与 Git 证据
 
-Task 1.1 的最终验证门槛见 [TASK.md](../TASK.md)：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。race／测试 hook 构建与发布二进制不同，hook 只用于隔离两个确定性故障窗口：精确发布竞态，以及归属已登记、完整轮未提交时的中断。发布二进制不含任何 hook 环境开关，不可当生产产物。
+Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引见 [SLICE.md](../SLICE.md)：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。完整历史 Task 计划保留于 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。完整故障场景还需传 `--fault-binary`，该二进制以 `-tags strmgen_testhooks` 构建，示例见 README。hook 仅用于确定性发布／归属／staging 写入／交换及 round 前中断；测试二进制不可用于生产。发布二进制不含 hook 环境开关，并用于实际重启验证。
 
 验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 

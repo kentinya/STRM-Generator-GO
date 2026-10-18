@@ -2,6 +2,20 @@
 
 ## 当前状态（2026-10-18）
 
+Slice 1 **PASS / CLOSED**。A 审查完整 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`，接受 RO-1..RO-5 的本地单轮生成／更新／恢复闭环，未发现 P0/P1 阻断；Task 1.1／1.2 均有独立 B PASS。当前无活动 Task，未选择或激活后续 Slice。
+
+A Slice Final：治理、quality（48 项 Python 与 Go 格式／vet／test／build）、F-14～F-16／未归属／歧义残留聚焦回归、隔离 CLI 全场景 9/9、diff check 全部 PASS。原始证据见 `artifacts/validation-evidence/slice-1-a-final-20261018-ksy6lbym/`。核对可执行输入与二进制身份后复用 B 完整 T4 `artifacts/validation-evidence/task-1.2-b-review-20261018-3rVdg8/` 的依赖校验、race（180 测试＋8 包通过事件，0 fail／skip）及双架构构建；A 未重复这些门槛。
+
+真实 OpenList／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能、正式发布仍 NOT RUN；Mirror 清理和 serve／定时未实现。宽目录重复枚举成本为非阻塞 P2，旧外部写者 FAIL 保留历史分类。未找到独立 V2 需求扩展，本次不推断额外需求。
+
+关闭检查点同步合同、无活动 Task、README、CURRENT、Roadmap、Progress 和相关事实说明，每份角色指南各补一条有证据的方法；产品代码／测试／依赖／夹具及原方案未改。文档检查按关闭状态重跑，证据仅本机；未 push。
+
+Next Action: A SELECTS THE NEXT LARGE SLICE
+
+以下保留历史时点及首次失败；以本节和 SLICE 为当前状态。完整 Task 1.2 报告保留在 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。
+
+## 前次 B 复审（历史，F-15／F-16 修正前）
+
 B 已按已提交的 bfdceed5b3c564ca92aef47035dcced314f24d45 合同，独立审查完整 Task Base 15d749b3f151e94a6fb5e9850e6e21d7101aa603..14119b8389fdc76aa35df5ed7ba3e297810c11c5 及纯文档交接 abdc6e5。F-14 独立有界目录枚举修正有效；Task 1.2 仍 **FIX REQUIRED**：新复现 F-15（正常空／部分 staging 写入中断，发布二进制连续重试不收敛）及 F-16（Recover 交换／删除后未目录 sync，比较 skip 时错误提交 round）。细化修正步骤与测试映射已写 TASK.md，保持同一 Task／Base／High／T4，不新增任务，不改变 Slice／Roadmap／稳定需求；不要求抵御任意外部写者。Slice ACTIVE、A Final PENDING，无 Closure Packet。
 
 独立结果：治理与 Go 五包 PASS；amd64 发布／review-only overlay 构建 PASS；既有三个 CLI 场景顺序复跑 3/3 PASS。F-15 Go 四组合与 SIGKILL 后发布二进制八次重试 FAIL，F-16 故障接缝反例 FAIL；未修改产品代码，确定性插桩仅位于 artifacts，不冒充无插桩命中。核对 Developer 原 T4（Python 48、race 174 测试＋8 包、0 fail／skip、all 9/9、双架构）；旧门槛未覆盖新反例，不代表 Task PASS。B 因阻断未重跑完整 quality／race／arm64／all。证据仅本机 artifacts/validation-evidence/task-1.2-b-convergence-review-20261018-bc87Qy/，包含 overlay／输入／首次 harness 失败与重跑；真实 OpenList、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍 NOT RUN。下一步 Developer 修正 F-15／F-16、保留 F-14 并用新候选重跑完整 T4。
