@@ -2,6 +2,16 @@
 
 ## 当前状态（2026-10-18）
 
+Slice 2 保持 **ACTIVE**，B 已按已提交合同与真实代码规划 [Task 2.1](../TASK.md)「远端缺失的权威再确认与真实 OpenList 实证」，状态 **PLANNED**，Difficulty High／T4；Task Base 与 Contract Checkpoint 均为 `a8c2d62369a21e8d9a0c2cefec2af09927fb3286`。本次仅提交规划，没有产品实现或独立产品审查 PASS，Slice Implementation Head 仍为 NOT SET。
+
+Task 2.1 先交付完整的远端确认判断及固定隔离服务证据，包括刷新分页、精确路径／父链、缓存、权限／可见性和失败；复用已有 API 有界处理与隔离工具。产品仍拒绝启用清理，完整轮／缺失计数、旧库映射、本地删除／恢复与预览留待确认能力通过后的连贯接入。未改变 Slice、Roadmap、稳定需求或生产环境。
+
+规划前治理、环境 doctor、规划文档／链接／空白检查的证据位于本机 `artifacts/validation-evidence/task-2.1-planning-20261018-DGSuGv/`；这些不是产品 T4。固定 OpenList 源码只作为调查线索，真实确认、产品测试／race／CLI 新验收均 NOT RUN。Developer 按计划实施并送独立 B 审查；所有 RO 尚未满足，不提交 Closure Packet 或宣布关闭。
+
+Next Action: Developer implements Task 2.1
+
+## Slice 2 激活（历史，2026-10-18）
+
 Slice 2「安全目录镜像与清理恢复」由 A 在 Slice 1 关闭后的独立回合选择并激活为 **ACTIVE**。Base 固定为选择前真实 HEAD `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET。当前无活动实施 Task，无产品改动或新产品验收；下一步 B 按提交后的合同核查代码并规划首个 Task，Developer 尚无实施准入。
 
 原路线 Slice 2 的增量比较与正常恢复已在 Slice 1 接受，避免重复交付；未激活路线重排为安全 Mirror、定时／部署、端到端／规模三个后续结果。当前合同 RO-1..RO-6 覆盖显式清理配置、完整成功轮及连续缺失、精确路径／归属、当前权威再确认、移动旧路径、旧库兼容、预览和正常清理失败恢复。固定隔离 OpenList 的所选缺失确认语义实证是 Slice 2 必要安全证据；真实 `/d/`、插件解析、Jellyfin／代理、ARM64 实机与规模仍为后续独立层。
