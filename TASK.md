@@ -159,7 +159,12 @@ PASS 后逐项重评 Slice RO-1..RO-6，不以确认能力替代完整轮、归�
   数据库变更前被拒绝，RO-1（配置／入口）、RO-2（完整轮与缺失计数）、RO-3 的本地删除部分、
   RO-4（移动闭环）、RO-5（持久化与恢复）、RO-6 的预览部分均未实现；真实 `/d/` 播放、
   固定插件解析、Jellyfin／代理、ARM64 实机与规模仍 NOT RUN。
-- Head SHA：`33e91f832d30a615dd439da4c34359f29db77fc2`（提交前候选；实际检查点见后继提交）
+- Head SHA：实现检查点 `2fc3f6f06b6bc02ec9503e373cb031fc438f0346`。该提交的可执行输入
+  （`internal/`、`scripts/`、`tests/`、`dev/`、`docs/`）与门禁运行时的候选工作树逐字一致；
+  门禁运行后仅 `TASK.md` 状态与本节文字变化，属纯文档后继，按流程重跑消费文档的治理检查。
+- Evidence Run：`artifacts/validation-evidence/task-2.1-final-ftETbR/`（含 `INDEX.md`、
+  `gates.tsv`、`logs/`、`cli/`、`real-openlist/`、`first-failures/`）。该目录位于本机
+  Git 忽略路径，不是远端可读证据。
 
 ## B Review Result
 
