@@ -527,6 +527,49 @@ func TestReappearanceClearsEvidenceBeforeLaterFailure(t *testing.T) {
 	}
 }
 
+// missingThenPresentConfirmer reports one missing observation and then a
+// present target on the cleanup re-check, reproducing a remote that changes
+// between the two calls in the same round.
+type missingThenPresentConfirmer struct{ calls int }
+
+func (c *missingThenPresentConfirmer) Confirm(context.Context, string, string) openlist.AbsenceResult {
+	c.calls++
+	if c.calls == 1 {
+		return openlist.AbsenceResult{Status: openlist.AbsenceMissing, Reason: openlist.ReasonTargetUnread}
+	}
+	return openlist.AbsenceResult{Status: openlist.AbsencePresent, Reason: openlist.ReasonTargetTypeConflict}
+}
+
+func TestCleanupRecheckPresentCancelsStagedMissing(t *testing.T) {
+	lister := standardTree()
+	root := t.TempDir()
+	store := newStore(t)
+	seedStandard(t, lister, store, root)
+	removeRemote(lister, "Sample.mkv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, cleanupOptions())
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 3 {
+		t.Fatalf("qualification count = %d", got)
+	}
+	confirmer := &missingThenPresentConfirmer{}
+	opts := cleanupOptions()
+	opts.Confirmer = confirmer
+	report := runSource(t, lister, store, root, opts)
+	if confirmer.calls < 2 {
+		t.Fatalf("cleanup did not re-check the candidate: calls=%d", confirmer.calls)
+	}
+	if report.Sources[0].Deleted != 0 || report.Sources[0].Retained == 0 {
+		t.Fatalf("present re-check result: %+v", report.Sources[0])
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 0 {
+		t.Fatalf("staged missing survived a present re-check: %d", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "Sample.strm")); err != nil {
+		t.Fatal("present re-check removed the target")
+	}
+}
+
 func TestNewPathFailureDoesNotCleanupOldPath(t *testing.T) {
 	lister := standardTree()
 	root := t.TempDir()

@@ -679,18 +679,29 @@ func (s *Store) RecordOwnership(ctx context.Context, o Ownership, epoch int64) e
 }
 
 // ClearMissing conservatively clears any committed missing evidence for one
-// target. It is safe for a row that does not exist and is called as soon as a
-// source file is observed, even if later processing fails.
+// target and cancels any pending missing observation staged for the current
+// round. It is safe for a row that does not exist and is called as soon as a
+// source file is observed, even if later processing fails, and again when a
+// deletion re-check reads the target as present.
 func (s *Store) ClearMissing(ctx context.Context, sourceKey, relativePath string) error {
 	if s.readOnly {
 		return errors.New("store is read-only")
 	}
-	_, err := s.db.ExecContext(ctx,
+	if _, err := s.db.ExecContext(ctx,
 		`UPDATE ownership SET missing_count = 0, missing_round = 0
 		 WHERE source_key = ? AND relative_path = ?`,
 		sourceKey, relativePath,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if s.scratch != nil {
+		if _, err := s.scratch.ExecContext(ctx,
+			`DELETE FROM missing WHERE source_key = ? AND relative_path = ?`,
+			sourceKey, relativePath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RemoveOwnership drops one ownership row after its target was safely removed.
