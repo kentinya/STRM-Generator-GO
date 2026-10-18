@@ -2,7 +2,9 @@
 
 ## CURRENT
 
-Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」已 ACTIVE，Base 固定为关闭协调检查点 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，尚无产品 Implementation Head。当前可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要；`serve`／定时属于当前合同，尚未实现。
+Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」已 ACTIVE，Base 固定为关闭协调检查点 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`。当前可运行入口为 `cmd/strmgen` 的 `sync`、`sync --dry-run` 与 `serve --config <file>`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要；Task 3.1 已实现 `serve` 常驻调度并交 READY FOR B REVIEW，尚无 B／A 结论；部署镜像、Compose 与双架构发布包属后续 Task 3.2。
+
+`internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 
 `internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属、精确远端／本地路径映射、完整轮次与连续缺失次数，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突、观察清零、源根／目标 Get 缺失确认、已提交阈值消费和绑定目录句柄内的安全删除；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`，删除使用相对 unlink 加父目录 sync。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
 
@@ -10,7 +12,7 @@ Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782
 
 正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 Slice 2 关闭检查点；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时和发布镜像属于当前 ACTIVE Slice 3，尚未实现。
 
-现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时、发布镜像仍未实现，以下 TARGET 不表示独立审查或 Slice 验收。
+现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。`sync.interval_minutes` 缺省 60，仅接受正整数；0、负数、非整数及分钟到 `time.Duration` 的转换溢出都在锁、输出根、数据库或远端请求前 exit 2。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时已由 Task 3.1 实现，发布镜像仍未实现，以下 TARGET 不表示独立审查或 Slice 验收。
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
@@ -37,7 +39,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
                             +-----> storage (归属 / 路径 / 成功轮次 / 缺失次数)
 ```
 
-`cmd/strmgen` 装配入口；`internal/openlist` 处理传输／API语义，不管理删除；`pathmap` 与协议比较保持纯函数；`strm` 封装同目录原子替换与本地读取；`storage` 记录最小持久事实；`reconciler` 决定完整轮和清理资格；Slice 3 将由活动 Task 决定 `scheduler` 如何复用相同同步入口、共享锁和取消 context。配置与日志装配在活动 Task 确定。
+`cmd/strmgen` 装配入口；`internal/openlist` 处理传输／API语义，不管理删除；`pathmap` 与协议比较保持纯函数；`strm` 封装同目录原子替换与本地读取；`storage` 记录最小持久事实；`reconciler` 决定完整轮和清理资格；`internal/scheduler` 决定何时复用相同同步入口、共享锁和取消 context，不持有文件／数据库／锁状态。配置与日志装配由 Task 3.1 落地。
 
 目录增量遍历使用有界队列／工作池，处理完一个分页或目录就释放完整对象；SQLite 提供索引与分批查询。OpenList 服务端可能先加载整个目录，这不等于生成器本地内存有界已获验证；客户端必须验证分页与响应限制。
 

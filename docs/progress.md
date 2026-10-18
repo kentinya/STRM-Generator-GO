@@ -1,5 +1,25 @@
 # 进度
 
+## Task 3.1 实现（2026-10-19，READY FOR B REVIEW）
+
+Developer 按已提交 Task 3.1 实现 `serve` 常驻调度、共享单轮入口与停止恢复，状态置为
+**READY FOR B REVIEW**（尚无 B／A 结论）。交付：`internal/scheduler` 有界调度外壳
+（单 timer、无每 tick goroutine、无积压）；`internal/config` 新增已验证的
+`IntervalMinutes`／`Interval`（缺省 60，仅正整数，拒绝非整数与转换溢出）；
+`cmd/strmgen` 将单轮装配抽为 `runRound` 供 `sync` 与 `serve` 共用同一
+`AcquireLockFor`、输出根准备、store 生命周期与 `Syncer.Run`；`serve` 首轮立即执行、
+按固定间隔触发、busy-skip 不进入 Reconciler、单轮失败后继续、SIGINT／SIGTERM 非零
+cancelled 退出；`serve_hook_integration.go` 仅为 testhooks 构建提供间隔缩短。
+
+本机已执行：治理、受影响 Go 包与新增 scheduler 单元测试、Python 驱动单元测试、
+新增隔离 serve 驱动 6/6（发布二进制首轮与取消、缩短间隔与 skip、手动 sync 抢锁
+busy-skip、失败后继续、SIGINT 不提交、脱敏）以及既有隔离 sync 回归。证据索引见
+本 Task 完成报告；完整 T4 门禁与 B 独立关键复现仍待 B 执行。真实 OpenList、无签名
+`/d/`、固定插件解析、Jellyfin／代理、Docker 镜像、ARM64 实机、规模与正式发布仍
+NOT RUN；部署镜像／Compose／双架构发布包属后续 Task 3.2。
+
+Next Action: B REVIEWS TASK 3.1
+
 ## 当前状态（2026-10-19，Slice 3 ACTIVE）
 
 Slice 1 与 Slice 2 均 PASS / CLOSED；Slice 2 的 A 最终审查范围和分层证据保留在其
@@ -9,11 +29,11 @@ Slice 1 与 Slice 2 均 PASS / CLOSED；Slice 2 的 A 最终审查范围和分�
 
 本 Slice 的 Required Outcomes 是 `serve` 首轮立即执行与固定间隔、有界 tick、手动／
 定时共享互斥、忙碌跳过、取消不提交、重启恢复、Docker 隔离挂载及 Linux amd64／arm64
-构建。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机、规模
-与正式发布仍 NOT RUN；下一步由 B 在 ACTIVE 合同提交后规划首个 Task。当前没有产品
-实现、测试或独立 B／A 产品 PASS，不能把本合同激活写成能力验收。
+构建。Task 3.1 已实现前四项中的调度／取消／互斥并交 READY FOR B REVIEW；Task 3.2
+部署镜像仍待规划。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64
+实机、规模与正式发布仍 NOT RUN；尚无 B／A 产品 PASS，不能把本实现写成能力验收。
 
-Next Action: B PLANS THE FIRST TASK WITHIN SLICE 3
+Next Action: B REVIEWS TASK 3.1
 
 ## Slice 2 关闭状态（历史，2026-10-19）
 

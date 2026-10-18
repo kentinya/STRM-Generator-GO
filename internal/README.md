@@ -2,7 +2,7 @@
 
 `cmd/strmgen` 装配 CLI 与同步入口。`internal/openlist` 负责 API；`pathmap` 负责路径与稳定 URL（纯函数）；`strm` 负责版本 1 协议解析、序列化与比较（纯函数）；`storage` 负责 SQLite 最小归属／轮次；`reconciler` 负责目录对账、有界遍历、跨进程互斥与原子发布；Linux 专用 `securepath` 通过目录句柄执行边界受限的路径操作。
 
-Slice 1 与 Slice 2 均已 PASS / CLOSED，已接受首次生成、最小归属登记、重复跳过、URL／SHA-1／Size 比较、原子更新、完整轮清理、移动收敛、dry-run 和正常中断恢复。Task 1.1／1.2／2.1／2.2 均有独立 B PASS，Slice 2 的 A 最终审查已完成。Slice 3「定时与部署」已 ACTIVE，serve／定时和发布镜像尚未实现，真实外部联调与性能仍 NOT RUN。依赖从接口注入；协议／路径纯函数不执行网络或数据库操作。
+Slice 1 与 Slice 2 均已 PASS / CLOSED，已接受首次生成、最小归属登记、重复跳过、URL／SHA-1／Size 比较、原子更新、完整轮清理、移动收敛、dry-run 和正常中断恢复。Task 1.1／1.2／2.1／2.2 均有独立 B PASS，Slice 2 的 A 最终审查已完成。Slice 3「定时与部署」已 ACTIVE；Task 3.1 已实现 `serve` 常驻调度、共享单轮入口、有界 tick、busy-skip、失败继续与取消／信号恢复并交 READY FOR B REVIEW，尚无 B／A 结论；发布镜像、Compose 与双架构发布包尚未实现。真实外部联调与性能仍 NOT RUN。依赖从接口注入；协议／路径纯函数不执行网络或数据库操作。
 
 `internal/reconciler` 的发布／归属／staging 写入／交换前后屏障在发布二进制中均为空实现；只有显式 `-tags strmgen_testhooks` 的测试二进制会读取环境变量注入受控故障。发布二进制写入完整暂存，不含 hook 环境开关；隔离驱动使用发布二进制实际重启验证恢复。
 

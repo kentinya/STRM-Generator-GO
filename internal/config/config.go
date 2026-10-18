@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"path"
@@ -16,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"strm-generator-go/internal/securepath"
 
@@ -24,6 +26,10 @@ import (
 
 // DefaultDirectoryWorkers is used when sync.directory_workers is omitted.
 const DefaultDirectoryWorkers = 4
+
+// DefaultIntervalMinutes is the serve interval used when sync.interval_minutes
+// is omitted.
+const DefaultIntervalMinutes = 60
 
 // MaxDirectoryWorkers bounds the per-round directory concurrency.
 const MaxDirectoryWorkers = 32
@@ -46,11 +52,30 @@ type Source struct {
 // Sync holds the safety-relevant sync switches plus future fields that may be
 // parsed but must not start background work.
 type Sync struct {
-	IntervalMinutes  *int  `yaml:"interval_minutes"`
-	DirectoryWorkers *int  `yaml:"directory_workers"`
-	AtomicWrite      *bool `yaml:"atomic_write"`
-	SkipUnchanged    *bool `yaml:"skip_unchanged"`
-	Mirror           *bool `yaml:"mirror"`
+	IntervalMinutes  *MinuteCount `yaml:"interval_minutes"`
+	DirectoryWorkers *int         `yaml:"directory_workers"`
+	AtomicWrite      *bool        `yaml:"atomic_write"`
+	SkipUnchanged    *bool        `yaml:"skip_unchanged"`
+	Mirror           *bool        `yaml:"mirror"`
+}
+
+// MinuteCount is a strictly integral YAML scalar. The default yaml.v3 integer
+// decode silently truncates a float such as 1.5 to 1, which would let a
+// fractional interval look like a valid one; this type rejects any non-integer
+// scalar before it can reach the interval check.
+type MinuteCount int
+
+// UnmarshalYAML accepts only a base-10 integer scalar in the Int64 range.
+func (m *MinuteCount) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!int" {
+		return errors.New("sync.interval_minutes must be an integer")
+	}
+	value, err := strconv.ParseInt(node.Value, 10, 64)
+	if err != nil {
+		return errors.New("sync.interval_minutes must be an integer")
+	}
+	*m = MinuteCount(value)
+	return nil
 }
 
 // Cleanup is parsed for forward compatibility; enabling it is rejected.
@@ -90,8 +115,14 @@ type Resolved struct {
 	Mirror               bool
 	CleanupEnabled       bool
 	MissingConfirmations int
-	Sources              []ResolvedSource
-	baseDir              string
+	// IntervalMinutes is the validated serve interval in whole minutes. It is
+	// always >= 1; the default is DefaultIntervalMinutes.
+	IntervalMinutes int
+	// Interval is IntervalMinutes converted to a checked time.Duration. The
+	// conversion is validated so it can never wrap into a non-positive value.
+	Interval time.Duration
+	Sources  []ResolvedSource
+	baseDir  string
 }
 
 // Load reads, strictly decodes and validates a YAML file.
@@ -236,8 +267,17 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 			return nil, fmt.Errorf("sync.directory_workers must be between 1 and %d", MaxDirectoryWorkers)
 		}
 	}
-	if cfg.Sync.IntervalMinutes != nil && *cfg.Sync.IntervalMinutes < 0 {
-		return nil, errors.New("sync.interval_minutes must not be negative")
+	intervalMinutes := DefaultIntervalMinutes
+	if cfg.Sync.IntervalMinutes != nil {
+		intervalMinutes = int(*cfg.Sync.IntervalMinutes)
+	}
+	if intervalMinutes < 1 {
+		return nil, errors.New("sync.interval_minutes must be a positive integer")
+	}
+	// Guard the minutes-to-Duration conversion against Int64 overflow before
+	// any lock, output root or database is touched.
+	if int64(intervalMinutes) > math.MaxInt64/int64(time.Minute) {
+		return nil, errors.New("sync.interval_minutes is too large to convert safely")
 	}
 	workers := DefaultDirectoryWorkers
 	if cfg.Sync.DirectoryWorkers != nil {
@@ -252,6 +292,8 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 		Mirror:               mirror,
 		CleanupEnabled:       cleanupEnabled,
 		MissingConfirmations: missingConfirmations,
+		IntervalMinutes:      intervalMinutes,
+		Interval:             time.Duration(intervalMinutes) * time.Minute,
 		baseDir:              baseDir,
 	}
 

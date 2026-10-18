@@ -1,10 +1,13 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, content string) string {
@@ -258,6 +261,95 @@ func TestRemoteTraversalRejected(t *testing.T) {
 		if _, err := Load(path); err == nil {
 			t.Fatalf("remote %q must be rejected", value)
 		}
+	}
+}
+
+func TestIntervalMinutesValidation(t *testing.T) {
+	// Omitted -> default 60 and a checked duration.
+	r, err := Load(write(t, validBase))
+	if err != nil {
+		t.Fatalf("load default interval: %v", err)
+	}
+	if r.IntervalMinutes != DefaultIntervalMinutes || r.Interval != 60*time.Minute {
+		t.Fatalf("default interval: minutes=%d duration=%v", r.IntervalMinutes, r.Interval)
+	}
+
+	// Explicit positive value is honored.
+	body := validBase + "sync:\n  interval_minutes: 5\n"
+	r, err = Load(write(t, body))
+	if err != nil {
+		t.Fatalf("load explicit interval: %v", err)
+	}
+	if r.IntervalMinutes != 5 || r.Interval != 5*time.Minute {
+		t.Fatalf("explicit interval: minutes=%d duration=%v", r.IntervalMinutes, r.Interval)
+	}
+
+	// Zero, negative and overflow are rejected before any product action.
+	for _, value := range []string{"0", "-1", "-60", "9223372036854775808"} {
+		body := validBase + "sync:\n  interval_minutes: " + value + "\n"
+		if _, err := Load(write(t, body)); err == nil {
+			t.Fatalf("interval_minutes=%s must be rejected", value)
+		}
+	}
+
+	// A value that overflows the minutes-to-Duration multiplication is
+	// rejected even though it fits an int.
+	maxSafe := math.MaxInt64 / int64(time.Minute)
+	if maxSafe > math.MaxInt64-1 {
+		t.Skip("int cannot hold the overflow fixture on this platform")
+	}
+	overflowMinutes := maxSafe + 1
+	if overflowMinutes <= math.MaxInt64 {
+		body := validBase + "sync:\n  interval_minutes: " + strconv.FormatInt(overflowMinutes, 10) + "\n"
+		if _, err := Load(write(t, body)); err == nil {
+			t.Fatalf("interval_minutes=%d must be rejected as a duration overflow", overflowMinutes)
+		}
+	}
+
+	// The exact safe maximum still converts to a positive duration.
+	body = validBase + "sync:\n  interval_minutes: " + strconv.FormatInt(maxSafe, 10) + "\n"
+	r, err = Load(write(t, body))
+	if err != nil {
+		t.Fatalf("safe maximum interval must load: %v", err)
+	}
+	if r.Interval <= 0 {
+		t.Fatalf("safe maximum interval produced a non-positive duration: %v", r.Interval)
+	}
+}
+
+func TestIntervalMinutesMustBeInteger(t *testing.T) {
+	for _, value := range []string{"\"60\"", "1.5", "true"} {
+		body := validBase + "sync:\n  interval_minutes: " + value + "\n"
+		if _, err := Load(write(t, body)); err == nil {
+			t.Fatalf("non-integer interval_minutes=%s must be rejected", value)
+		}
+	}
+}
+
+func TestIntervalDiagnosticIsSafe(t *testing.T) {
+	const secret = "SYNTHETIC_INTERVAL_SECRET_MARKER"
+	body := validBase + "sync:\n  interval_minutes: \"" + secret + "\"\n"
+	err := func() error { _, err := Load(write(t, body)); return err }()
+	if err == nil {
+		t.Fatal("non-integer interval must be rejected")
+	}
+	diag := SafeDiagnostic(err)
+	if strings.Contains(diag, secret) {
+		t.Fatalf("interval diagnostic leaked a value: %q", diag)
+	}
+	if diag != "invalid configuration" {
+		t.Fatalf("interval type diagnostic should stay a fixed safe reason: %q", diag)
+	}
+
+	// A negative interval is rejected by the semantic check, whose fixed reason
+	// names the trusted field without echoing any configured value.
+	body = validBase + "sync:\n  interval_minutes: -5\n"
+	err = func() error { _, err := Load(write(t, body)); return err }()
+	if err == nil {
+		t.Fatal("negative interval must be rejected")
+	}
+	if diag := SafeDiagnostic(err); !strings.Contains(diag, "sync.interval_minutes") {
+		t.Fatalf("negative interval diagnostic should name the field: %q", diag)
 	}
 }
 

@@ -48,6 +48,10 @@ func startFakeAPI(t *testing.T) *httptest.Server {
 }
 
 func writeConfig(t *testing.T, apiURL, root, db string) string {
+	return writeConfigWithExtra(t, apiURL, root, db, "")
+}
+
+func writeConfigWithExtra(t *testing.T, apiURL, root, db, extra string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -58,6 +62,10 @@ func writeConfig(t *testing.T, apiURL, root, db string) string {
 		"sources:\n  - remote: \"/Movies\"\n    output: \"" + root + "\"\n" +
 		"cleanup:\n  enabled: false\n" +
 		"database:\n  path: \"" + db + "\"\n"
+	if extra != "" {
+		// Append a second sync block only when the base has none.
+		body += extra
+	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +118,54 @@ func TestMissingConfigFlagIsUsageError(t *testing.T) {
 }
 
 func TestServeIsRejected(t *testing.T) {
+	// serve is implemented; the old rejection path is replaced by argument and
+	// configuration validation. A missing --config must still be a usage error.
 	var out, errBuf bytes.Buffer
 	if code := run([]string{"serve"}, &out, &errBuf); code != exitUsage {
+		t.Fatalf("exit=%d want %d", code, exitUsage)
+	}
+}
+
+func TestServeRejectsBadIntervalBeforeAnyProductAction(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := filepath.Join(t.TempDir(), "out")
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	for _, value := range []string{"0", "-1", "9223372036854775808"} {
+		cfg := writeConfigWithExtra(t, ts.URL, root, db, "sync:\n  interval_minutes: "+value+"\n")
+		var out, errBuf bytes.Buffer
+		if code := run([]string{"serve", "--config", cfg}, &out, &errBuf); code != exitUsage {
+			t.Fatalf("interval %s exit=%d want %d (%s)", value, code, exitUsage, errBuf.String())
+		}
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("invalid interval created output: %v", err)
+	}
+	if _, err := os.Stat(db); !os.IsNotExist(err) {
+		t.Fatalf("invalid interval created database: %v", err)
+	}
+}
+
+func TestServeRejectsFractionalInterval(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	cfg := writeConfigWithExtra(t, ts.URL, root, db, "sync:\n  interval_minutes: 1.5\n")
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"serve", "--config", cfg}, &out, &errBuf); code != exitUsage {
+		t.Fatalf("fractional interval exit=%d want %d (%s)", code, exitUsage, errBuf.String())
+	}
+}
+
+func TestServeMissingTokenIsUsageError(t *testing.T) {
+	ts := startFakeAPI(t)
+	os.Unsetenv("STRMGEN_TEST_TOKEN")
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	cfg := writeConfig(t, ts.URL, root, db)
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"serve", "--config", cfg}, &out, &errBuf); code != exitUsage {
 		t.Fatalf("exit=%d want %d", code, exitUsage)
 	}
 }

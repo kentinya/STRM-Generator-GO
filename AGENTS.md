@@ -4,7 +4,7 @@
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.3 原方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备、Slice 1 与 Slice 2 已完成，均为 PASS / CLOSED；Slice 2 的 Task 2.1／2.2 均有独立 B PASS，A 已完成完整 Base..Implementation Head 最终审查。Slice 3「定时与部署」已由 A 在关闭后的独立回合提交 ACTIVE 合同；当前无活动实施 Task，必须由 B 规划 Task 后才能实施，不得越过 Task 准入。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备、Slice 1 与 Slice 2 已完成，均为 PASS / CLOSED；Slice 2 的 Task 2.1／2.2 均有独立 B PASS，A 已完成完整 Base..Implementation Head 最终审查。Slice 3「定时与部署」已由 A 在关闭后的独立回合提交 ACTIVE 合同；B 已规划 Task 3.1（serve 调度、共享单轮入口与停止恢复），Developer 已实现并交 READY FOR B REVIEW，尚无 B／A 结论；部署镜像、Compose 与双架构发布包属后续 Task 3.2，必须由 B 规划后才能实施，不得越过 Task 准入。用户会话授权优先于本文件。
 
 ## 固定业务边界
 
