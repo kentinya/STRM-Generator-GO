@@ -2,13 +2,13 @@
 
 ## 当前状态（2026-10-18）
 
-Slice 2 保持 **ACTIVE**；[Task 2.1](../TASK.md)「远端缺失的权威再确认与真实 OpenList 实证」状态为 **FIX REQUIRED**，Difficulty High／T4。Task Base 保持 `a8c2d62369a21e8d9a0c2cefec2af09927fb3286`，Contract Checkpoint 已更新为 A 的 `56167f7884682a0d8d0269440f7357ed19892ca1`。A 已按用户授权把缺失资格默认值／最低值从两轮调整为三轮；B 重评后决定继续同一 Task，不重规划。最终目标 `Get` 的超时、取消、传输及未分类错误仍可能被吞为确认缺失；真实 OpenList 应用码 500 与 AC-4 的冲突仍待 A 裁定。Slice Implementation Head 仍为 NOT SET，没有新的产品 PASS。
+Slice 2 保持 **ACTIVE**，Task 2.1 保持 **FIX REQUIRED**／High／T4；Slice Base、Task Base 与 Implementation Head 均不变。2026-10-18 用户认可完整刷新列表作为缺失证据的方向，A 已提交本轮合同裁定（具体检查点以 Git 中本节对应提交为准）：最终目标 Get 的 HTTP 200＋完整有效应用码 500 错误信封，仅在独立完整列表证明已成立且 context 有效时允许不否决该证明。源根／祖先锚点及 ListFresh 错误仍为 Unknown，最终探测超时／取消／传输／权限／非成功 HTTP／无效响应及其他未允许错误也仍为 Unknown。详见 [Slice](../SLICE.md) 与[需求](requirements.md#最终-get-与列表证明的边界2026-10-18-a-裁定)。
 
-Task 2.1 仍交付完整的远端确认判断及固定隔离服务证据，包括刷新分页、精确路径／父链、缓存、权限／可见性和失败；复用已有 API 有界处理与隔离工具。产品仍拒绝启用清理，完整轮／缺失计数、旧库映射、本地删除／恢复与预览留待确认能力通过后的连贯接入。阈值修订不改变 Task 范围；没有修改 Slice 能力、Roadmap 次序、稳定需求或生产环境。
+A 已解决 AC-4 的合同方向，尚未修复 B-1；本回合不签产品或独立 B PASS。当前 Task 的 Contract Checkpoint 仍为旧合同 `56167f7884682a0d8d0269440f7357ed19892ca1`，AC-4 旧计划与 B 历史记录保留，待 B 对新合同重评并显式协调。新合同提交后治理将按预期拒绝旧 Task checkpoint，禁止在适配前按新例外实施。产品继续拒绝启用清理，完整轮／缺失计数、旧库映射、本地删除／恢复与预览尚未交付；没有修改产品、测试、依赖或生产服务。
 
-规划前治理、环境 doctor 与规划检查的证据位于本机 `artifacts/validation-evidence/task-2.1-planning-20261018-DGSuGv/`；这些不是产品 T4。Developer 的候选 T4 与固定隔离 OpenList 实证报告及原始证据位于 `artifacts/validation-evidence/task-2.1-final-ftETbR/`；B 独立定向复现 5/5 场景的证据位于 `artifacts/validation-evidence/task-2.1-b-review-20261018/`。这些结果不消除 B-1 与 AC-4 合同冲突，Task 仍 FIX REQUIRED；Slice RO 尚未全部满足，不提交 Closure Packet 或宣布关闭。
+既有 Developer 候选证据 `artifacts/validation-evidence/task-2.1-final-ftETbR/` 与 B 独立定向复现 `artifacts/validation-evidence/task-2.1-b-review-20261018/` 保留为历史，不当作修正后的新候选 PASS。本轮仅做合同／链接／原方案身份／补丁与治理交接检查，证据位于本机 `artifacts/validation-evidence/slice-2-get-contract-20261018/`。产品 Go／race／CLI／真实 OpenList 本轮 NOT RUN；Developer 须在 B 适配后修复并对新候选重跑完整 T4 与固定隔离真实服务。Slice RO 尚未全部满足，不提交 Closure Packet 或宣布关闭。
 
-Next Action: Developer fixes Task 2.1 B-1; A must adjudicate the AC-4 / OpenList application-code-500 conflict before final real-service acceptance
+Next Action: B RE-EVALUATES TASK 2.1 UNDER THE A GET/LIST CONTRACT DECISION
 
 ## Slice 2 激活（历史，2026-10-18）
 

@@ -1,6 +1,6 @@
 # Slice 路线图
 
-状态表由治理工具读取；Slice 1 已 PASS / CLOSED，Slice 2 已 ACTIVE，当前无活动实施 Task，下一步由 B 规划首个 Task。优先级来自原方案 P0～P4，但按完整行为交付。
+状态表由治理工具读取；Slice 1 已 PASS / CLOSED，Slice 2 已 ACTIVE，Task 2.1 为 FIX REQUIRED。A 已按用户认可裁定列表证明与最终 Get 的边界，下一步由 B 协调 Task AC-4／Contract Checkpoint，再交 Developer 修正。优先级来自原方案 P0～P4，但按完整行为交付；本次不改变 Slice 次序或增加 Task。
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|

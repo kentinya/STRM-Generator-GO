@@ -2,6 +2,8 @@
 
 遵循 [开发流程](docs/development-workflow.md)，范围 authority 为已提交的 [Slice 2](SLICE.md)。本 Task 交付一次确认的完整判断及其真实服务证据；尚不开放 CLI 清理，不以本 Task PASS 代替 Mirror 交付。
 
+2026-10-18 当前交接：A 已按用户认可裁定最终 Get／列表证明边界，见文末新增 A 决定及 [Slice 合同](SLICE.md#a-决定列表证明与最终-get2026-10-18)。本 Task 的 AC-4、Contract Checkpoint 与下列 B 历史记录尚待 B 在新合同提交后协调；保留旧计划与审查原文，不将本次 A 裁定当作 B 复审 PASS。Developer 在 B 完成合同适配前不得采用新的 500 例外实施。
+
 ```text
 Task ID: 2.1
 Parent Slice: 2
@@ -248,3 +250,9 @@ Task: continue Task 2.1; no replanning
 Blockers: B-1; A decision still required for the AC-4 / actual OpenList application-code-500 conflict
 Next: Developer fixes B-1 in this Task without changing the unresolved 500 semantics; A adjudicates AC-4 before final real-service acceptance
 ```
+
+## A Contract Decision — 2026-10-18
+
+用户认可完整刷新列表作为缺失证据的方向。A 已在 SLICE RO-3／验收、需求、架构 TARGET 与测试矩阵同步实质修订：最终目标 Get 的 HTTP 200＋完整有效应用码 500 错误信封，在独立完整列表证明已成立且 context 有效时，允许不否决该证明。它本身不证明缺失，源根／祖先锚点 Get 与 ListFresh 失败不适用此例外。权限／矛盾、最终请求的取消／超时／传输／读取失败、非成功 HTTP、畸形／不完整响应与其他未允许应用错误仍须 Unknown。完整边界以[需求](docs/requirements.md#最终-get-与列表证明的边界2026-10-18-a-裁定)为准。
+
+这已解决“是否允许调整 AC-4”的 A 合同决策，尚未解决 B-1 实现缺陷或签发测试通过。B 下一步须核对已提交合同，决定继续／调整或重规划 Task，更新 Contract Checkpoint、AC-4、步骤与测试映射；维持 High／T4、真实服务权限／缓存／虚拟挂载覆盖和历史证据。A 本回合不代写 B 决定、不改现有产品实现。Task 仍 FIX REQUIRED，当前旧 Checkpoint 将因合同能力不一致被治理拒绝，直到 B 完成适配；这不是产品回归结论。
