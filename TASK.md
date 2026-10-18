@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.2
 Parent Slice: 1
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -210,3 +210,16 @@ Next: DEVELOPER FIXES TASK 1.2 IN PLACE
 | RO-5 | 未满足 | 原更新窗口的故障／取消反馈与可重复恢复证据须补齐；既有 dry-run／有界遍历／互斥保留 |
 
 本轮不规划新 Task、不生成 Closure Packet、不交 A 最终审查。Slice 1 保持 ACTIVE，Task 1.2 Base／Contract Checkpoint／High／T4 不变，原地修正。真实 OpenList、固定插件解析仍是 Slice Final 不能被合成服务替代的证据；Jellyfin／代理、ARM64 实机和性能另报 NOT RUN，不因本次审查扩大实施范围。
+
+## Developer Fix Report — Task 1.2 F-10/F-11/F-12 (2026-10-18)
+
+本节保留送审时的修正候选报告;当前状态与事实纠正以 B 独立审查为准。
+
+- **Status:** READY FOR B REVIEW(交 B 独立审查;本报告不是 B PASS,也不表示 Slice 完成)。
+- **Implementation Head:** `f4383f2f59adedadc9252e465c64580570a3bbcf`(父提交 `003776300d24e480ab630f06806d1d3d54c65048`)。只改实现、测试与隔离驱动;未改合同、Roadmap 或稳定需求。`go.mod`/`go.sum`、SQLite schema 与 ownership 语义未变。
+- **F-10 修正(回滚不再删除第二个外部目标):** `Update` 的交换回滚改为可证明安全。`undoExchange` 仅在当前目标同时满足设备/inode 身份与逐字节内容等于本次发布对象时才交换回去;删除临时名字前再做同样的字节+身份双重校验。因此“校验失败后目标被再次替换为外部 B”时,回滚不移动该目标,也不删除任何非本次发布对象;外部 A 留在暂存名、外部 B 留在目标名,两者字节都保留,返回非零且不提交完整 round。inode 复用不会再造成误删。
+- **F-11 修正(校验前中断不再静默成功):** 更新暂存文件使用确定性隐藏名 `updateStagingName(base)`。`handleFile` 在内容比较前调用新的 `FileSystem.Recover`,按“仅删除与本轮 desired 逐字节相等的自有输出”为证明恢复:目标为 desired 且暂存为旧/陌生内容时,把暂存内容放回目标、只删除 proof 为 desired 的副本,再由正常比较决定重做或冲突;暂存等于 desired 时只删除自有暂存;两者都不等于 desired 时保留全部并报保守冲突。dry-run 只检测不修改。正常更新中断因此可重试(重做更新),被置换的外部目标恢复后按冲突处理,不再出现 `skipped=1` 且提交 round 的静默成功。
+- **F-12 修正(故障矩阵补齐):** `LocalFS` 增加仅测试可注入的 `writeTemp`/`exchange`/`remove`/`syncDir` 与既有 `syncTemp`/`closeTemp`/`beforeExchange`/`afterExchange`;Go 回归覆盖临时写入、文件 sync、close、发布交换、目录 sync、回滚交换失败,以及交换后中断、回滚二次替换、恢复成功/外部恢复/歧义/未归属/dry-run 各状态。testhooks 增加 `afterUpdateExchange` 与可轮询 gate(供 SIGTERM 让 context 取消运行)+ SIGSTOP hold(供 SIGKILL);隔离驱动新增 `pre-exchange`、`exchange`、`after-publish` 三个窗口的 SIGKILL/SIGTERM 用例,均由无插桩发布二进制重启验证目标、ownership、rounds、残留、退出码与可重试性。
+- **关键决策:** 确定性暂存名 + 字节证明恢复,使“交换先于校验”的中断可被下一轮识别并保守处理,同时不新增任何媒体版本表或恢复专用表;`RENAME_EXCHANGE` 仍保证替换期间目标永不缺失,回滚只在双重证明下进行。
+- **Tests / Evidence:** 本机证据目录 `artifacts/validation-evidence/task-1.2-fix-<run-id>/`(非远端可读);源码 SHA 为本报告 Head,构建自干净已提交 HEAD。`check_governance.py`、`mod download`/`mod verify`、`quality.py`、`-race -count=1 ./...`、Linux amd64/arm64 与 testhooks 构建、`run_isolated_sync_integration.py --scenario all` 9/9、`git diff --check` 的精确命令、退出码、计数、首次失败与重跑记录在该目录 `index.json`。发布二进制 `STRMGEN_TEST` 计数 0。
+- **Risks / Remaining:** 真实 OpenList/无签名 `/d/`、固定插件解析、Jellyfin/代理、ARM64 实机与性能仍 **NOT RUN**;合成夹具、交叉编译与 testhooks 不替代外部证据。Mirror 清理、serve/定时、发布镜像仍属后续 Slice。`./...` 门禁在含 B 未跟踪 `artifacts/validation-evidence/*/overlay-inputs` 的工作区会把 B 的评审 overlay 当作包编译;最终 T4 在 `artifacts/` 被 gitignore 的干净 worktree 中执行,细节见证据索引。
