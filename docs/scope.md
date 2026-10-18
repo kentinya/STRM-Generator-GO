@@ -4,7 +4,7 @@
 
 开发准备基线及 Slice 1「安全的单轮生成闭环」已交付；Slice 1 为 PASS / CLOSED，Task 1.1／1.2 均有独立 B PASS。已接受的本地能力包含配置／sync／dry-run、API 与协议处理、镜像路径映射、已拥有文件更新、最小归属、互斥和正常中断后的重试收敛。A 完整关闭合同、原始证据与延期保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`，尚无真实 OpenList／固定插件实际解析／播放／ARM64 实机／性能或正式发布验收。
 
-当前 [Slice 2](../SLICE.md) 为 ACTIVE：安全目录镜像与清理恢复，Base 为上述关闭检查点，Implementation Head 为 NOT SET。范围包括完整成功轮与连续缺失、精确映射及旧库兼容、权威再确认、归属／边界内删除、移动旧路径收敛、dry-run 和正常清理失败恢复；固定隔离 OpenList 的不存在确认实证是必要安全证据。Task 2.1 当前 FIX REQUIRED，等待同一 Task 内修正及 B 复审；清理仍未实现，没有新的产品验收。
+当前 [Slice 2](../SLICE.md) 为 ACTIVE：安全目录镜像与清理恢复，Base 为上述关闭检查点，Implementation Head 为 NOT SET。范围包括完整成功轮与连续缺失、精确映射及旧库兼容、源根／Get重核、归属／边界内删除、移动旧路径收敛、dry-run 和正常清理失败恢复；固定隔离 OpenList 的 Get／缓存行为实证仍必要；用户已选择源根可读、目标未读到即计缺失且所有列表 refresh:false，撤回权威刷新列表及请求预算方案。Task 2.1 当前 FIX REQUIRED，等待 B 按新合同调整或重规划，再交 Developer 实施及 B 复审；清理仍未实现，没有新的产品验收。
 
 产品范围：OpenList list／get 元数据；稳定 `/d/` URL；版本化 STRM；目录镜像；增量比较与原子更新；SQLite 最小归属／轮次；经过完整成功对账的安全清理；单轮互斥、有界目录并发；手动／预览／定时；Linux amd64／arm64 容器与二进制；最终一致性和分层验收。
 

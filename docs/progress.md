@@ -2,15 +2,15 @@
 
 ## 当前状态（2026-10-18）
 
-本轮用户补充频繁全量刷新可能导致网盘风控。A 已在合同与需求同步必要约束：普通扫描缓存优先，达到已提交缺失资格且本地初筛合格后才定向确认；同批按目录／祖先复用完整证明，限制请求间隔、并发和每轮预算，避免每页／每文件重复全目录回源。预算不足允许延期并报告，不能降低删除安全或永久饿死候选。B 须连同前次 AC-4 决定协调 Task 2.1 的接口／每页刷新／配置非目标及合同指针。当前产品未修改，Task 仍 FIX REQUIRED；本轮文档证据见 `artifacts/validation-evidence/slice-2-refresh-contract-20261018/`，产品／真实服务／请求负担测试 NOT RUN。以下前次合同决定与旧证据继续保留，均不代表新增策略已实现。
+用户最终要求简化：源根未成功读取为目录时保留，不增加缺失次数；源根可读取时，对需判断缺失的已拥有路径 Get 未读到即计缺失，不再辨别同样未读到响应的其他原因；所有列表请求 refresh:false。A 已同步 AGENTS、Slice RO-2／RO-3／RO-6、需求、架构、用户旅程、范围、路线图及测试矩阵。三次完整轮阈值、再出现清零、整轮取消／列表不完整／本地必要处理失败不提交、归属／输出边界及 dry-run 保留。
 
-Slice 2 保持 **ACTIVE**，Task 2.1 保持 **FIX REQUIRED**／High／T4；Slice Base、Task Base 与 Implementation Head 均不变。2026-10-18 用户认可完整刷新列表作为缺失证据的方向，A 已提交本轮合同裁定（具体检查点以 Git 中本节对应提交为准）：最终目标 Get 的 HTTP 200＋完整有效应用码 500 错误信封，仅在独立完整列表证明已成立且 context 有效时允许不否决该证明。源根／祖先锚点及 ListFresh 错误仍为 Unknown，最终探测超时／取消／传输／权限／非成功 HTTP／无效响应及其他未允许错误也仍为 Unknown。详见 [Slice](../SLICE.md) 与[需求](requirements.md#最终-get-与列表证明的边界2026-10-18-a-裁定)。
+前两次 A 检查点 a2a3b18（权威刷新列表／最终 500 例外）和 82cceae（按需强刷／目录证明复用／请求预算）均由本次用户指令取代，历史原文与证据留在 Git 及既有 artifacts，不改称已修复。用户接受源根仍可读而目标因权限、驱动、缓存等其他问题未读到也可能累计至删除；这不是权威不存在承诺。
 
-A 已解决 AC-4 的合同方向，尚未修复 B-1；本回合不签产品或独立 B PASS。当前 Task 的 Contract Checkpoint 仍为旧合同 `56167f7884682a0d8d0269440f7357ed19892ca1`，AC-4 旧计划与 B 历史记录保留，待 B 对新合同重评并显式协调。新合同提交后治理将按预期拒绝旧 Task checkpoint，禁止在适配前按新例外实施。产品继续拒绝启用清理，完整轮／缺失计数、旧库映射、本地删除／恢复与预览尚未交付；没有修改产品、测试、依赖或生产服务。
+Slice 2 仍 ACTIVE，Base `930782035615512be811a7b8bcc8416050f0c12f`、Implementation Head NOT SET；Task 2.1 仍 FIX REQUIRED／High／T4、Task Base `a8c2d62369a21e8d9a0c2cefec2af09927fb3286`。旧 Contract Checkpoint `56167f7884682a0d8d0269440f7357ed19892ca1` 与 B 计划暂存为历史，B 须在新合同提交后显式调整或重规划任务、AC、错误／缓存测试与 checkpoint。治理在适配前拒绝实施，A 不代签 B 决定。当前代码仍有旧强刷确认候选且 CLI 清理未开放，本回合无产品／测试／依赖改动或新 PASS。
 
-既有 Developer 候选证据 `artifacts/validation-evidence/task-2.1-final-ftETbR/` 与 B 独立定向复现 `artifacts/validation-evidence/task-2.1-b-review-20261018/` 保留为历史，不当作修正后的新候选 PASS。本轮仅做合同／链接／原方案身份／补丁与治理交接检查，证据位于本机 `artifacts/validation-evidence/slice-2-get-contract-20261018/`。产品 Go／race／CLI／真实 OpenList 本轮 NOT RUN；Developer 须在 B 适配后修复并对新候选重跑完整 T4 与固定隔离真实服务。Slice RO 尚未全部满足，不提交 Closure Packet 或宣布关闭。
+本轮文档证据：`artifacts/validation-evidence/slice-2-simple-get-contract-20261018/`；文档链接／原方案身份／补丁检查与治理交接结果分别记录。产品 Go／race／CLI／真实 OpenList 本轮 NOT RUN。旧 Developer `artifacts/validation-evidence/task-2.1-final-ftETbR/`、B `artifacts/validation-evidence/task-2.1-b-review-20261018/` 及前两次 A 文档证据保留，不作为新 Get 规则的验证。Mirror 计数／删除／恢复尚未交付，无 Closure Packet。
 
-Next Action: B RE-EVALUATES TASK 2.1 UNDER THE A GET/LIST CONTRACT DECISION
+Next Action: B RE-EVALUATES TASK 2.1 UNDER THE USER'S SIMPLIFIED GET CONTRACT
 
 ## Slice 2 激活（历史，2026-10-18）
 

@@ -2,7 +2,7 @@
 
 遵循 [开发流程](docs/development-workflow.md)，范围 authority 为已提交的 [Slice 2](SLICE.md)。本 Task 交付一次确认的完整判断及其真实服务证据；尚不开放 CLI 清理，不以本 Task PASS 代替 Mirror 交付。
 
-2026-10-18 当前交接：A 已按用户认可裁定最终 Get／列表证明边界，见文末新增 A 决定及 [Slice 合同](SLICE.md#a-决定列表证明与最终-get2026-10-18)。本 Task 的 AC-4、Contract Checkpoint 与下列 B 历史记录尚待 B 在新合同提交后协调；保留旧计划与审查原文，不将本次 A 裁定当作 B 复审 PASS。Developer 在 B 完成合同适配前不得采用新的 500 例外实施。
+2026-10-18 最新交接：用户已明确改为[源根／目标 Get 简化规则](docs/requirements.md#简化删除判定2026-10-18-用户最终决定)，所有列表 refresh:false。源根未读到保留且不增加次数；源根可读、目标未读到计缺失，不再排除相同响应的其他原因。前两次 A 的刷新列表／500 例外和刷新预算决定已撤回。下方 Goal／步骤／AC／测试与 B 记录均为旧合同历史，等待 B 在新合同提交后调整或重规划并更新 Contract Checkpoint；Developer 不按旧清单开始实施。本回合 A 不代签 B 决定或产品 PASS。
 
 ```text
 Task ID: 2.1
@@ -14,6 +14,8 @@ Difficulty: High
 Test Level: T4
 Planner / Reviewer: B
 ```
+
+## 旧计划与审查（历史，待 B 适配）
 
 ## Goal
 
@@ -253,7 +255,7 @@ Next: Developer fixes B-1 in this Task without changing the unresolved 500 seman
 
 ## A Contract Decision — 2026-10-18
 
-用户认可完整刷新列表作为缺失证据的方向。A 已在 SLICE RO-3／验收、需求、架构 TARGET 与测试矩阵同步实质修订：最终目标 Get 的 HTTP 200＋完整有效应用码 500 错误信封，在独立完整列表证明已成立且 context 有效时，允许不否决该证明。它本身不证明缺失，源根／祖先锚点 Get 与 ListFresh 失败不适用此例外。权限／矛盾、最终请求的取消／超时／传输／读取失败、非成功 HTTP、畸形／不完整响应与其他未允许应用错误仍须 Unknown。完整边界以[需求](docs/requirements.md#最终-get-与列表证明的边界2026-10-18-a-裁定)为准。
+用户认可完整刷新列表作为缺失证据的方向。A 已在 SLICE RO-3／验收、需求、架构 TARGET 与测试矩阵同步实质修订：最终目标 Get 的 HTTP 200＋完整有效应用码 500 错误信封，在独立完整列表证明已成立且 context 有效时，允许不否决该证明。它本身不证明缺失，源根／祖先锚点 Get 与 ListFresh 失败不适用此例外。权限／矛盾、最终请求的取消／超时／传输／读取失败、非成功 HTTP、畸形／不完整响应与其他未允许应用错误仍须 Unknown。当时完整边界保留于 `a2a3b18:docs/requirements.md`；该决定现已由用户最终简化规则取代。
 
 这已解决“是否允许调整 AC-4”的 A 合同决策，尚未解决 B-1 实现缺陷或签发测试通过。B 下一步须核对已提交合同，决定继续／调整或重规划 Task，更新 Contract Checkpoint、AC-4、步骤与测试映射；维持 High／T4、真实服务权限／缓存／虚拟挂载覆盖和历史证据。A 本回合不代写 B 决定、不改现有产品实现。Task 仍 FIX REQUIRED，当前旧 Checkpoint 将因合同能力不一致被治理拒绝，直到 B 完成适配；这不是产品回归结论。
 
@@ -262,3 +264,9 @@ Next: Developer fixes B-1 in this Task without changing the unresolved 500 seman
 用户指出频繁强刷可能触发网盘风控，A 已在 Slice／需求／架构／用户旅程／测试矩阵同步按需刷新与请求节奏约束。普通扫描仍用缓存；仅具备已提交计数资格并通过本地初筛的候选做定向确认。同批候选须有界复用共同目录／祖先证明，不逐文件重复强刷；证明不跨轮复用。确认需控制间隔、并发和每轮预算，包含可能回源的 Get，预算不足则保留延期。分页须避免每页重复取得全目录，替代方案须证明新鲜性／完整性，无法证明就不清理。最终 Get 的权限／矛盾探测及 500 有限例外保持。
 
 这实质调整了旧步骤 2 的“每页 refresh:true”、单路径确认／禁止共享的适用边界及“无需额外配置”非目标；B 须在新合同提交后显式决定接口／批次／限速接入是否可留在 Task 2.1，或须重规划。A 不改写旧 B 测试计划和历史结果，也不签 B 决定。B 重评同时处理前次 AC-4／合同指针适配，Task 仍 FIX REQUIRED，本回合无产品实现或新 T4 PASS。
+
+## A Final User Decision — Simplified Get Rule（2026-10-18）
+
+当前以最新 Slice／需求为准：源根 Get 未成功读取为目录时保留，不新增缺失；源根可读时，需判断缺失的精确目标 Get 未读到即作缺失观察，不再按失败原因细分。所有列表请求 refresh:false，撤下 ListFresh 强刷、刷新祖先链、权威证明、500 有限例外、目录证明复用及确认预算新增要求。三轮完整轮资格、整轮取消／列表或本地处理失败不提交、再出现清零、可靠归属／本地边界与 dry-run 仍保留。用户接受源根可读时目标因其他问题未读到也可能累计到删除。
+
+B 须按此决定重评本 Task 的 Goal、接口、AC-1..AC-6、B-1 与旧新测试映射，决定调整或重规划；保持历史失败与证据，不将不再要求辨别的目标失败写成已修复。当前 FIX REQUIRED 与旧 checkpoint 保留，治理在 B 适配前拒绝实施，A 本回合无产品修改。

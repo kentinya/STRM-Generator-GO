@@ -4,7 +4,7 @@
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.3 原方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备与 Slice 1 已完成，Slice 1 为 PASS / CLOSED；A 已在独立回合激活 Slice 2「安全目录镜像与清理恢复」，Task 2.1 当前为 FIX REQUIRED，Developer 在该 Task 内修正后交 B 复审；实施不越过 Task 准入。后续 Slice 仍由 A 在独立回合选择并提交 ACTIVE 合同。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备与 Slice 1 已完成，Slice 1 为 PASS / CLOSED；A 已在独立回合激活 Slice 2「安全目录镜像与清理恢复」，Task 2.1 当前为 FIX REQUIRED；用户已改为源根／目标 Get 简化判定，先由 B 适配 Task，再由 Developer 修正后交 B 复审；实施不越过 Task 准入。后续 Slice 仍由 A 在独立回合选择并提交 ACTIVE 合同。用户会话授权优先于本文件。
 
 ## 固定业务边界
 
@@ -13,7 +13,7 @@
 - 使用 UTF-8 版本 1 协议、稳定 HTTP(S) URL；SHA-1 必须是真实内容的 40 位十六进制哈希；Size 为非负 Int64 字节数。缺失或无效元数据省略，不写 Modified、不使用签名临时播放 URL，总长最多 65,536 字节。
 - URL 变化必须更新，即使 SHA-1／Size 相同；URL 不变且有效 SHA-1 相同则忽略 Size 差异并记录异常；SHA-1 不可比时比较有效 Size。详细缺失信息规则见需求。
 - Directory Reconciler + Mirror + 最终一致性；不另造文件发现或媒体版本状态机。SQLite 仅记录归属、路径映射、完整对账轮次与连续缺失次数，媒体指纹从 STRM 读取。
-- 删除必须有连续三次完整成功对账缺失、再次明确确认不存在、可靠归属及输出边界证据。失败、超时、权限问题、分页不完整不得当作不存在；任何不完整轮次不推进清理依据。
+- 删除采用用户明确简化的规则：配置源根未成功读取为目录时保留，不增加缺失次数；源根可读取时，目标 Get 未读到即按缺失处理，不再辨别其他原因造成的相同响应。所有列表请求均使用 refresh:false。连续三次完整轮缺失、当前相同 Get 判定、可靠归属与输出边界仍是删除条件；整轮取消、列表分页不完整或本地必要处理失败不推进计数。详见需求的简化删除判定。
 - dry-run 不改 STRM、数据库、缺失计数或轮次；允许输出脱敏日志。不能用 dry-run 结果作为下一轮删除依据。
 - 只在已配置输出根内操作；拒绝目录穿越、符号链接逃逸、输出重叠及同名目标冲突。不覆盖或删除未拥有的文件。
 - 同一输出范围禁止同步轮次重叠，包含手动／定时与多进程；轮内目录并发有界，不一次加载全库对象或创建每文件 goroutine。
