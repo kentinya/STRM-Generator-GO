@@ -1,6 +1,35 @@
 # 进度
 
-## Task 3.1 实现（2026-10-19，READY FOR B REVIEW）
+## Task 3.1 B 独立审查（2026-10-19，PASS）
+
+审查完整范围 `ee5001646d4239755606c28b61f340d795ee7014..b18caba6fd786bfe589f6ac29c2a2e779a5a1628`；
+纯完成报告后继为 `8fc3a3ad8a720e9ca4c832967fdf39874581beff`。B 核对 scheduler／config／CLI
+实现、race 修正、完整 Task 测试计划及候选二进制身份；复用匹配的 T4 门禁索引
+`artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md`，未机械重跑全量 race／test／build。
+B 独立在隔离 OpenList 屏障对运行中的首轮发 SIGINT：serve exit 1 并报告 cancelled，SQLite
+round／ownership 均空；之后发布 `sync` 成功取得共享锁并创建预期输出。原有匹配证据覆盖首轮、
+固定 interval、busy-skip、失败后继续、SIGTERM 取消、日志脱敏及 sync 回归。Task 3.1 PASS；
+证据及审查细节已记入可达 Task 报告。真实外部服务、Docker、ARM64 实机、规模与正式发布仍
+NOT RUN。RO-4 及容器生命周期对应 RO-6 未满足，因此 Slice 继续 ACTIVE，不提交 Closure Packet。
+
+Next Action: Developer implements planned Task 3.2 after the planning checkpoint is committed
+
+## Task 3.2 规划（2026-10-19，PLANNED）
+
+B 按当前 Slice 3 合同与真实仓库缺口规划 Linux 双架构 Docker 运行包。范围包括固定 Go 源码／
+依赖的 amd64／arm64 CGO=0 镜像、非 root、环境 token、只读配置、输出／DB／sidecar／临时区／
+固定锁目录的 Compose 挂载边界，以及隔离容器首轮、正常停止、持久状态重启和同一共享锁的双实例
+竞争。没有产品 Dockerfile；开发 Compose 仅为假 OpenList 夹具。准确 AC、Developer 反馈和最终
+T4 门禁、B 独立验证见当前 [TASK.md](../TASK.md)。此计划不授权发布 registry 或接触生产服务；
+Developer 须等待 Task 计划提交并通过治理检查后实施。
+
+Slice 仍 ACTIVE。Task 3.1 已覆盖 RO-1／RO-2／RO-3／RO-5 与调度相关 RO-6；RO-4 与部署相关
+RO-6 仍待 Task 3.2。真实 OpenList、插件解析、Jellyfin／代理、ARM64 实机、规模及正式发布
+NOT RUN；不得提前生成 Closure Packet 或把本 Task 计划写成容器验收通过。
+
+Next Action: Developer implements Task 3.2 after the planning checkpoint is committed
+
+## Task 3.1 实现（历史，2026-10-19）
 
 Developer 按已提交 Task 3.1 实现 `serve` 常驻调度、共享单轮入口与停止恢复，状态置为
 **READY FOR B REVIEW**（尚无 B／A 结论）。交付：`internal/scheduler` 有界调度外壳

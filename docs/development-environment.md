@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 3「定时与部署」已 ACTIVE，Task 3.1 已实现 `serve` 调度并交 READY FOR B REVIEW（尚无 B／A 结论），部署镜像属后续 Task 3.2。环境 smoke 不代表 Slice 3 通过；其 Docker、停止恢复和双架构门槛须按合同取得独立证据。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 3「定时与部署」已 ACTIVE，Task 3.1 已独立 B PASS，Task 3.2 已由 B 规划为 PLANNED，容器镜像、Compose、挂载和停止／重启证据尚未运行。环境 smoke 不代表 Slice 3 通过；容器门槛须按合同取得独立证据。
 
 ## 安装与检查
 
@@ -97,7 +97,7 @@ docker compose -f dev/compose.yaml stop
 
 Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。完整历史 Task 计划保留于 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。完整故障场景还需传 `--fault-binary`，该二进制以 `-tags strmgen_testhooks` 构建，示例见 README。hook 仅用于确定性发布／归属／staging 写入／交换及 round 前中断；测试二进制不可用于生产。发布二进制不含 hook 环境开关，并用于实际重启验证。
 
-Slice 2 的 T4 与缺失确认真实 OpenList 实证见其关闭检查点；Slice 3 的调度隔离验收命令与夹具已在 Task 3.1 落地（`scripts/run_serve_integration.py`），Docker／双架构发布包由后续 Task 规划。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin；交叉构建不替代 ARM64 实机运行。
+Slice 2 的 T4 与缺失确认真实 OpenList 实证见其关闭检查点；Slice 3 的调度隔离验收命令与夹具已在 Task 3.1 落地（`scripts/run_serve_integration.py`），Docker／双架构运行包及容器生命周期由已规划 Task 3.2 验收。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin；交叉构建不替代 ARM64 实机运行。
 
 验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 
