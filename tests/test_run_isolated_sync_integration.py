@@ -110,10 +110,21 @@ class DriverUnitTests(unittest.TestCase):
         exchange = (driver.ROOT / "internal/reconciler/fs_update_hook_integration.go").read_text()
         self.assertIn("//go:build strmgen_testhooks", exchange)
         self.assertIn("STRMGEN_TEST_UPDATE_BEFORE_EXCHANGE_TARGET", exchange)
+        for name in ("STRMGEN_TEST_UPDATE_PRE_EXCHANGE_HOLD", "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_GATE",
+                     "STRMGEN_TEST_UPDATE_EXCHANGE_HOLD", "STRMGEN_TEST_UPDATE_EXCHANGE_GATE"):
+            self.assertIn(name, exchange)
         after = (driver.ROOT / "internal/reconciler/fs_update_after_hook_integration.go").read_text()
         self.assertIn("//go:build strmgen_testhooks", after)
         self.assertIn("STRMGEN_TEST_UPDATE_HOLD", after)
-        self.assertIn("SIGSTOP", after)
+        self.assertIn("STRMGEN_TEST_UPDATE_PUBLISH_GATE", after)
+        self.assertIn("SIGSTOP", exchange)
+
+    def test_update_window_interruptions_are_deterministic(self):
+        source = (driver.ROOT / "scripts/run_isolated_sync_integration.py").read_text()
+        for name in ("STRMGEN_TEST_UPDATE_PRE_EXCHANGE_GATE", "STRMGEN_TEST_UPDATE_EXCHANGE_GATE",
+                     "STRMGEN_TEST_UPDATE_PUBLISH_GATE", "update_before_verification_sigkill",
+                     "update_pre_exchange_sigkill", "update_cancel_"):
+            self.assertIn(name, source)
 
     def test_update_interruption_recovery_is_deterministic(self):
         source = (driver.ROOT / "scripts/run_isolated_sync_integration.py").read_text()

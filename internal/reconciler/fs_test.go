@@ -367,3 +367,277 @@ func TestLockHelperProcess(t *testing.T) {
 	_ = lock.Release()
 	os.Exit(0)
 }
+
+func writeUpdateFixture(t *testing.T, root string) (old, newer []byte) {
+	t.Helper()
+	old = []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
+	newer = []byte("# strm-probe-version:1\n# strm-probe-size:5\nhttps://e.invalid/d/A.mkv\n")
+	if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+		t.Fatalf("publish fixture: %v", err)
+	}
+	return old, newer
+}
+
+func replaceTargetBytes(dir *securepath.Dir, target, content string) error {
+	if err := dir.Remove(target); err != nil {
+		return err
+	}
+	f, err := dir.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write([]byte(content)); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func onlyEntryNamed(t *testing.T, root, name string) {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != name {
+		t.Fatalf("unexpected directory entries: %v", entries)
+	}
+}
+
+func residualBytes(t *testing.T, root, target string) []byte {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == target {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	return nil
+}
+
+// F-10: a second external replacement between verification and rollback must
+// never be deleted by the rollback or by deferred cleanup.
+func TestUpdateSecondReplacementBeforeRollbackPreservesBoth(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	fs := LocalFS{
+		beforeExchange: func(dir *securepath.Dir, target string) error {
+			return replaceTargetBytes(dir, target, "external-A")
+		},
+		afterExchange: func(dir *securepath.Dir, target string) error {
+			return replaceTargetBytes(dir, target, "external-B")
+		},
+	}
+	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrTargetChanged) {
+		t.Fatalf("update = %v, want ErrTargetChanged", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
+	if string(raw) != "external-B" {
+		t.Fatalf("second external target was not preserved: %q", raw)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != "external-A" {
+		t.Fatalf("first external target was not preserved: %q", got)
+	}
+}
+
+// F-10/F-12: when the rollback exchange itself fails, both the published
+// object and the foreign residual must survive and no cleanup may delete them.
+func TestUpdateRollbackFailurePreservesForeignResidual(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	calls := 0
+	fs := LocalFS{
+		beforeExchange: func(dir *securepath.Dir, target string) error {
+			return replaceTargetBytes(dir, target, "external")
+		},
+		exchange: func(dir *securepath.Dir, a, b string) error {
+			calls++
+			if calls == 1 {
+				return dir.Exchange(a, b)
+			}
+			return errors.New("injected rollback failure")
+		},
+	}
+	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrTargetChanged) {
+		t.Fatalf("update = %v, want ErrTargetChanged", err)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != "external" {
+		t.Fatalf("foreign residual was lost: %q", got)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(newer) {
+		t.Fatalf("published object was changed by failed rollback: %q", raw)
+	}
+}
+
+func TestUpdatePublishExchangeFailurePreservesOldTarget(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	fs := LocalFS{exchange: func(*securepath.Dir, string, string) error {
+		return errors.New("injected publish failure")
+	}}
+	if err := fs.Update(root, "A.strm", old, newer); err == nil {
+		t.Fatal("publish exchange failure must abort")
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
+	if string(raw) != string(old) {
+		t.Fatalf("old target changed: %q", raw)
+	}
+	onlyEntryNamed(t, root, "A.strm")
+}
+
+func TestUpdateTempWriteFailurePreservesOldTarget(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	fs := LocalFS{writeTemp: func(io.Writer, []byte) error { return errors.New("injected write failure") }}
+	if err := fs.Update(root, "A.strm", old, newer); err == nil {
+		t.Fatal("temporary write failure must abort")
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
+	if string(raw) != string(old) {
+		t.Fatalf("old target changed: %q", raw)
+	}
+	onlyEntryNamed(t, root, "A.strm")
+}
+
+func TestUpdateDirectorySyncFailureKeepsNewTargetWithoutStaging(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	fs := LocalFS{syncDir: func(*securepath.Dir) error { return errors.New("injected dir sync failure") }}
+	if err := fs.Update(root, "A.strm", old, newer); err == nil {
+		t.Fatal("directory sync failure must surface as an error")
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
+	if string(raw) != string(newer) {
+		t.Fatalf("published target missing after durability failure: %q", raw)
+	}
+	onlyEntryNamed(t, root, "A.strm")
+}
+
+// A crash after the exchange but before verification leaves the new target and
+// the displaced old content under the deterministic staging name.
+func TestUpdateInterruptedBeforeVerificationLeavesRecoverableState(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	crash := LocalFS{afterExchange: func(*securepath.Dir, string) error {
+		return errors.New("simulated interruption")
+	}}
+	if err := crash.Update(root, "A.strm", old, newer); err == nil {
+		t.Fatal("interruption must abort the update")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(newer) {
+		t.Fatalf("new bytes not durable at interruption: %q", raw)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != string(old) {
+		t.Fatalf("displaced old content not preserved: %q", got)
+	}
+
+	// Recovery restores the pre-update content to the target so the normal
+	// comparison can decide to update again.
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(old) {
+		t.Fatalf("recover did not restore old content: %q", raw)
+	}
+	onlyEntryNamed(t, root, "A.strm")
+}
+
+// A foreign target displaced by an interrupted exchange is restored to the
+// target by recovery and is never deleted.
+func TestRecoverRestoresForeignDisplacedContent(t *testing.T) {
+	root := t.TempDir()
+	_, newer := writeUpdateFixture(t, root)
+	if err := os.WriteFile(filepath.Join(root, "A.strm"), newer, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), []byte("external"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
+	if string(raw) != "external" {
+		t.Fatalf("foreign bytes were not restored to the target: %q", raw)
+	}
+	onlyEntryNamed(t, root, "A.strm")
+}
+
+func TestRecoverAmbiguousResidualIsConflictAndLeavesEverything(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), []byte("foreign"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); !errors.Is(err, ErrStagingPresent) {
+		t.Fatalf("recover = %v, want ErrStagingPresent", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
+	if string(raw) != string(old) {
+		t.Fatalf("ambiguous recovery changed the target: %q", raw)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != "foreign" {
+		t.Fatalf("ambiguous recovery deleted the residual: %q", got)
+	}
+}
+
+func TestRecoverRefusesUnownedStagingWithoutDeleting(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), []byte("foreign"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, false, false); !errors.Is(err, ErrStagingPresent) {
+		t.Fatalf("recover = %v, want ErrStagingPresent", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(old) {
+		t.Fatalf("unowned recovery changed the target: %q", raw)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != "foreign" {
+		t.Fatalf("unowned recovery deleted the residual: %q", got)
+	}
+}
+
+func TestRecoverDryRunDetectsWithoutModifying(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	staging := filepath.Join(root, updateStagingName("A.strm"))
+	if err := os.WriteFile(staging, []byte("foreign"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, true); !errors.Is(err, ErrStagingPresent) {
+		t.Fatalf("dry-run recover = %v, want ErrStagingPresent", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(old) {
+		t.Fatalf("dry-run recover changed the target: %q", raw)
+	}
+	if raw, _ := os.ReadFile(staging); string(raw) != "foreign" {
+		t.Fatalf("dry-run recover changed the residual: %q", raw)
+	}
+}
+
+func TestRecoverRemovesOwnStagingWhenTargetAbsent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newer := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
+	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), newer, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("own staging was not removed: %v %v", entries, err)
+	}
+}

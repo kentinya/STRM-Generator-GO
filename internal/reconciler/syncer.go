@@ -312,6 +312,15 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		return
 	}
 
+	// Reconcile any deterministic staging file left by an interrupted atomic
+	// update before comparing content. Dry-run only detects it so it stays
+	// side-effect free. The target's existence and type do not change here.
+	if recErr := s.opts.FS.Recover(src.Output, rel, desired.Bytes(), owned, s.opts.DryRun); recErr != nil {
+		res.Conflicts++
+		res.addDiagnostic(fmt.Sprintf("unresolved interrupted update for %s", rel))
+		return
+	}
+
 	if exists && !owned {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("existing file not owned by this source: %s", rel))

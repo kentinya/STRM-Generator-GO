@@ -45,6 +45,10 @@ ALL_SCENARIOS = [
     "fault_recovery",
 ]
 
+# Every Harness registers here so a failing scenario cannot leak a locked or
+# stopped child process into the next scenario.
+_LIVE_HARNESSES = []
+
 
 class Failure(AssertionError):
     pass
@@ -53,6 +57,24 @@ class Failure(AssertionError):
 def check(condition, message):
     if not condition:
         raise Failure(message)
+
+
+def wait_for_marker(proc, marker, timeout=60):
+    """Wait until the child writes its deterministic barrier marker."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if marker.exists():
+            return True
+        if proc.poll() is not None:
+            return False
+        time.sleep(0.005)
+    return marker.exists()
+
+
+def update_staging_names(root):
+    """Return the hidden update-staging entries in one output directory."""
+    return sorted(path.name for path in Path(root).iterdir()
+                  if path.name.startswith(".strmgen-") and path.name.endswith(".update.tmp"))
 
 
 def base_directories():
@@ -68,6 +90,7 @@ class Harness:
         self.workdir = workdir
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.processes = []
+        _LIVE_HARNESSES.append(self)
 
     def server(self, directories=None, hooks=None):
         fixture = {"directories": directories if directories is not None else base_directories()}
@@ -142,6 +165,17 @@ class Harness:
                 proc.kill()
                 proc.wait(timeout=5)
         self.stop_server()
+        if self in _LIVE_HARNESSES:
+            _LIVE_HARNESSES.remove(self)
+
+
+def cleanup_all_harnesses():
+    """Release every harness still alive after a scenario failure."""
+    for harness in list(_LIVE_HARNESSES):
+        try:
+            harness.cleanup()
+        except Exception:
+            pass
 
 
 def snapshot(root):
@@ -1825,6 +1859,169 @@ def scenario_fault_recovery(h, results):
     observed["update_target_race_exit"] = race_result14.returncode
     h14.cleanup()
 
+    # F-11: interruption after the atomic exchange but before the swapped-out
+    # content is verified. The next release-binary run must reconcile the
+    # staging residual instead of silently skipping and committing a round.
+    if h.fault_binary is None:
+        raise Failure("update verification interruption requires --fault-binary (strmgen_testhooks build)")
+    h15 = Harness(h.binary, h.workdir / "update-before-verification-interruption")
+    api15, _ = h15.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root15 = h15.workdir / "out"
+    db15 = h15.workdir / "data" / "strmgen.db"
+    cfg15 = h15.config("update-verify-interrupt", api15, [("/Movies", root15)], db15)
+    check(h15.run(cfg15).returncode == 0, "update-verify-interrupt seed sync failed")
+    cfg15b = h15.config("update-verify-interrupt-b", api15, [("/Movies", root15)], db15,
+                        public="https://changed.example.invalid")
+    marker15 = h15.workdir / "exchange.marker"
+    gate15 = h15.workdir / "exchange.gate"
+    proc15 = h15.start(cfg15b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_UPDATE_EXCHANGE_GATE": str(gate15),
+        "STRMGEN_TEST_UPDATE_EXCHANGE_MARKER": str(marker15),
+    })
+    check(wait_for_marker(proc15, marker15), "exchange barrier never recorded a durable exchange")
+    check(proc15.poll() is None, "exchange barrier process exited early")
+    check("https://changed.example.invalid" in (root15 / "A.strm").read_text(),
+          "interrupted exchange did not persist the new bytes")
+    interrupted15 = read_db(db15)
+    check(len(interrupted15["ownership"]) == 1 and interrupted15["rounds"][0][1] == 1,
+          f"interrupted exchange changed ownership or advanced the round: {interrupted15}")
+    check(update_staging_names(root15), "interrupted exchange left no staging residual")
+    proc15.kill()
+    proc15.communicate(timeout=10)
+    check(proc15.returncode == -signal.SIGKILL,
+          f"update verification interruption expected SIGKILL, got {proc15.returncode}")
+    retry15 = h15.run(cfg15b, timeout=60)
+    check(retry15.returncode == 0 and "updated=1" in retry15.stdout,
+          f"restart after verification interruption did not redo the update: {retry15.returncode} {retry15.stdout}")
+    check(read_db(db15)["rounds"][0][1] == 2, "restart did not commit the update round")
+    check(not update_staging_names(root15), "restart left update staging residue")
+    observed["update_before_verification_sigkill"] = proc15.returncode
+    observed["update_before_verification_recovery"] = retry15.returncode
+    h15.cleanup()
+
+    # F-11 foreign variant: a foreign target displaced by the interrupted
+    # exchange must be restored and reported as a conflict, never silently
+    # skipped or deleted.
+    h16 = Harness(h.binary, h.workdir / "update-verification-foreign-interruption")
+    api16, _ = h16.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root16 = h16.workdir / "out"
+    db16 = h16.workdir / "data" / "strmgen.db"
+    cfg16 = h16.config("update-verify-foreign", api16, [("/Movies", root16)], db16)
+    check(h16.run(cfg16).returncode == 0, "update-verify-foreign seed sync failed")
+    cfg16b = h16.config("update-verify-foreign-b", api16, [("/Movies", root16)], db16,
+                        public="https://changed.example.invalid")
+    marker16 = h16.workdir / "exchange.marker"
+    gate16 = h16.workdir / "exchange.gate"
+    proc16 = h16.start(cfg16b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_UPDATE_BEFORE_EXCHANGE_TARGET": "A.strm",
+        "STRMGEN_TEST_UPDATE_EXCHANGE_GATE": str(gate16),
+        "STRMGEN_TEST_UPDATE_EXCHANGE_MARKER": str(marker16),
+    })
+    check(wait_for_marker(proc16, marker16), "foreign exchange barrier never recorded a durable exchange")
+    check(proc16.poll() is None, "foreign exchange barrier process exited early")
+    displaced16 = {name: (root16 / name).read_text() for name in update_staging_names(root16)}
+    check(list(displaced16.values()) == ["external"],
+          f"foreign target was not displaced into staging: {displaced16}")
+    proc16.kill()
+    proc16.communicate(timeout=10)
+    check(proc16.returncode == -signal.SIGKILL,
+          f"foreign verification interruption expected SIGKILL, got {proc16.returncode}")
+    retry16 = h16.run(cfg16b, timeout=60)
+    check(retry16.returncode == 1 and "conflicts=1" in retry16.stdout,
+          f"foreign residual must be a conservative conflict: {retry16.returncode} {retry16.stdout}")
+    check((root16 / "A.strm").read_bytes() == b"external", "foreign bytes were not preserved")
+    check(not update_staging_names(root16), "foreign recovery left staging residue")
+    check(read_db(db16)["rounds"][0][1] == 1, "foreign residual committed a round")
+    observed["update_before_verification_foreign"] = retry16.returncode
+    h16.cleanup()
+
+    # SIGKILL before the exchange: the old target is untouched and the next run
+    # simply performs the update.
+    h17 = Harness(h.binary, h.workdir / "update-pre-exchange-interruption")
+    api17, _ = h17.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root17 = h17.workdir / "out"
+    db17 = h17.workdir / "data" / "strmgen.db"
+    cfg17 = h17.config("update-pre-exchange", api17, [("/Movies", root17)], db17)
+    check(h17.run(cfg17).returncode == 0, "update-pre-exchange seed sync failed")
+    cfg17b = h17.config("update-pre-exchange-b", api17, [("/Movies", root17)], db17,
+                        public="https://changed.example.invalid")
+    marker17 = h17.workdir / "exchange.marker"
+    gate17 = h17.workdir / "exchange.gate"
+    proc17 = h17.start(cfg17b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_GATE": str(gate17),
+        "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_MARKER": str(marker17),
+    })
+    check(wait_for_marker(proc17, marker17), "pre-exchange barrier never recorded")
+    check(proc17.poll() is None, "pre-exchange barrier process exited early")
+    check("changed.example.invalid" not in (root17 / "A.strm").read_text(),
+          "pre-exchange interruption published new bytes")
+    pre_staging = {name: (root17 / name).read_text() for name in update_staging_names(root17)}
+    check(len(pre_staging) == 1 and "changed.example.invalid" in next(iter(pre_staging.values())),
+          f"pre-exchange interruption did not leave the staged new content: {pre_staging}")
+    proc17.kill()
+    proc17.communicate(timeout=10)
+    check(proc17.returncode == -signal.SIGKILL,
+          f"pre-exchange interruption expected SIGKILL, got {proc17.returncode}")
+    retry17 = h17.run(cfg17b, timeout=60)
+    check(retry17.returncode == 0 and "updated=1" in retry17.stdout,
+          f"restart after pre-exchange interruption failed: {retry17.returncode} {retry17.stdout}")
+    check(read_db(db17)["rounds"][0][1] == 2, "restart did not commit the update round")
+    observed["update_pre_exchange_sigkill"] = proc17.returncode
+    observed["update_pre_exchange_recovery"] = retry17.returncode
+    h17.cleanup()
+
+    # SIGTERM at each update window: the gate keeps the process runnable so
+    # context cancellation is processed; the round must not commit and the
+    # release binary must finish the update on restart.
+    for case_name, gate_env, marker_env, window in (
+            ("pre-exchange", "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_GATE",
+             "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_MARKER", "pre"),
+            ("after-exchange", "STRMGEN_TEST_UPDATE_EXCHANGE_GATE",
+             "STRMGEN_TEST_UPDATE_EXCHANGE_MARKER", "exchange"),
+            ("after-publish", "STRMGEN_TEST_UPDATE_PUBLISH_GATE",
+             "STRMGEN_TEST_UPDATE_MARKER", "publish")):
+        hh = Harness(h.binary, h.workdir / f"update-cancel-{case_name}")
+        api_c, _ = hh.server(directories={"/Movies": [
+            {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+        root_c = hh.workdir / "out"
+        db_c = hh.workdir / "data" / "strmgen.db"
+        cfg_c = hh.config(f"cancel-{case_name}", api_c, [("/Movies", root_c)], db_c)
+        check(hh.run(cfg_c).returncode == 0, f"cancel-{case_name} seed sync failed")
+        cfg_cb = hh.config(f"cancel-{case_name}-b", api_c, [("/Movies", root_c)], db_c,
+                           public="https://changed.example.invalid")
+        gate = hh.workdir / "gate"
+        marker_c = hh.workdir / "window.marker"
+        proc_c = hh.start(cfg_cb, binary=h.fault_binary, extra_env={
+            gate_env: str(gate),
+            marker_env: str(marker_c),
+        })
+        check(wait_for_marker(proc_c, marker_c, timeout=30),
+              f"{case_name} gate never recorded its window")
+        proc_c.send_signal(signal.SIGTERM)
+        gate.write_text("continue")
+        try:
+            cancel_out, cancel_err = proc_c.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc_c.kill()
+            proc_c.communicate(timeout=10)
+            raise Failure(f"{case_name} cancellation never finished")
+        check(proc_c.returncode != 0, f"{case_name} cancellation exited 0")
+        cancel_state = read_db(db_c)
+        check(cancel_state["rounds"][0][1] == 1,
+              f"{case_name} cancellation committed a round: {cancel_state}")
+        retry_c = hh.run(cfg_cb, timeout=60)
+        check(retry_c.returncode == 0,
+              f"{case_name} restart failed: {retry_c.returncode} {retry_c.stderr}")
+        check("https://changed.example.invalid" in (root_c / "A.strm").read_text(),
+              f"{case_name} restart did not persist the update")
+        check(not update_staging_names(root_c), f"{case_name} restart left staging residue")
+        observed[f"update_cancel_{case_name}_exit"] = proc_c.returncode
+        observed[f"update_cancel_{case_name}_recovery"] = retry_c.returncode
+        hh.cleanup()
+
     results["fault_recovery"] = observed
 
 
@@ -1899,6 +2096,7 @@ def main():
             print(f"FAIL {name}: timeout", flush=True)
         finally:
             harness.cleanup()
+            cleanup_all_harnesses()
         results.setdefault(name, {})
         if isinstance(results.get(name), dict):
             results[name]["status"] = status

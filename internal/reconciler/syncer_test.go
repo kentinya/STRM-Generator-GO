@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"strm-generator-go/internal/openlist"
+	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/storage"
 )
 
@@ -910,4 +911,114 @@ func mapsEqual(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// A normal interrupted update leaves the published bytes plus the displaced old
+// content. The next run must reconcile it and redo the update rather than
+// committing a silent skip.
+func TestInterruptedUpdateRecoveryRedoesUpdate(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := &fakeLister{
+		dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, shaA)}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	seed := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(lister, store, seed).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	interrupted := Options{
+		PublicPrefix: "https://changed.example.invalid",
+		FS: &LocalFS{afterExchange: func(*securepath.Dir, string) error {
+			return errors.New("simulated interruption")
+		}},
+	}
+	if _, err := New(lister, store, interrupted).Run(context.Background(), []Source{sourceFor(root)}); err == nil {
+		t.Fatal("interruption must fail the run")
+	}
+	if !strings.Contains(mustRead(t, filepath.Join(root, "A.strm")), "changed.example.invalid") {
+		t.Fatalf("new bytes not durable before recovery")
+	}
+	recovery := Options{PublicPrefix: "https://changed.example.invalid"}
+	report, err := New(lister, store, recovery).Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("recovery run: %v", err)
+	}
+	if report.Sources[0].Updated != 1 || report.Sources[0].Conflicts != 0 || report.Sources[0].Partial {
+		t.Fatalf("recovery did not redo the update: %+v", report.Sources[0])
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 3 {
+		t.Fatalf("recovery did not commit the update round: epoch=%d", epoch)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 1 || entries[0].Name() != "A.strm" {
+		t.Fatalf("recovery left staging residue: %v", entries)
+	}
+}
+
+// A foreign target displaced by an interrupted exchange must be restored and
+// reported as a conflict; the round must not be committed.
+func TestForeignInterruptedUpdateRecoveryConflicts(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := &fakeLister{
+		dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, shaA)}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	seed := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(lister, store, seed).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	interrupted := Options{
+		PublicPrefix: "https://changed.example.invalid",
+		FS: &LocalFS{
+			beforeExchange: func(dir *securepath.Dir, target string) error {
+				if err := dir.Remove(target); err != nil {
+					return err
+				}
+				f, err := dir.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+				if err != nil {
+					return err
+				}
+				if _, err := f.Write([]byte("external")); err != nil {
+					_ = f.Close()
+					return err
+				}
+				return f.Close()
+			},
+			afterExchange: func(*securepath.Dir, string) error {
+				return errors.New("simulated interruption")
+			},
+		},
+	}
+	if _, err := New(lister, store, interrupted).Run(context.Background(), []Source{sourceFor(root)}); err == nil {
+		t.Fatal("interruption must fail the run")
+	}
+	recovery := Options{PublicPrefix: "https://changed.example.invalid"}
+	report, err := New(lister, store, recovery).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("foreign residual must conflict, not silently succeed")
+	}
+	if report.Sources[0].Conflicts != 1 {
+		t.Fatalf("foreign residual was not a conservative conflict: %+v", report.Sources[0])
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 2 {
+		t.Fatalf("foreign residual committed a round: epoch=%d", epoch)
+	}
+	if raw := mustRead(t, filepath.Join(root, "A.strm")); raw != "external" {
+		t.Fatalf("foreign bytes were not preserved: %q", raw)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 1 || entries[0].Name() != "A.strm" {
+		t.Fatalf("foreign recovery left residue: %v", entries)
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }

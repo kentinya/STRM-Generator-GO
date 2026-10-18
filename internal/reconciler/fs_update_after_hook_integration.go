@@ -2,27 +2,17 @@
 
 package reconciler
 
-import (
-	"os"
-	"syscall"
-
-	"strm-generator-go/internal/securepath"
-)
+import "strm-generator-go/internal/securepath"
 
 // afterUpdatePublish is a deterministic test-only barrier. When the
-// environment selects this exact relative path, the process records an
-// observable marker and stops itself with SIGSTOP. It therefore pauses at
-// exactly one reproducible window: an owned target was atomically replaced,
-// ownership still maps to it, but the complete round has not been committed.
-// A release build contains only the inert hook.
-func afterUpdatePublish(dir *securepath.Dir, target string) error {
-	want := os.Getenv("STRMGEN_TEST_UPDATE_HOLD")
-	if want == "" || want != target {
-		return nil
-	}
-	if marker := os.Getenv("STRMGEN_TEST_UPDATE_MARKER"); marker != "" {
-		_ = os.WriteFile(marker, []byte(target), 0o600)
-	}
-	_ = syscall.Kill(syscall.Getpid(), syscall.SIGSTOP)
+// environment selects this exact relative path, the process pauses after an
+// owned target was atomically replaced and the old content removed, but before
+// the complete round is committed. The release build contains only the inert
+// hook. Gates poll a sentinel file so SIGTERM context cancellation can run;
+// holds stop the process itself for SIGKILL tests.
+func afterUpdatePublish(_ *securepath.Dir, target string) error {
+	updateBarrier("STRMGEN_TEST_UPDATE_PUBLISH_GATE",
+		"STRMGEN_TEST_UPDATE_HOLD",
+		"STRMGEN_TEST_UPDATE_MARKER", target)
 	return nil
 }

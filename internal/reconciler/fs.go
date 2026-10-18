@@ -3,6 +3,7 @@ package reconciler
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -23,6 +25,13 @@ import (
 // is refused rather than overwriting them.
 var ErrTargetChanged = errors.New("target changed before update")
 
+// ErrStagingPresent reports that an unresolved update staging file exists but
+// cannot be safely reconciled (for example an unreadable, foreign or
+// non-regular entry, or a target whose content matches neither the desired
+// bytes nor the pre-update bytes). The caller must report a conflict and must
+// not delete or claim the residual.
+var ErrStagingPresent = errors.New("unresolved update staging present")
+
 // FileSystem is the set of local file operations the syncer needs. It is an
 // interface so tests can inject failures without weakening the real
 // implementation's safety checks.
@@ -32,6 +41,11 @@ type FileSystem interface {
 	Lstat(root, relFile string) (os.FileInfo, error)
 	Publish(root, relFile string, data []byte) error
 	Update(root, relFile string, expected, data []byte) error
+	// Recover reconciles any staging file left by an interrupted atomic update
+	// before the reconciler compares the target. It only removes bytes that are
+	// provably the content this run would write; any other residual is restored
+	// to the target or left untouched and reported conservatively.
+	Recover(root, relFile string, desired []byte, owned, dryRun bool) error
 }
 
 // LocalFS implements FileSystem using descriptor-relative operations. The
@@ -42,9 +56,14 @@ type LocalFS struct {
 	roots          *localRoots
 	beforeLink     func(*securepath.Dir, string) error
 	beforeExchange func(*securepath.Dir, string) error
+	afterExchange  func(*securepath.Dir, string) error
 	afterUpdate    func(*securepath.Dir, string) error
 	syncTemp       func(*os.File) error
 	closeTemp      func(*os.File) error
+	writeTemp      func(io.Writer, []byte) error
+	exchange       func(*securepath.Dir, string, string) error
+	remove         func(*securepath.Dir, string) error
+	syncDir        func(*securepath.Dir) error
 }
 
 type localRoots struct {
@@ -254,11 +273,12 @@ func (fs LocalFS) Publish(root, relFile string, data []byte) error {
 }
 
 // Update atomically replaces an already-owned STRM with new bytes. It never
-// unlinks the previous target: it writes a same-directory temporary file,
-// exchanges the two names, and only then removes the old content. The
-// swapped-out entry must byte-for-byte match the owned content observed
-// before the update; otherwise an external actor changed the target and the
-// exchange is undone so their bytes are preserved.
+// unlinks the previous target: it writes a same-directory deterministic
+// staging file, exchanges the two names, and only then removes the old
+// content. The swapped-out entry must byte-for-byte match the owned content
+// observed before the update; otherwise the exchange is undone so foreign
+// bytes are preserved. The deterministic staging name lets Recover reconcile
+// an interruption before the next comparison.
 func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 	if len(data) > strm.MaxSize {
 		return errors.New("updated STRM exceeds protocol size limit")
@@ -282,19 +302,35 @@ func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 		return ErrTargetChanged
 	}
 
-	tmpName, tmp, err := createTempFile(dir)
+	staging := updateStagingName(base)
+	if _, err := dir.Lstat(staging); err == nil {
+		// A staging file from an earlier interrupted update is still present.
+		// Never overwrite unknown content; recovery must run first.
+		return ErrStagingPresent
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	tmp, err := dir.OpenFile(staging, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
-	// removeTemp is cleared only if an undo failure leaves foreign bytes at
-	// tmpName, which must be preserved rather than deleted.
-	removeTemp := true
+	tmpInfo, err := tmp.Stat()
+	if err != nil {
+		_ = tmp.Close()
+		_ = fs.removeFile(dir, staging)
+		return err
+	}
+	tmpID, haveID := identityOf(tmpInfo)
+
+	cleanupStaging := true
 	defer func() {
-		if removeTemp {
-			_ = dir.Remove(tmpName)
+		if cleanupStaging {
+			_ = fs.removeFile(dir, staging)
 		}
 	}()
-	if err := writeAll(tmp, data); err != nil {
+
+	if err := fs.writeTempFile(tmp, data); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -314,22 +350,29 @@ func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 		return err
 	}
 
-	if err := dir.Exchange(tmpName, base); err != nil {
+	if err := fs.exchangeNames(dir, staging, base); err != nil {
 		return err
 	}
-	// The previous target now lives at tmpName. It must equal the owned content
-	// read before the update; otherwise the target was replaced externally and
-	// the exchange must be undone.
-	if err := verifyExchanged(dir, tmpName, expected); err != nil {
-		if undoErr := dir.Exchange(tmpName, base); undoErr != nil {
-			// tmpName now holds the foreign bytes; do not delete them.
-			removeTemp = false
-			return errors.New("target changed and could not be restored")
+	// base now holds the new content and staging holds the displaced entry. The
+	// deferred cleanup must never delete the entry under staging without an
+	// identity proof, so it is disabled from here on.
+	cleanupStaging = false
+
+	if fs.afterExchange != nil {
+		if err := fs.afterExchange(dir, base); err != nil {
+			return err
 		}
+	} else if err := afterUpdateExchange(dir, base); err != nil {
+		return err
+	}
+
+	if err := verifyExchanged(dir, staging, expected); err != nil {
+		fs.undoExchange(dir, staging, base, tmpID, haveID, data)
 		return ErrTargetChanged
 	}
-	// Success: drop the old owned content and flush the directory metadata.
-	if err := dir.Remove(tmpName); err != nil {
+	// Verified: the displaced entry is the previously owned content. Drop it
+	// and flush the directory metadata.
+	if err := fs.removeFile(dir, staging); err != nil {
 		return err
 	}
 	if fs.afterUpdate != nil {
@@ -339,7 +382,150 @@ func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 	} else if err := afterUpdatePublish(dir, base); err != nil {
 		return err
 	}
-	return dir.Sync()
+	return fs.syncDirectory(dir)
+}
+
+// undoExchange restores a displaced entry to the target after a failed
+// verification. It only acts when the current target is provably the exact
+// bytes this call published (identity plus content); otherwise it leaves the
+// target and the residual untouched. The temporary name is deleted only with
+// the same byte-and-identity proof, so a second foreign replacement between
+// verification and rollback can never be destroyed, even when the filesystem
+// reuses an unlinked inode number.
+func (fs LocalFS) undoExchange(dir *securepath.Dir, staging, base string, newID fileIdentity, haveID bool, data []byte) {
+	if !haveID {
+		return
+	}
+	info, err := dir.Lstat(base)
+	if err != nil {
+		return
+	}
+	id, ok := identityOf(info)
+	if !ok || id != newID {
+		// The target is no longer the object we published; never move it.
+		return
+	}
+	baseRaw, err := readRegularAt(dir, base)
+	if err != nil || !bytes.Equal(baseRaw, data) {
+		return
+	}
+	if err := fs.exchangeNames(dir, staging, base); err != nil {
+		return
+	}
+	// staging now holds whatever occupied the target name. Remove it only when
+	// it is provably our published bytes; otherwise leave it untouched.
+	info, err = dir.Lstat(staging)
+	if err != nil {
+		return
+	}
+	id, ok = identityOf(info)
+	if !ok || id != newID {
+		return
+	}
+	stagingRaw, err := readRegularAt(dir, staging)
+	if err != nil || !bytes.Equal(stagingRaw, data) {
+		return
+	}
+	_ = fs.removeFile(dir, staging)
+}
+
+// Recover reconciles the deterministic staging file left by an interrupted
+// atomic update. It is proof-based: content byte-equal to the desired document
+// is provably this run's output and may be removed; every other residual is
+// either restored to the target or left untouched and reported as a conflict.
+// When dryRun is true it only detects the residual without modifying anything.
+func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bool) error {
+	dir, base, err := fs.openParent(root, relFile, false)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer dir.Close()
+
+	staging := updateStagingName(base)
+	stInfo, err := dir.Lstat(staging)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		return ErrStagingPresent
+	}
+	if stInfo.Mode()&os.ModeSymlink != 0 || !stInfo.Mode().IsRegular() {
+		return ErrStagingPresent
+	}
+	if !owned {
+		// A staging file with no trustworthy ownership must never be deleted or
+		// reclaimed.
+		return ErrStagingPresent
+	}
+
+	stagingRaw, err := readRegularAt(dir, staging)
+	if err != nil {
+		return ErrStagingPresent
+	}
+
+	targetInfo, terr := dir.Lstat(base)
+	targetExists := terr == nil
+	if terr != nil && !errors.Is(terr, os.ErrNotExist) {
+		return terr
+	}
+	if !targetExists {
+		if bytes.Equal(stagingRaw, desired) {
+			// The new content was never published; drop our own staging output and
+			// let the normal creation path run.
+			if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return nil
+		}
+		return ErrStagingPresent
+	}
+	if targetInfo.Mode()&os.ModeSymlink != 0 || !targetInfo.Mode().IsRegular() {
+		return ErrStagingPresent
+	}
+	targetRaw, err := readRegularAt(dir, base)
+	if err != nil {
+		return ErrStagingPresent
+	}
+
+	switch {
+	case bytes.Equal(stagingRaw, desired):
+		// The staged new content was never exchanged; drop only our own output.
+		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	case bytes.Equal(targetRaw, desired):
+		// The exchange completed; put the displaced entry back on the target and
+		// remove only the new copy, which is provably byte-equal to desired.
+		if err := fs.exchangeNames(dir, staging, base); err != nil {
+			return ErrStagingPresent
+		}
+		info, err := dir.Lstat(staging)
+		if err != nil {
+			return ErrStagingPresent
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return ErrStagingPresent
+		}
+		raw, err := readRegularAt(dir, staging)
+		if err != nil || !bytes.Equal(raw, desired) {
+			return ErrStagingPresent
+		}
+		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	default:
+		// Neither side matches what this run would write. Leave both untouched
+		// and report a conservative conflict.
+		return ErrStagingPresent
+	}
 }
 
 // verifyExchanged reads a swapped-out entry without following symlinks and
@@ -386,6 +572,92 @@ func (fs LocalFS) closeTempFile(f *os.File) error {
 		return fs.closeTemp(f)
 	}
 	return f.Close()
+}
+
+// writeTempFile writes the complete new document to the staging file. Tests
+// can inject a failure here to prove a partial write never reaches the target.
+func (fs LocalFS) writeTempFile(w io.Writer, data []byte) error {
+	if fs.writeTemp != nil {
+		return fs.writeTemp(w, data)
+	}
+	return writeAll(w, data)
+}
+
+// exchangeNames atomically swaps two names in the same directory. Tests can
+// inject a failure in either the publish or the rollback direction.
+func (fs LocalFS) exchangeNames(dir *securepath.Dir, a, b string) error {
+	if fs.exchange != nil {
+		return fs.exchange(dir, a, b)
+	}
+	return dir.Exchange(a, b)
+}
+
+// removeFile removes one owned direct child. Tests can inject a failure to
+// exercise the durability boundary after publication.
+func (fs LocalFS) removeFile(dir *securepath.Dir, name string) error {
+	if fs.remove != nil {
+		return fs.remove(dir, name)
+	}
+	return dir.Remove(name)
+}
+
+// syncDirectory flushes directory metadata after a publish. Tests can inject a
+// failure to distinguish "published" from "durably recorded".
+func (fs LocalFS) syncDirectory(dir *securepath.Dir) error {
+	if fs.syncDir != nil {
+		return fs.syncDir(dir)
+	}
+	return dir.Sync()
+}
+
+// updateStagingName returns the deterministic, hidden staging name used for
+// atomic replacement of one target. Determinism lets the next run reconcile an
+// interruption instead of guessing at a random name.
+func updateStagingName(base string) string {
+	sum := sha256.Sum256([]byte(base))
+	return ".strmgen-" + hex.EncodeToString(sum[:8]) + ".update.tmp"
+}
+
+// fileIdentity is a device/inode pair used to prove that a name still refers
+// to the exact object this process created.
+type fileIdentity struct {
+	device uint64
+	number uint64
+}
+
+func identityOf(info os.FileInfo) (fileIdentity, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fileIdentity{}, false
+	}
+	return fileIdentity{device: uint64(stat.Dev), number: stat.Ino}, true
+}
+
+// readRegularAt reads one bounded, no-follow regular file beneath dir.
+func readRegularAt(dir *securepath.Dir, name string) ([]byte, error) {
+	f, err := dir.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("entry is not a regular file")
+	}
+	if info.Size() > strm.MaxSize {
+		return nil, errors.New("entry exceeds protocol size limit")
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, strm.MaxSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > strm.MaxSize {
+		return nil, errors.New("entry exceeds protocol size limit")
+	}
+	return raw, nil
 }
 
 func createTempFile(dir *securepath.Dir) (string, *os.File, error) {
