@@ -3,8 +3,10 @@
 
 The driver starts its own fixed-version OpenList container, creates a dedicated
 Local storage plus a WebDav storage that re-mounts the same tree through
-OpenList's own DAV endpoint with a non-zero cache TTL, materializes every
-fixture, and then runs the Go integration test binary against that service.
+OpenList's own DAV endpoint with a short cache TTL, materializes every fixture,
+and then runs the Go integration test binary against that service. Every list
+request, including preparation, polling and evidence capture, is sent with an
+explicit refresh:false; a forced refresh or a cache flush is never used.
 
 It never touches the shared dev fixture on 15244, production OpenList, Jellyfin,
 its proxy, the companion repository or production media. Every file, database,
@@ -285,13 +287,27 @@ class Service:
     def enable_storage(self, storage_id):
         self.api.ok(f"/api/admin/storage/enable?id={storage_id}")
 
+    def list_once(self, path, *, token=None, page=1, per_page=200):
+        """List one page with an explicit refresh:false and return (status, payload)."""
+        return self.api.call("/api/fs/list",
+                             {"path": path, "page": page, "per_page": per_page,
+                              "refresh": False}, token=token)
+
+    def get_once(self, path, *, token=None):
+        """Read one exact object and return (status, payload) without interpretation."""
+        return self.api.call("/api/fs/get", {"path": path}, token=token)
+
     def wait_listed(self, path, expected_names, timeout=60):
-        """Wait until the real service reports exactly the expected names."""
+        """Wait until the real service reports exactly the expected names.
+
+        Every poll is a cached list (refresh:false), which is the only listing
+        mode this program may use. When the backing store changes, waiting is
+        bounded and explicit instead of relying on a forced refresh.
+        """
         deadline = time.monotonic() + timeout
         last = None
         while time.monotonic() < deadline:
-            status, payload = self.api.call("/api/fs/list",
-                                            {"path": path, "page": 1, "per_page": 200, "refresh": True})
+            status, payload = self.list_once(path)
             if status == 200 and isinstance(payload, dict) and payload.get("code") == 200:
                 data = payload["data"]
                 names = sorted(entry["name"] for entry in (data.get("content") or []))
@@ -400,6 +416,32 @@ class Harness:
         return False
 
 
+def record_get(service, label, path, observations, *, token=None):
+    """Record one raw Get observation (status, application code, object shape)."""
+    status, payload = service.get_once(path, token=token)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    observations[label] = {
+        "name_label": path.rsplit("/", 1)[-1] or "/",
+        "http": status,
+        "code": payload.get("code") if isinstance(payload, dict) else None,
+        "is_dir": data.get("is_dir") if isinstance(data, dict) else None,
+        "provider": data.get("provider") if isinstance(data, dict) else None,
+    }
+
+
+def record_list(service, label, path, observations, *, token=None, page=1):
+    """Record one raw List observation, always with an explicit refresh:false."""
+    status, payload = service.list_once(path, token=token, page=page)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    observations[label] = {
+        "http": status,
+        "code": payload.get("code") if isinstance(payload, dict) else None,
+        "names": sorted(entry["name"] for entry in (data.get("content") or []))
+        if isinstance(data, dict) and payload.get("code") == 200 else None,
+        "refresh": False,
+    }
+
+
 def scenario_exact_names(harness):
     service = harness.service
     special = ["/lib/Movies/Sub Dir/中文 名字.mkv", "/lib/Movies/Sub Dir/#hash% & \"quote\".mkv"]
@@ -409,20 +451,16 @@ def scenario_exact_names(harness):
         "case_variant": "/lib/Movies/A MOVIE.mkv",
         "special_files": special,
     }
-    # Record what the real API reports for the exact and case-variant names so
-    # the evidence shows the observation, not just the Go conclusion.
+    # Record what the real API answers for each read so the evidence shows the
+    # observed response shape, not only the Go conclusion.
     observations = {}
-    for label, path in (("present", facts["present_file"]),
+    for label, path in (("root", "/lib"),
+                        ("present", facts["present_file"]),
                         ("case_variant", facts["case_variant"]),
-                        ("absent", facts["absent_file"])):
-        status, payload = service.api.call("/api/fs/get", {"path": path})
-        observations[label] = {
-            "http": status,
-            "code": payload.get("code") if isinstance(payload, dict) else None,
-            "is_dir": (payload.get("data") or {}).get("is_dir") if isinstance(payload, dict) else None,
-            "provider": (payload.get("data") or {}).get("provider") if isinstance(payload, dict) else None,
-        }
-    return {"exact_names": facts, "observations": observations}
+                        ("absent", facts["absent_file"]),
+                        ("directory_target", "/lib/Movies")):
+        record_get(service, label, path, observations)
+    return {"exact_names": facts}, {"exact_names_observations": observations}
 
 
 def scenario_pagination(harness):
@@ -433,144 +471,212 @@ def scenario_pagination(harness):
         "absent_file": "/lib/Wide/NoSuch.mkv",
         "total": 250,
     }
-    # Confirm the service really paginates at the client page size.
-    status, payload = service.api.call("/api/fs/list",
-                                       {"path": "/lib/Wide", "page": 2, "per_page": 200, "refresh": True})
-    page_two = len((payload.get("data") or {}).get("content") or []) if isinstance(payload, dict) else -1
-    return {"pagination": facts, "page_two_entries": page_two}
+    # Confirm the service really paginates at the client page size, using the
+    # only listing mode the program may use.
+    observations = {}
+    record_list(service, "pagination_page_two", "/lib/Wide", observations, page=2)
+    return {"pagination": facts}, observations
 
 
 def scenario_empty_directory(harness):
-    return {"empty_directory": {"directory": "/lib/Empty"}}
+    service = harness.service
+    status, payload = service.list_once("/lib/Empty")
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise Failure("empty directory response has no data object")
+    observations = {"empty_directory_shape": {
+        "http": status,
+        "code": payload.get("code"),
+        "content_is_null": data.get("content") is None,
+        "content_type": type(data.get("content")).__name__,
+        "total": data.get("total"),
+        "refresh": False,
+    }}
+    record_get(service, "empty_directory_target", "/lib/Empty", observations)
+    return {"empty_directory": {"directory": "/lib/Empty"}}, observations
 
 
 def scenario_removed_parent(harness):
+    """Contrast an unreadable source root with a removed parent inside a source.
+
+    Measured on the pinned build:
+    - removing the backing directory of a Local mount leaves its mount path
+      reading as a directory (provider Local), so that root stays readable;
+    - disabling a storage makes its mount path unreadable (application 500);
+    - removing a directory inside a readable source makes the deep target
+      unreadable while its source root still reads.
+    """
     service = harness.service
-    # A second storage whose backing directory will disappear entirely.
-    # A second storage whose entire backing directory is removed, so its own
-    # configured source root becomes unreachable.
-    offline_root = harness.tree / "Offline"
-    write_file(offline_root, "Movies/A.mkv", b"o")
-    service.add_local_storage("/offline", harness.container_tree + "/Offline")
-    service.wait_listed("/offline", ["Movies"])
-    shutil.rmtree(offline_root)
-    # A parent directory removed inside the reachable source: its sibling
-    # remains listable, so the chain proof has a real anchor.
-    shutil.rmtree(harness.tree / "TV" / "Removed Later")
-    (harness.workdir / "removed-parent.json").write_text(json.dumps({"removed": True}))
+
+    # A removable parent inside the reachable source.
+    removed_rel = "TV/Removed Later"
+    removed_target = removed_rel + "/Season 1.mkv"
+    shutil.rmtree(harness.tree / removed_rel)
+
+    # A Local mount whose backing directory is gone: root still reads.
+    gone_root = harness.tree / "GoneRoot"
+    write_file(gone_root, "Movies/A.mkv", b"o")
+    service.add_local_storage("/gone", harness.container_tree + "/GoneRoot")
+    service.wait_listed("/gone", ["Movies"])
+    shutil.rmtree(gone_root)
+
+    # A disabled storage: its mount path is unreadable.
+    disabled_tree = harness.tree / "Disabled"
+    write_file(disabled_tree, "Only.mkv", b"d")
+    disabled_id = service.add_local_storage("/disabled", harness.container_tree + "/Disabled")
+    service.wait_listed("/disabled", ["Only.mkv"])
+    service.disable_storage(disabled_id)
+
+    observations = {}
+    record_get(service, "readable_root", "/lib", observations)
+    record_get(service, "removed_inside_source", "/lib/" + removed_target, observations)
+    record_get(service, "backing_dir_gone_root", "/gone", observations)
+    record_get(service, "backing_dir_gone_target", "/gone/Movies/A.mkv", observations)
+    record_get(service, "disabled_root", "/disabled", observations)
     return {
         "removed_parent": {
-            "removed_parent": "/lib/TV/Removed Later",
-            "removed_inside_source": "/lib/TV/Removed Later/Season 1.mkv",
-            "unavailable_root": "/offline",
+            "readable_root": "/lib",
+            "removed_parent": "/lib/" + removed_rel,
+            "removed_inside_source": "/lib/" + removed_target,
+            "backing_dir_gone_root": "/gone",
+            "backing_dir_gone_target": "/gone/Movies/A.mkv",
+            "disabled_root": "/disabled",
         },
-    }
+    }, observations
 
 
-def scenario_refresh_permission(harness):
+def scenario_read_only_identity(harness):
+    """A read-only identity needs no refresh permission under the new rule."""
     service = harness.service
     read_only = service.create_user("reader-" + random_text(length=6),
                                     "reader-" + random_text(length=12), permission=0)
-    # Prove the real service refuses a fresh listing for this token before the
-    # Go code is asked to treat that as unknown.
-    status, payload = service.api.call("/api/fs/list",
-                                       {"path": "/lib", "page": 1, "per_page": 200, "refresh": True},
-                                       token=read_only)
-    observed = {
-        "http": status,
-        "code": payload.get("code") if isinstance(payload, dict) else None,
-        "message": (payload.get("message") or "")[:120] if isinstance(payload, dict) else "",
-    }
-    return {"refresh_permission": {"read_only_token": read_only}}, {"refresh_refusal": observed}
+    observations = {}
+    record_list(service, "read_only_list", "/lib", observations, token=read_only)
+    record_get(service, "read_only_present", "/lib/Movies/A Movie.mkv", observations, token=read_only)
+    record_get(service, "read_only_absent", "/lib/Movies/Missing.mkv", observations, token=read_only)
+    return {"read_only_identity": {
+        "read_only_token": read_only,
+        "present_file": "/lib/Movies/A Movie.mkv",
+        "absent_file": "/lib/Movies/Missing.mkv",
+    }}, observations
+
+
+# The cached driver is the WebDav self-mount, the only real driver in the pinned
+# build that serves a server-side directory cache. Its cache lifetime comes from
+# the storage's cache_expiration; the runner waits that lifetime out so the
+# evidence is about a naturally updated cache instead of a forced refresh.
+CACHE_TTL_MINUTES = 1
+CACHE_WAIT_SECONDS = 150
 
 
 def scenario_cached_driver(harness):
     service = harness.service
-    # Re-mount the same tree through OpenList's own DAV endpoint with a 60 minute
-    # cache. This is the real cached driver path required by AC-3.
-    service.add_webdav_storage("/cached", "/lib", 60, "admin", service.password)
+    service.add_webdav_storage("/cached", "/lib", CACHE_TTL_MINUTES, "admin", service.password)
     service.wait_listed("/cached", ["Empty", "Movies", "TV", "Wide"])
-    # Warm the server-side directory cache.
-    service.api.ok("/api/fs/list", {"path": "/cached/Movies", "page": 1, "per_page": 200, "refresh": False})
-    # A file the cache knows about, deleted on disk after the cache was warmed.
+    # Warm the server-side directory cache for the target directory.
+    service.api.ok("/api/fs/list",
+                   {"path": "/cached/Movies", "page": 1, "per_page": 200, "refresh": False})
+    observations = {}
+    record_list(service, "cache_warm_listing", "/cached/Movies", observations)
+    record_get(service, "cache_root", "/cached", observations)
+    record_get(service, "cache_directory", "/cached/Movies", observations)
+    # Measured limitation: the WebDav self-mount cannot serve a direct object
+    # read of a file, so even a present file is not read through this driver.
+    record_get(service, "cache_present_file_read", "/cached/Movies/A Movie.mkv", observations)
+
+    deleted_path = "/cached/Movies/A Movie.mkv"
+    created_path = "/cached/Movies/Reappeared.mkv"
     (harness.tree / "Movies" / "A Movie.mkv").unlink()
-    # A file created after the cache was warmed.
     write_file(harness.tree, "Movies/Reappeared.mkv", b"r")
-    return {
-        "cached_driver": {
-            "mount": "/cached",
-            "deleted_after_cache": "/cached/Movies/A Movie.mkv",
-            "created_after_cache": "/cached/Movies/Reappeared.mkv",
-            "present_file": "/cached/Movies/Sub Dir/中文 名字.mkv",
-        },
+
+    # Wait until the still-cached listing naturally reflects the change. No
+    # refresh and no cache flush is used; the loop only polls with
+    # refresh:false and reports the elapsed time.
+    started = time.monotonic()
+    updated = False
+    polls = 0
+    deadline = started + CACHE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        polls += 1
+        status, payload = service.list_once("/cached/Movies")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        names = sorted(entry["name"] for entry in (data.get("content") or [])) \
+            if isinstance(data, dict) and payload.get("code") == 200 else []
+        if "Reappeared.mkv" in names and "A Movie.mkv" not in names:
+            updated = True
+            break
+        time.sleep(1)
+    observations["cache_natural_update"] = {
+        "updated": updated,
+        "polls": polls,
+        "elapsed_s": round(time.monotonic() - started, 1),
+        "ttl_minutes": CACHE_TTL_MINUTES,
     }
+    if not updated:
+        raise Failure("the cached listing never reflected the backing-store change within the TTL window")
+
+    record_list(service, "cache_after_update_listing", "/cached/Movies", observations)
+    record_get(service, "cache_deleted_read", deleted_path, observations)
+    record_get(service, "cache_created_read", created_path, observations)
+    return {"cached_driver": {
+        "mount": "/cached",
+        "deleted_after_cache": deleted_path,
+        "created_after_cache": created_path,
+        "present_file": "/cached/Movies/A Movie.mkv",
+    }}, observations
 
 
 def scenario_nested_mount_masking(harness):
+    """Record a nested-mount view and an unreadable root side by side.
+
+    Measured on the pinned build: when a nested storage exists below a mount
+    path and the parent storage is disabled, the parent path still reads as a
+    directory with provider "unknown" while only the nested entries list. Under
+    the accepted rule that readable directory continues, so a target that is not
+    read becomes a missing observation: the hazard is a documented limitation.
+    """
     service = harness.service
-    # Mount a second tree below the first mount's path.
     nested_root = harness.service.media_dir / "Nested"
     write_file(nested_root, "Inside.mkv", b"n")
     base_id = service.add_local_storage("/mask", harness.container_tree)
     service.wait_listed("/mask", ["Empty", "Movies", "TV", "Wide"])
     service.add_local_storage("/mask/Movies/Nested", "/media/Nested")
-    # Disabling the parent leaves the nested mount (and its virtual ancestors)
-    # as the only reachable view of /mask/Movies.
+    # The nested mount appears in its parent listing next to the real entries.
+    service.wait_listed("/mask/Movies", ["A Movie.mkv", "Nested", "Sub Dir", "a movie.mkv"])
     service.disable_storage(base_id)
-    # Record the real masking observation for the evidence file.
-    status, payload = service.api.call("/api/fs/list",
-                                       {"path": "/mask/Movies", "page": 1, "per_page": 200, "refresh": True})
-    names = [entry["name"] for entry in ((payload.get("data") or {}).get("content") or [])] \
-        if isinstance(payload, dict) and payload.get("code") == 200 else None
-    return {
-        "nested_mount_masking": {
-            "mount": "/mask",
-            "virtual_ancestor": "/mask/Movies",
-        },
-    }, {"masking_observation": {"http": status,
-                                "code": payload.get("code") if isinstance(payload, dict) else None,
-                                "names": names}}
+
+    # A separate disabled storage with no nested mount: its root is unreadable.
+    disabled_tree = harness.tree / "MaskedOffline"
+    write_file(disabled_tree, "Only.mkv", b"d")
+    disabled_id = service.add_local_storage("/masked-offline", harness.container_tree + "/MaskedOffline")
+    service.wait_listed("/masked-offline", ["Only.mkv"])
+    service.disable_storage(disabled_id)
+
+    observations = {}
+    record_list(service, "masking_list", "/mask/Movies", observations)
+    record_list(service, "masking_root_list", "/mask", observations)
+    record_get(service, "mask_virtual_root", "/mask", observations)
+    record_get(service, "mask_virtual_ancestor", "/mask/Movies", observations)
+    record_get(service, "mask_virtual_target", "/mask/Movies/NotThere.mkv", observations)
+    record_get(service, "masked_offline_root", "/masked-offline", observations)
+    return {"nested_mount_masking": {
+        "mount": "/mask",
+        "virtual_ancestor": "/mask/Movies",
+        "disabled_root": "/masked-offline",
+    }}, observations
 
 
 def scenario_hidden_entries(harness):
     service = harness.service
-    hidden_name = "A Movie.mkv"
     service.add_meta("/lib/Movies", hide="A Movie", h_sub=False)
     restricted = service.create_user("hidden-" + random_text(length=6),
                                      "hidden-" + random_text(length=12), permission=0)
-    status, payload = service.api.call("/api/fs/list",
-                                       {"path": "/lib/Movies", "page": 1, "per_page": 200, "refresh": True},
-                                       token=restricted)
-    names = [entry["name"] for entry in ((payload.get("data") or {}).get("content") or [])] \
-        if isinstance(payload, dict) and payload.get("code") == 200 else None
-    return {
-        "hidden_entries": {"hidden_name": "/lib/Movies/A Movie.mkv", "restricted_token": restricted},
-    }, {"hidden_observation": {"http": status,
-                               "code": payload.get("code") if isinstance(payload, dict) else None,
-                               "names": names}}
-
-
-def scenario_exact_names_only(harness):
-    return scenario_exact_names(harness)
-
-
-def scenario_empty_shape(harness):
-    """Record the raw empty-directory response shape verbatim."""
-    service = harness.service
-    status, payload = service.api.call(
-        "/api/fs/list", {"path": "/lib/Empty", "page": 1, "per_page": 200, "refresh": True})
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict):
-        raise Failure("empty directory response has no data object")
-    return {"empty_directory": {"directory": "/lib/Empty"}}, {
-        "empty_directory_shape": {
-            "http": status,
-            "code": payload.get("code"),
-            "content_is_null": data.get("content") is None,
-            "content_type": type(data.get("content")).__name__,
-            "total": data.get("total"),
-        },
-    }
+    observations = {}
+    record_list(service, "hidden_list", "/lib/Movies", observations, token=restricted)
+    record_get(service, "hidden_restricted_read", "/lib/Movies/A Movie.mkv", observations, token=restricted)
+    record_get(service, "hidden_unrestricted_read", "/lib/Movies/A Movie.mkv", observations)
+    return {"hidden_entries": {"hidden_name": "/lib/Movies/A Movie.mkv",
+                               "restricted_token": restricted}}, observations
 
 
 SCENARIOS = {
@@ -578,7 +684,7 @@ SCENARIOS = {
     "pagination": scenario_pagination,
     "empty_directory": scenario_empty_directory,
     "removed_parent": scenario_removed_parent,
-    "refresh_permission": scenario_refresh_permission,
+    "read_only_identity": scenario_read_only_identity,
     "cached_driver": scenario_cached_driver,
     "nested_mount_masking": scenario_nested_mount_masking,
     "hidden_entries": scenario_hidden_entries,
@@ -586,14 +692,17 @@ SCENARIOS = {
 
 # Which Go test each scenario gates.
 GO_TESTS = {
-    "exact_names": "TestIntegrationConfirmPresentAndAbsentAgainstRealOpenList|TestIntegrationNoStorageWrites",
-    "pagination": "TestIntegrationConfirmReadsEveryPageAgainstRealOpenList",
-    "empty_directory": "TestIntegrationEmptyDirectoryShapeAgainstRealOpenList",
-    "removed_parent": "TestIntegrationRemovedParentChainAgainstRealOpenList",
-    "refresh_permission": "TestIntegrationRefreshPermissionAgainstRealOpenList",
-    "cached_driver": "TestIntegrationCachedViewIsNotEvidenceAgainstRealOpenList",
-    "nested_mount_masking": "TestIntegrationNestedMountDoesNotMaskDriverFailureAgainstRealOpenList",
-    "hidden_entries": "TestIntegrationPermissionFilteringAgainstRealOpenList",
+    "exact_names": ("TestIntegrationConfirmPresentAndAbsentAgainstRealOpenList"
+                    "|TestIntegrationNoStorageWrites"
+                    "|TestIntegrationConfirmationIsBounded"),
+    "pagination": "TestIntegrationPaginationUsesCachedPagesAgainstRealOpenList",
+    "empty_directory": ("TestIntegrationEmptyDirectoryShapeAgainstRealOpenList"
+                        "|TestIntegrationTargetDirectoryIsPresentAgainstRealOpenList"),
+    "removed_parent": "TestIntegrationRemovedParentAgainstRealOpenList",
+    "read_only_identity": "TestIntegrationReadOnlyIdentityAgainstRealOpenList",
+    "cached_driver": "TestIntegrationCachedDriverAgainstRealOpenList",
+    "nested_mount_masking": "TestIntegrationNestedMountMaskingAgainstRealOpenList",
+    "hidden_entries": "TestIntegrationPermissionFilteredAgainstRealOpenList",
 }
 
 
@@ -655,7 +764,7 @@ def main(argv=None):
     parser.add_argument("--output-dir", required=True,
                         help="new empty directory under artifacts/validation-evidence")
     parser.add_argument("--scenario", default="all",
-                        help="'all' or a comma-separated subset: " + ", ".join(SCENARIOS))
+                        help="'all' or a comma-separated subset: " + ", ".join(sorted(SCENARIOS)))
     args = parser.parse_args(argv)
 
     binary = Path(args.test_binary).resolve()

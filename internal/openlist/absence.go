@@ -7,21 +7,27 @@ import (
 	"unicode/utf8"
 )
 
-// AbsenceStatus is the outcome class of one remote absence confirmation. The
-// zero value is deliberately Unknown: a result that is ignored, missed or
-// re-used by mistake can never be read as proof of absence.
+// AbsenceStatus is the outcome class of one remote target read. The zero value
+// is deliberately Unknown so an ignored, missed or mis-used result can never be
+// read as a missing observation.
 type AbsenceStatus int
 
 const (
-	// AbsenceUnknown means the current remote fact could not be established.
-	// Every error, rejection, ambiguity and limit resolves here.
+	// AbsenceUnknown means the current remote fact was not established: the
+	// call was cancelled, the input was rejected, the configured source root
+	// did not read as a directory, or no reader is configured. A caller must
+	// preserve the source and add no missing observation.
 	AbsenceUnknown AbsenceStatus = iota
-	// AbsencePresent means the exact target name exists under the confirmed
-	// parent directory, whatever its type.
+	// AbsencePresent means the exact target path currently reads as an existing
+	// object. A directory target or any other readable type is present too: a
+	// type conflict is reported, never turned into a missing observation.
 	AbsencePresent
-	// AbsenceConfirmed means a fresh, complete listing of an accessible parent
-	// that is anchored to a real storage object proved the exact name absent.
-	AbsenceConfirmed
+	// AbsenceMissing means the source root read as a directory but the exact
+	// target path was not read in this call. It is a business observation for
+	// this call only, not a proof that the object does not exist: OpenList
+	// answers a genuinely missing object and several failure modes identically,
+	// and the accepted rule records all of them the same way.
+	AbsenceMissing
 )
 
 // String renders the status without exposing request details.
@@ -29,8 +35,8 @@ func (s AbsenceStatus) String() string {
 	switch s {
 	case AbsencePresent:
 		return "present"
-	case AbsenceConfirmed:
-		return "confirmed-absent"
+	case AbsenceMissing:
+		return "missing"
 	default:
 		return "unknown"
 	}
@@ -42,23 +48,17 @@ func (s AbsenceStatus) String() string {
 type AbsenceReason string
 
 const (
-	ReasonNone                AbsenceReason = ""
-	ReasonInvalidInput        AbsenceReason = "source root or target is not a clean descendant path"
-	ReasonRootIsTarget        AbsenceReason = "target is the configured source root"
-	ReasonRootUnavailable     AbsenceReason = "source root is not a readable directory"
-	ReasonRootNotRealStorage  AbsenceReason = "source root is not anchored to a real storage object"
-	ReasonDirectoryUnlisted   AbsenceReason = "directory could not be freshly listed"
-	ReasonVirtualViewObserved AbsenceReason = "path is a virtual mount view, not a real directory"
-	ReasonNotADirectory       AbsenceReason = "path component exists but is not a directory"
-	ReasonParentUndetermined  AbsenceReason = "target parent is not an established real directory"
-	ReasonDepthLimit          AbsenceReason = "remote path exceeds the supported confirmation depth"
-	ReasonRequestLimit        AbsenceReason = "confirmation request limit exceeded"
-	ReasonTargetPresent       AbsenceReason = "exact target name exists in the listed parent"
-	ReasonTargetAbsent        AbsenceReason = "exact target name is absent from a fresh complete listing"
-	ReasonAncestorAbsent      AbsenceReason = "an ancestor name is absent from a fresh complete listing"
-	ReasonPermissionFiltered  AbsenceReason = "requesting identity is not permitted to see part of the path"
-	ReasonTargetUnresolved    AbsenceReason = "listing and direct read disagree about the target"
-	ReasonCancelled           AbsenceReason = "confirmation was cancelled"
+	ReasonNone               AbsenceReason = ""
+	ReasonInvalidInput       AbsenceReason = "source root or target is not a clean descendant path"
+	ReasonRootIsTarget       AbsenceReason = "target is the configured source root"
+	ReasonDepthLimit         AbsenceReason = "remote path exceeds the supported confirmation depth"
+	ReasonDependencyMissing  AbsenceReason = "no remote reader is configured"
+	ReasonCancelled          AbsenceReason = "confirmation was cancelled by the caller"
+	ReasonRootUnavailable    AbsenceReason = "source root could not be read as a directory"
+	ReasonTargetPresent      AbsenceReason = "target was read as an existing object"
+	ReasonTargetTypeConflict AbsenceReason = "target was read but is a directory, not a file"
+	ReasonTargetUnread       AbsenceReason = "target was not read in this call"
+	ReasonTargetInvalid      AbsenceReason = "target response was not the requested object"
 )
 
 // AbsenceResult is the outcome of exactly one confirmation call. It is a
@@ -67,264 +67,163 @@ const (
 type AbsenceResult struct {
 	Status AbsenceStatus
 	Reason AbsenceReason
-	// ConfirmedParent is the parent path whose fresh complete listing produced
-	// the result. Empty unless the status is Present or Confirmed.
-	ConfirmedParent string
-	// ConfirmedName is the final segment the result refers to. Empty unless the
-	// status is Present or Confirmed.
-	ConfirmedName string
-	// Chain lists the directories verified from the source root down to
-	// ConfirmedParent, inclusive. Bounded by MaxAbsenceDepth.
-	Chain []string
 }
 
-// FreshLister is the remote capability an absence confirmation needs: a
-// listing that forces a server-side refresh, plus a single-object read used
-// only to test whether a path is anchored to a real storage object.
-type FreshLister interface {
+// Getter is the only remote capability a confirmation needs: one exact-object
+// read. A confirmation never lists a directory and never walks ancestors.
+type Getter interface {
 	Get(ctx context.Context, remotePath string) (*Entry, error)
-	ListFresh(ctx context.Context, remotePath string) ([]Entry, error)
 }
 
-// Confirmation limits. They bound one call in depth, requests and memory
-// independently of how deep or wide the configured source tree is.
 const (
 	// MaxAbsenceDepth bounds the number of segments below the source root that
-	// one confirmation may verify.
+	// one confirmation may accept.
 	MaxAbsenceDepth = 64
-	// MaxAbsenceRequests bounds the total remote requests one confirmation may
-	// issue: one anchor read per verified directory plus one fresh listing per
-	// verified directory and the final parent.
-	MaxAbsenceRequests = 2*MaxAbsenceDepth + 4
+	// MaxAbsenceReads bounds the remote reads one valid confirmation issues:
+	// one for the source root and one for the exact target.
+	MaxAbsenceReads = 2
 )
 
-// ErrFreshListingUnsupported reports that a client cannot force a refresh and
-// therefore must never be used as an absence source.
-var ErrFreshListingUnsupported = errors.New("client cannot force a fresh remote listing")
+// errCallerCancelled distinguishes a caller cancellation or deadline from a
+// request failure. The caller's context ending aborts the whole call, so it may
+// never be classified as a missing observation.
+var errCallerCancelled = errors.New("confirmation context ended")
 
-// Confirmer proves current remote existence for one exact path under a source
+// Confirmer reads the current remote facts for one exact path under a source
 // root. It holds no per-call or cross-call state: every Confirm re-reads the
-// remote facts, so a previous "absent" result can never be reused.
+// remote facts, so a previous result can never be reused.
 type Confirmer struct {
-	lister FreshLister
+	getter Getter
 }
 
-// NewConfirmer builds a Confirmer over the given remote client.
-func NewConfirmer(lister FreshLister) *Confirmer {
-	return &Confirmer{lister: lister}
+// NewConfirmer builds a Confirmer over the given remote reader.
+func NewConfirmer(getter Getter) *Confirmer {
+	return &Confirmer{getter: getter}
 }
 
-// Confirm decides whether targetPath currently exists under sourceRoot.
+// Confirm reads the current remote facts for one exact target path under a
+// configured source root and classifies the result for the caller's cleanup
+// rule (requirements: simplified deletion decision).
 //
-// AbsenceConfirmed is returned only when every one of these holds:
-//   - the source root answers with a real directory object (not a virtual
-//     mount view, which OpenList can serve while the driver is unreachable);
-//   - every parent directory down to the target's parent was freshly listed in
-//     full with a consistent total;
-//   - each intermediate name was found and is a directory;
-//   - the exact final name (case-sensitive) is absent from that fresh listing.
+// The decision is deliberately two exact-object reads and no listing:
 //
-// Every other outcome - transport error, HTTP or application error, permission
-// rejection, truncated or contradictory pagination, a component that is not a
-// directory, a virtual mount view, a depth or request limit - is
-// AbsenceUnknown. A target that exists as any type is AbsencePresent.
+//  1. Get(sourceRoot). A failure, an unusable object or a non-directory result
+//     is AbsenceUnknown / ReasonRootUnavailable: the caller preserves the
+//     source STRM and adds no missing observation. No target read is issued.
+//  2. Get(targetPath). A successfully decoded object is AbsencePresent; a
+//     directory is AbsencePresent with ReasonTargetTypeConflict. Any error or
+//     unusable object is AbsenceMissing: one missing observation for this call,
+//     regardless of HTTP status, application code, transport failure, a single
+//     request timeout or an unparseable response.
+//
+// A cancellation or deadline of the caller's own context is never a missing
+// observation: it is checked before and after every request and wins over the
+// request result. A single HTTP request timeout of the client is different: its
+// parent context is still valid, so it is classified by stage (root
+// unavailable, target missing).
+//
+// Confirm does not claim that a missing observation proves the object does not
+// exist. It reports what the configured rule asks for: the root read as a
+// directory and the exact target was not read.
 func (c *Confirmer) Confirm(ctx context.Context, sourceRoot, targetPath string) AbsenceResult {
-	if c == nil || c.lister == nil {
-		return unknownResult(ReasonRootUnavailable)
+	if c == nil || c.getter == nil {
+		return unknownResult(ReasonDependencyMissing)
+	}
+	if ctx == nil {
+		return unknownResult(ReasonCancelled)
 	}
 	root, segments, reason := splitDescendant(sourceRoot, targetPath)
 	if reason != ReasonNone {
 		return unknownResult(reason)
 	}
-	budget := MaxAbsenceRequests
-	if err := ctx.Err(); err != nil {
+	if reason := CheckSourceRoot(ctx, c.getter, root); reason != ReasonNone {
+		return unknownResult(reason)
+	}
+
+	target := joinSegments(root, segments)
+	targetEntry, err := c.read(ctx, target)
+	if errors.Is(err, errCallerCancelled) {
 		return unknownResult(ReasonCancelled)
 	}
-
-	// Anchor the source root to a real storage object first. OpenList answers a
-	// path that only exists because a nested mount lives below it with a virtual
-	// directory whose `provider` is "unknown"; the list of such a path can
-	// succeed while the underlying driver is down, so it can never anchor a
-	// negative conclusion.
-	reason = c.verifyRealDirectory(ctx, root, &budget)
-	if reason != ReasonNone {
-		return unknownResult(reason)
-	}
-
-	chain := make([]string, 0, len(segments))
-	parent := root
-	for _, segment := range segments[:len(segments)-1] {
-		entries, reason := c.freshEntries(ctx, parent, &budget)
-		if reason != ReasonNone {
-			return unknownResult(reason)
-		}
-		entry, ok := exactEntry(entries, segment)
-		if !ok {
-			// A fresh, complete listing of an established real directory that
-			// omits the name proves the whole remaining path cannot exist. This
-			// is the ancestor-chain case where a parent directory itself was
-			// removed: no further request is needed and none may be attempted on
-			// the missing path, which would only turn a driver error into what
-			// looks like more evidence.
-			chain = append(chain, parent)
-			return AbsenceResult{
-				Status:          AbsenceConfirmed,
-				Reason:          ReasonAncestorAbsent,
-				ConfirmedParent: parent,
-				ConfirmedName:   segment,
-				Chain:           chain,
-			}
-		}
-		if !entry.IsDir {
-			return unknownResult(ReasonNotADirectory)
-		}
-		chain = append(chain, parent)
-		parent = joinRemote(parent, segment)
-		// Each descending step must itself be a real directory object, so a
-		// nested mount view can never become an intermediate confirmation
-		// anchor.
-		if reason := c.verifyRealDirectory(ctx, parent, &budget); reason != ReasonNone {
-			return unknownResult(reason)
-		}
-	}
-
-	entries, reason := c.freshEntries(ctx, parent, &budget)
-	if reason != ReasonNone {
-		return unknownResult(reason)
-	}
-	final := segments[len(segments)-1]
-	chain = append(chain, parent)
-	if _, ok := exactEntry(entries, final); ok {
-		return AbsenceResult{
-			Status:          AbsencePresent,
-			Reason:          ReasonTargetPresent,
-			ConfirmedParent: parent,
-			ConfirmedName:   final,
-			Chain:           chain,
-		}
-	}
-	// The name is missing from a fresh complete listing, but OpenList also drops
-	// entries the requesting identity may not see (a metadata `hide` rule), and
-	// such an entry is indistinguishable from a deleted one in a listing. One
-	// direct object read separates the two cases without ever being sufficient on
-	// its own: a structured permission refusal means the name exists but is
-	// filtered, a successful read contradicts the listing, and any other failure
-	// leaves the listing as the only evidence, which is exactly what established
-	// the absence in the first place.
-	if reason := c.probeFilteredTarget(ctx, parent, final, &budget); reason != ReasonNone {
-		return unknownResult(reason)
-	}
-	return AbsenceResult{
-		Status:          AbsenceConfirmed,
-		Reason:          ReasonTargetAbsent,
-		ConfirmedParent: parent,
-		ConfirmedName:   final,
-		Chain:           chain,
+	name := segments[len(segments)-1]
+	switch {
+	case err != nil || targetEntry == nil || targetEntry.Name == "":
+		return missingResult(ReasonTargetUnread)
+	case targetEntry.Name != name:
+		// The response is about a different object, so the exact target was not
+		// read. This is an unusable response, not evidence about the requested
+		// name.
+		return missingResult(ReasonTargetInvalid)
+	case targetEntry.IsDir:
+		return presentResult(ReasonTargetTypeConflict)
+	default:
+		return presentResult(ReasonTargetPresent)
 	}
 }
 
-// probeFilteredTarget guards a negative listing against visibility filtering.
+// read performs one exact-object read and enforces the caller-cancellation
+// rule on both sides of the request.
+func (c *Confirmer) read(ctx context.Context, path string) (*Entry, error) {
+	if ctx.Err() != nil {
+		return nil, errCallerCancelled
+	}
+	entry, err := c.getter.Get(ctx, path)
+	if ctx.Err() != nil {
+		return nil, errCallerCancelled
+	}
+	return entry, err
+}
+
+// CheckSourceRoot reads the configured source root and reports whether this
+// call may continue. It is the single definition of the source-root gate used
+// both by Confirmer and by the directory reconciler, so a root that is removed,
+// unreadable, malformed or not a directory can never be interpreted as an
+// empty source.
 //
-// It returns ReasonPermissionFiltered when OpenList structurally refuses the
-// direct read (the name exists but this identity may not see it),
-// ReasonTargetUnresolved when the read succeeds (contradicting the listing) or
-// when it cannot be performed at all, and ReasonNone only when the read failed
-// in a way consistent with an absent object.
-func (c *Confirmer) probeFilteredTarget(ctx context.Context, parent, name string, budget *int) AbsenceReason {
-	if err := ctx.Err(); err != nil {
+// ReasonNone means the root was read as a directory. Every other reason is a
+// preserve decision for the caller: the source keeps its STRM and missing
+// counts. ReasonCancelled reports that the caller's own context ended.
+func CheckSourceRoot(ctx context.Context, getter Getter, sourceRoot string) AbsenceReason {
+	if getter == nil {
+		return ReasonDependencyMissing
+	}
+	if ctx == nil || ctx.Err() != nil {
 		return ReasonCancelled
 	}
-	if reason := takeRequest(budget); reason != ReasonNone {
-		return reason
+	root, ok := cleanRemote(sourceRoot)
+	if !ok {
+		return ReasonInvalidInput
 	}
-	entry, err := c.lister.Get(ctx, joinRemote(parent, name))
-	if err == nil && entry != nil {
-		return ReasonTargetUnresolved
+	entry, err := getter.Get(ctx, root)
+	if ctx.Err() != nil {
+		return ReasonCancelled
 	}
-	if IsPermissionDenied(err) {
-		return ReasonPermissionFiltered
+	// A Get object is only usable when it carries a name. Client.Get already
+	// rejects a response without one, but a reader supplied by a caller must not
+	// be able to turn a zero object into a readable directory.
+	if err != nil || entry == nil || entry.Name == "" || !entry.IsDir {
+		return ReasonRootUnavailable
 	}
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
-		// The service answered with an application-level failure. The pinned
-		// build uses the same code for a missing object, a driver error and a
-		// virtual mount view, so the failure adds no new evidence: the fresh
-		// listing remains the deciding fact.
-		return ReasonNone
-	}
-	// A transport error, timeout, cancellation or malformed response means the
-	// probe could not be performed, so the negative conclusion is withheld.
-	return ReasonTargetUnresolved
+	return ReasonNone
 }
 
 func unknownResult(reason AbsenceReason) AbsenceResult {
 	return AbsenceResult{Status: AbsenceUnknown, Reason: reason}
 }
 
-// takeRequest consumes one unit of the per-call request budget.
-func takeRequest(budget *int) AbsenceReason {
-	if *budget <= 0 {
-		return ReasonRequestLimit
-	}
-	*budget--
-	return ReasonNone
+func presentResult(reason AbsenceReason) AbsenceResult {
+	return AbsenceResult{Status: AbsencePresent, Reason: reason}
 }
 
-// verifyRealDirectory requires path to answer a Get with a directory object
-// backed by a real storage. OpenList reports "unknown" as the provider for a
-// directory that only exists as the parent of a nested mount, and can serve
-// that directory successfully while its own driver is unreachable.
-func (c *Confirmer) verifyRealDirectory(ctx context.Context, path string, budget *int) AbsenceReason {
-	if err := ctx.Err(); err != nil {
-		return ReasonCancelled
-	}
-	if reason := takeRequest(budget); reason != ReasonNone {
-		return reason
-	}
-	entry, err := c.lister.Get(ctx, path)
-	if err != nil || entry == nil {
-		return ReasonRootUnavailable
-	}
-	if entry.Name == "" || !entry.IsDir {
-		return ReasonNotADirectory
-	}
-	if entry.Virtual {
-		return ReasonVirtualViewObserved
-	}
-	return ReasonNone
+func missingResult(reason AbsenceReason) AbsenceResult {
+	return AbsenceResult{Status: AbsenceMissing, Reason: reason}
 }
 
-// freshEntries lists one directory with an explicit refresh. A failed refresh
-// is an error; it never falls back to a cached List, because a cached page can
-// predate the change being confirmed.
-func (c *Confirmer) freshEntries(ctx context.Context, dir string, budget *int) ([]Entry, AbsenceReason) {
-	if err := ctx.Err(); err != nil {
-		return nil, ReasonCancelled
+func joinSegments(root string, segments []string) string {
+	if root == "/" {
+		return "/" + strings.Join(segments, "/")
 	}
-	if reason := takeRequest(budget); reason != ReasonNone {
-		return nil, reason
-	}
-	entries, err := c.lister.ListFresh(ctx, dir)
-	if err != nil {
-		return nil, ReasonDirectoryUnlisted
-	}
-	return entries, ReasonNone
-}
-
-func exactEntry(entries []Entry, name string) (Entry, bool) {
-	for i := range entries {
-		if entries[i].Name == name {
-			return entries[i], true
-		}
-	}
-	return Entry{}, false
-}
-
-func joinRemote(dir, name string) string {
-	if dir == "/" {
-		return "/" + name
-	}
-	return dir + "/" + name
+	return root + "/" + strings.Join(segments, "/")
 }
 
 // splitDescendant validates that targetPath is a strict descendant of
@@ -333,7 +232,7 @@ func joinRemote(dir, name string) string {
 // The inputs are never normalised: a spelling that is not already a clean,
 // absolute path is rejected instead of being silently cleaned into a different
 // path than the caller asked about. Accepting a dirty spelling would let a
-// caller confirm absence for a path it did not actually name.
+// caller confirm a path it did not actually name.
 func splitDescendant(sourceRoot, targetPath string) (string, []string, AbsenceReason) {
 	root, ok := cleanRemote(sourceRoot)
 	if !ok {
@@ -348,9 +247,6 @@ func splitDescendant(sourceRoot, targetPath string) (string, []string, AbsenceRe
 	}
 	var rest string
 	if root == "/" {
-		if !strings.HasPrefix(target, "/") {
-			return "", nil, ReasonInvalidInput
-		}
 		rest = strings.TrimPrefix(target, "/")
 	} else {
 		if !strings.HasPrefix(target, root+"/") {

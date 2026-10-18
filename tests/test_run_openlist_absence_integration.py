@@ -5,6 +5,7 @@ Task requires: evidence directory boundaries, argument validation, subprocess
 failure propagation, container cleanup limited to own resources, and the
 "missing service is BLOCKED, never a silent skip" rule.
 """
+import ast
 import json
 import os
 from pathlib import Path
@@ -218,6 +219,95 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse(service.started)
 
 
+class SimplifiedGetContractTests(unittest.TestCase):
+    """The runner must prepare and record facts without ever forcing a refresh.
+
+    These checks read the runner's own AST so a list request split across lines
+    or built through a helper is still inspected, instead of grepping one line.
+    """
+
+    def setUp(self):
+        self.source = (runner.ROOT / "scripts" / "run_openlist_absence_integration.py").read_text()
+        self.tree = ast.parse(self.source)
+
+    def _dict_literals(self):
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Dict):
+                keys = [k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+                if "path" in keys and "per_page" in keys:
+                    yield node, keys
+
+    def test_every_list_request_declares_refresh_false(self):
+        literals = list(self._dict_literals())
+        self.assertTrue(literals, "no list request payload found")
+        for node, keys in literals:
+            self.assertIn("refresh", keys, ast.unparse(node))
+            refresh = node.values[keys.index("refresh")]
+            self.assertIsInstance(refresh, ast.Constant, ast.unparse(refresh))
+            self.assertIs(refresh.value, False, ast.unparse(node))
+
+    def test_no_refresh_true_anywhere(self):
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (isinstance(key, ast.Constant) and key.value == "refresh"
+                            and isinstance(value, ast.Constant) and value.value is True):
+                        self.fail("a request forces a refresh: " + ast.unparse(node))
+
+    def test_listing_goes_through_list_once(self):
+        self.assertIn("def list_once(", self.source)
+        self.assertIn("def get_once(", self.source)
+        body = self.source.split("def wait_listed(", 1)[1].split("\n    def ", 1)[0]
+        # wait_listed must poll through the shared helper and never build a list
+        # payload of its own.
+        self.assertIn("self.list_once(", body)
+        self.assertNotIn('"per_page"', body)
+
+    def test_cache_scenario_waits_naturally_instead_of_flushing(self):
+        self.assertIn("CACHE_TTL_MINUTES", self.source)
+        self.assertIn("CACHE_WAIT_SECONDS", self.source)
+        self.assertIn("cache_natural_update", self.source)
+        # No cache-clear or refresh endpoint may be called, and the TTL must be
+        # short enough that waiting is bounded rather than an hour.
+        self.assertLessEqual(runner.CACHE_TTL_MINUTES, 5)
+        for forbidden in ("/api/fs/list?refresh", "cache/clear", "storage/clear"):
+            self.assertNotIn(forbidden, self.source)
+
+    def test_read_only_scenario_replaces_refresh_permission(self):
+        self.assertIn("scenario_read_only_identity", self.source)
+        self.assertEqual(runner.GO_TESTS["read_only_identity"],
+                         "TestIntegrationReadOnlyIdentityAgainstRealOpenList")
+        self.assertNotIn("refresh_permission", self.source)
+
+    def test_scenarios_cover_the_required_facts(self):
+        self.assertEqual(set(runner.SCENARIOS), {
+            "exact_names", "pagination", "empty_directory", "removed_parent",
+            "read_only_identity", "cached_driver", "nested_mount_masking", "hidden_entries",
+        })
+
+    def test_hidden_and_masking_limitations_are_recorded(self):
+        # The Go test asserts the accepted rule; the runner records both the
+        # restricted and unrestricted reads so the limitation stays visible.
+        self.assertIn("hidden_restricted_read", self.source)
+        self.assertIn("hidden_unrestricted_read", self.source)
+        self.assertIn("mask_virtual_ancestor", self.source)
+        self.assertIn("masked_offline_root", self.source)
+
+    def test_deleted_parent_scenario_has_no_ancestor_walk(self):
+        # The runner must not pre-walk the removed ancestor to "help" the
+        # confirmation; it only records the exact target and the two roots. The
+        # one wait_listed call creates the offline storage before it is removed,
+        # so it may not reference the removed path.
+        body = self.source.split("def scenario_removed_parent(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn('"/lib/" + removed_target', body)
+        self.assertNotIn('remoteJoin(removed', body)
+        self.assertNotIn('get_once("/lib/" + removed_rel', body)
+
+    def test_special_names_survive_as_exact_names(self):
+        self.assertIn("中文 名字.mkv", self.source)
+        self.assertIn("#hash% &", self.source)
+
+
 class HarnessContractTests(unittest.TestCase):
     def test_every_scenario_declares_a_go_test(self):
         self.assertEqual(set(runner.SCENARIOS), set(runner.GO_TESTS))
@@ -240,10 +330,12 @@ class HarnessContractTests(unittest.TestCase):
 
     def test_runner_does_not_reimplement_absence_logic(self):
         source = (runner.ROOT / "scripts" / "run_openlist_absence_integration.py").read_text()
-        # The Python side only drives fixtures; it must not contain a decision
-        # algorithm such as a local "does this list mean absent" rule.
-        self.assertNotIn("confirmed_absent", source)
-        self.assertNotIn("AbsenceConfirmed", source)
+        # The Python side only drives fixtures and records raw observations; it
+        # must not contain a decision algorithm such as a local "does this read
+        # mean missing" rule, and it must not name the Go result types.
+        for forbidden in ("confirmed_absent", "AbsenceMissing", "AbsencePresent",
+                          "AbsenceUnknown", "CheckSourceRoot"):
+            self.assertNotIn(forbidden, source)
 
 
 if __name__ == "__main__":

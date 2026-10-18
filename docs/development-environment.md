@@ -103,11 +103,13 @@ Slice 2 的目标 T4 与缺失确认真实 OpenList 实证见当前合同和测�
 
 本仓库原先无 Git；用户提供身份后只在本仓库配置 Git 身份，开发准备文件已提交在本地 main。未配置远程、未推送。当前 Slice／Task 生命周期与审查结论以 [SLICE.md](../SLICE.md) 和 [TASK.md](../TASK.md) 为准；旧验证和审查内容保留为历史记录，不覆盖新候选证据。
 
-## Task 2.1 真实 OpenList 缺失确认实证（旧合同历史）
+## Task 2.1 真实 OpenList 缺失确认实证（简化 Get 规则）
 
-2026-10-18 用户最终改用源根／目标 Get 简化规则且所有列表 refresh:false。以下运行器、场景及旧结论对应原强刷候选，保留为历史，并非新合同执行清单或 PASS。B 须重评并更新，不能照此启动强刷来验证新规则。当前合同见[需求](requirements.md#简化删除判定2026-10-18-用户最终决定)。
+2026-10-18 用户最终改用源根／目标 Get 简化规则且所有列表 refresh:false。以下为按该
+规则实施并重跑的真实服务实证；旧强刷候选的运行器、场景与结论保留在 Git 历史，不再
+是本合同的执行清单。准确语义见[需求](requirements.md#简化删除判定2026-10-18-用户最终决定)。
 
-本 Task 不开放清理，只验证远端“存在／已确认不存在／无法确认”的确认能力。运行器
+本 Task 不开放清理，只验证远端“存在／未读到／无法判定”的一次判定能力。运行器
 `scripts/run_openlist_absence_integration.py` 自建专用容器、驱动 `openlist_integration`
 构建标签下的 Go 集成测试二进制，不在 Python 侧重写判断算法。
 
@@ -127,7 +129,7 @@ version    v4.2.7
 mkdir -p artifacts/task-2.1/bin
 bash scripts/go-local test -c -tags openlist_integration \
   -o artifacts/task-2.1/bin/openlist-integration.test ./internal/openlist
-TASK_EVIDENCE="$(mktemp -d artifacts/validation-evidence/task-2.1-final-XXXXXX)"
+TASK_EVIDENCE="$(mktemp -d artifacts/validation-evidence/task-2.1-simple-get-final-XXXXXX)"
 python3 scripts/run_openlist_absence_integration.py \
   --test-binary artifacts/task-2.1/bin/openlist-integration.test \
   --output-dir "$TASK_EVIDENCE/real-openlist"
@@ -142,14 +144,14 @@ python3 scripts/run_openlist_absence_integration.py \
 
 | 场景 | 覆盖 |
 |---|---|
-| `exact_names` | 精确大小写、中文与 `#`／`%`／空格／引号、无写入副作用 |
-| `pagination` | 250 项目录第二页中的精确存在与缺失 |
-| `empty_directory` | 真实 `content:null,total:0` 形状被接受且未被当作错误 |
-| `removed_parent` | 源内父目录删除经祖先链确认；源根离线为“无法确认” |
-| `refresh_permission` | 只读 token 刷新被 403 拒绝，结论为无法确认 |
-| `cached_driver` | WebDav 挂载回环到自身 DAV 端点并设 60 分钟缓存：旧缓存条目与刷新后新出现条目均以刷新事实为准 |
-| `nested_mount_masking` | 父存储禁用后仍可列出的虚拟挂载祖先不得作为否定依据 |
-| `hidden_entries` | metadata `hide` 过滤使条目从列表消失时不得判为不存在 |
+| `exact_names` | 精确大小写、中文与 `#`／`%`／空格／引号、目录目标类型冲突、无写入副作用 |
+| `pagination` | 250 项目录第二页以 `refresh:false` 读取；源根与目标仍只作两次 Get |
+| `empty_directory` | 真实 `content:null,total:0` 形状被接受；目录目标为类型冲突 |
+| `removed_parent` | 源内父目录删除按同一 Get 规则成为缺失观察；父挂载根可读而目标未读到同为缺失；禁用存储的根不可读则保留 |
+| `read_only_identity` | 只读身份以 `refresh:false` 正常列表与判定，不依赖刷新权限 |
+| `cached_driver` | WebDav 自挂载短 TTL：等待缓存自然更新，再验证删／增目标的重复读取一致 |
+| `nested_mount_masking` | 父存储禁用后仍可读的虚拟挂载祖先按用户规则继续，目标未读到即缺失观察；无嵌套挂载的禁用存储根不可读 |
+| `hidden_entries` | metadata `hide` 过滤使受限身份读不到，属用户接受的同码局限；不受限身份仍可读 |
 
 容器以镜像自带的非特权 `openlist` 用户运行，因此运行器只对本次专用的数据／媒体
 目录放开写权限。生成的 admin 密码只存在于进程内，不写入任何证据文件；`summary.json`
@@ -158,13 +160,15 @@ URL 或私有完整路径。停止容器后保留证据目录。
 
 已实测的固定版本语义（源码对照见 [compatibility](compatibility.md)）：空目录序列化为
 `content:null,total:0`；缺失对象、驱动故障与虚拟挂载视图都返回 HTTP 200 + 应用码 500；
-嵌套挂载存在时，父驱动故障会让列表只剩虚拟项而不报错；只读身份被拒绝刷新；`hide`
-过滤会从列表中静默移除条目且在直接读取时返回应用码 403。因此确认以“真实存储根 +
-逐级刷新完整列表 + 精确名称缺失”为主证据，直接读取仅用于发现可见性过滤或列表与
-读取矛盾。
+嵌套挂载存在时，父驱动故障会让列表只剩虚拟项而不报错；`hide` 过滤会从列表中静默
+移除条目且受限身份的直接读取也被拒绝；WebDav 自挂载的目录可读、文件 Get 在 1 分钟
+TTL 自然到期后仍不能被读取。运行器准备、轮询与取证请求全部显式 `refresh:false`，
+不使用强刷或清缓存捷径。
+
+因为父挂载根在后备目录被删除后仍返回目录对象，而禁用存储的挂载根不再可读，`removed_parent`
+场景同时保留“根可读 → 缺失观察”和“根不可读 → 保留”两种真实结果。`nested_mount_masking`
+与 `hidden_entries` 记录的是用户明确接受的局限，不写成已安全辨别或已修复。
 
 本 Task 不改变生产 CLI：`cleanup.enabled: true` 仍在任何输出／数据库变更前被拒绝，
 `sync`／`sync --dry-run` 行为与 Slice 1 回归一致。`/d/` 播放、固定插件解析、
 Jellyfin／代理、ARM64 实机与规模仍为 NOT RUN。
-
-前次 A 的最终 500 例外及后续刷新预算方案已撤回。现在源根未读到保留，源根可读且目标 Get 未读到计缺失，不再辨别其他原因产生的同样响应；所有列表不开启强刷。旧真实服务原始事实保留，新候选依 B 适配后的测试计划重新验证。

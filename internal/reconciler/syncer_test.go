@@ -517,6 +517,99 @@ func TestSourceRootMustBeDirectory(t *testing.T) {
 	}
 }
 
+// gateLister overrides only the source-root read so the shared source-root
+// gate can be exercised without a live remote.
+type gateLister struct {
+	*fakeLister
+	root func(ctx context.Context, path string) (*openlist.Entry, error)
+	gets int
+}
+
+func (l *gateLister) Get(ctx context.Context, path string) (*openlist.Entry, error) {
+	l.gets++
+	if path == "/Movies" && l.root != nil {
+		return l.root(ctx, path)
+	}
+	return l.fakeLister.Get(ctx, path)
+}
+
+func TestSourceRootGateVariantsKeepPriorState(t *testing.T) {
+	// Every root outcome the shared gate rejects must stop the round before any
+	// listing, commit no round and leave the output untouched. This is the
+	// reconciler half of the requirement's source-root rule.
+	cases := []struct {
+		name string
+		root func(ctx context.Context, path string) (*openlist.Entry, error)
+	}{
+		{
+			name: "transport or api failure",
+			root: func(context.Context, string) (*openlist.Entry, error) { return nil, errors.New("offline") },
+		},
+		{
+			name: "nil object",
+			root: func(context.Context, string) (*openlist.Entry, error) { return nil, nil },
+		},
+		{
+			name: "unnamed object",
+			root: func(context.Context, string) (*openlist.Entry, error) {
+				return &openlist.Entry{IsDir: true}, nil
+			},
+		},
+		{
+			name: "file instead of directory",
+			root: func(context.Context, string) (*openlist.Entry, error) {
+				return &openlist.Entry{Name: "Movies", IsDir: false}, nil
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			store := newStore(t)
+			lister := &gateLister{fakeLister: standardTree(), root: tc.root}
+			report, err := New(lister, store, Options{PublicPrefix: "https://openlist.example.invalid"}).Run(
+				context.Background(), []Source{sourceFor(root)},
+			)
+			if err == nil || !report.Sources[0].Partial || report.Sources[0].Errors == 0 {
+				t.Fatalf("root gate must fail the round: report=%+v err=%v", report, err)
+			}
+			if epoch, epochErr := store.NextEpoch("/Movies"); epochErr != nil || epoch != 1 {
+				t.Fatalf("root gate failure committed a round: epoch=%d err=%v", epoch, epochErr)
+			}
+			if lister.gets != 1 {
+				t.Fatalf("the failed gate must read the root once, got %d reads", lister.gets)
+			}
+			entries, readErr := os.ReadDir(root)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("root gate failure wrote output: %v", entries)
+			}
+		})
+	}
+}
+
+func TestSourceRootCancellationStopsRoundWithoutListing(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	lister := standardTree()
+	report, err := New(lister, store, Options{PublicPrefix: "https://openlist.example.invalid"}).Run(
+		ctx, []Source{sourceFor(root)},
+	)
+	if err == nil || !report.Sources[0].Partial {
+		t.Fatalf("a cancelled round must fail: report=%+v err=%v", report, err)
+	}
+	if lister.getCalls != 0 {
+		t.Fatalf("a cancelled round must not read the root, got %d", lister.getCalls)
+	}
+	if epoch, epochErr := store.NextEpoch("/Movies"); epochErr != nil || epoch != 1 {
+		t.Fatalf("a cancelled round committed: epoch=%d err=%v", epoch, epochErr)
+	}
+}
+
 type rootSwapLister struct {
 	*fakeLister
 	onList func()

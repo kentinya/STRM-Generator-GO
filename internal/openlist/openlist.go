@@ -48,29 +48,6 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Op + ": " + e.Detail }
 
-// StatusCode returns the application code when present, else the HTTP status.
-func (e *APIError) StatusCode() int {
-	if e.Code != 0 {
-		return e.Code
-	}
-	return e.HTTPStatus
-}
-
-// openListPermissionDenied is the application code OpenList returns when a
-// metadata rule refuses the requesting user access to a path.
-const openListPermissionDenied = 403
-
-// IsPermissionDenied reports whether the failure is a structured permission
-// refusal. It is used only to keep a confirmation conservative: a path the
-// requesting identity cannot see must never be reported as absent.
-func IsPermissionDenied(err error) bool {
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode() == openListPermissionDenied
-	}
-	return false
-}
-
 // Entry is one directory entry with optional metadata.
 type Entry struct {
 	Name    string
@@ -79,16 +56,7 @@ type Entry struct {
 	SHA1    string // lowercase 40 hex chars, empty when unavailable/invalid
 	HasSHA  bool
 	Anomaly string // limited reason when optional metadata is unusable
-	// Virtual marks a directory that OpenList reports only because a nested
-	// storage is mounted below it. Such a path is not backed by the parent
-	// driver and must never anchor an absence conclusion.
-	Virtual bool
 }
-
-// providerUnknown is the provider value OpenList returns for a directory that
-// is not backed by a real storage object (a virtual mount ancestor, or the
-// synthetic root). It is the only signal the API exposes for this distinction.
-const providerUnknown = "unknown"
 
 // Client is a bounded OpenList API client.
 type Client struct {
@@ -172,15 +140,7 @@ func (c *Client) Get(ctx context.Context, remotePath string) (*Entry, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, &APIError{Op: "/api/fs/get", Detail: "invalid object shape"}
 	}
-	entry, err := raw.toEntry()
-	if err != nil {
-		return nil, err
-	}
-	// Only a Get response distinguishes a real storage object from a virtual
-	// mount ancestor. "unknown" also covers the synthetic root object, which is
-	// exactly the virtual view we must not trust, so it is treated the same.
-	entry.Virtual = entry.IsDir && raw.Provider == providerUnknown
-	return entry, nil
+	return raw.toEntry()
 }
 
 type rawEntry struct {
@@ -189,12 +149,9 @@ type rawEntry struct {
 	Size     json.RawMessage `json:"size"`
 	HashInfo json.RawMessage `json:"hash_info"`
 	Hashinfo json.RawMessage `json:"hashinfo"`
-	Provider string          `json:"provider"`
 }
 
-// toEntry converts one raw object. The `provider` field is only present on
-// Get responses; list entries carry "unknown" and are therefore never treated
-// as virtual (virtual detection for a directory listing uses a per-path Get).
+// toEntry converts one raw object.
 func (r *rawEntry) toEntry() (*Entry, error) {
 	if r.Name == "" {
 		return nil, &APIError{Op: "entry", Detail: "missing name"}
@@ -291,19 +248,11 @@ func normalizeSHA1(value string) (string, bool) {
 // A directory is only reported complete when all pages succeed, the total
 // stays consistent and the final page terminates exactly at the declared
 // total.
+//
+// Every page is requested with an explicit refresh:false. This is the only
+// listing mode the generator uses: no caller may force a server-side refresh,
+// and there is no separate fresh-listing entry point to fall back to.
 func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
-	return c.list(ctx, remotePath, false)
-}
-
-// ListFresh walks every page of a remote directory forcing a server-side
-// refresh on every page. Absence may only be concluded from a fresh, complete
-// traversal: a cached page can predate the change being confirmed. A failed
-// refresh is returned as an error and never falls back to a cached List.
-func (c *Client) ListFresh(ctx context.Context, remotePath string) ([]Entry, error) {
-	return c.list(ctx, remotePath, true)
-}
-
-func (c *Client) list(ctx context.Context, remotePath string, refresh bool) ([]Entry, error) {
 	var all []Entry
 	seen := map[string]struct{}{}
 	var expectedTotal *int64
@@ -314,7 +263,7 @@ func (c *Client) list(ctx context.Context, remotePath string, refresh bool) ([]E
 			return nil, &APIError{Op: "/api/fs/list", Detail: "page limit exceeded"}
 		}
 		data, err := c.do(ctx, "/api/fs/list", map[string]any{
-			"path": remotePath, "page": page, "per_page": perPage, "refresh": refresh,
+			"path": remotePath, "page": page, "per_page": perPage, "refresh": false,
 		})
 		if err != nil {
 			return nil, err
@@ -396,16 +345,14 @@ func (c *Client) list(ctx context.Context, remotePath string, refresh bool) ([]E
 	return all, nil
 }
 
-// IsNotFound reports whether an error is a definite remote 404. Callers must
-// not treat other failures as absence.
+// IsNotFound reports whether an error text mentions a remote 404.
 //
-// Deprecated: IsNotFound is unsuitable as an absence signal. The pinned
-// OpenList build answers a missing object with HTTP 200 and application code
-// 500, and also reports driver failures and virtual mount views the same way,
-// so no error text can distinguish "absent" from "unknown". Use Confirmer,
-// which establishes absence from a fresh complete listing of a real parent
-// directory. This helper remains only for callers that merely need to shape a
-// diagnostic and must never gate a deletion on it.
+// Deprecated: IsNotFound is not an absence signal and must never gate a
+// deletion. The pinned OpenList build answers a missing object with HTTP 200
+// and application code 500, and reports other failures the same way, so this
+// text check cannot distinguish the cases. Use Confirmer, which classifies the
+// configured source-root and target reads. This helper remains only for callers
+// that merely need to shape a diagnostic.
 func IsNotFound(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {

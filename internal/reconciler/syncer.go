@@ -148,20 +148,25 @@ func (s *Syncer) Run(ctx context.Context, sources []Source) (*Report, error) {
 func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 	res := SourceResult{SourceIndex: src.Index, Remote: src.Remote}
 	// Verify the remote root is readable before walking it. A failed get must
-	// not be interpreted as an empty directory.
-	root, err := s.lister.Get(ctx, src.Remote)
-	if err != nil {
-		res.Err = fmt.Errorf("read source root: %w", err)
+	// not be interpreted as an empty directory. The same gate the absence
+	// confirmer uses decides this, so the reconciler can never accept a root the
+	// cleanup rule would reject (or vice versa).
+	switch reason := openlist.CheckSourceRoot(ctx, s.lister, src.Remote); reason {
+	case openlist.ReasonNone:
+	case openlist.ReasonCancelled:
+		res.Err = ctx.Err()
+		if res.Err == nil {
+			res.Err = errors.New("source round cancelled")
+		}
 		res.Partial = true
 		res.Errors++
-		res.addDiagnostic("source root not readable; no round committed")
+		res.addDiagnostic("sync cancelled before reading the source root; no round committed")
 		return res
-	}
-	if root == nil || !root.IsDir {
-		res.Err = errors.New("source root is not a directory")
+	default:
+		res.Err = fmt.Errorf("read source root: %s", reason)
 		res.Partial = true
 		res.Errors++
-		res.addDiagnostic("source root response is not a directory; no round committed")
+		res.addDiagnostic("source root not readable as a directory; no round committed")
 		return res
 	}
 

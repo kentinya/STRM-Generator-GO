@@ -10,7 +10,7 @@ Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c
 
 正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；真实 OpenList／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理、serve／定时、发布镜像未实现。
 
-现有配置拒绝 `cleanup.enabled: true`；SQLite ownership 尚无精确远端媒体路径映射，missing_count 尚未推进。普通 List 使用 `refresh:false`，旧 Task 候选另有每页强刷的 ListFresh／祖先链确认；这些旧能力尚未通过 B，新合同要求撤下强刷并改为源根／目标 Get 判定。以下 TARGET 不表示新规则已实现。
+现有配置拒绝 `cleanup.enabled: true`；SQLite ownership 尚无精确远端媒体路径映射，missing_count 尚未推进。列表只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 现在只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。远端判定尚无计数／删除接入，以下 TARGET 不表示清理闭环已实现。
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
@@ -51,7 +51,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 
 远端删除判定按用户最终简化规则：配置源根 Get 未成功读取为目录时保留且不增加计数；源根可读取时，对正常对账未观察到的已有归属路径调用 Get，未读到即作缺失观察，不再按 HTTP／应用错误、权限、驱动、缓存或单请求失败原因细分。目标 Get 成功则保留／清零，类型冲突保留。整轮取消仍中止提交；列表失败／分页不全和必要本地处理失败仍不能成为完整轮。精确规则见[需求](requirements.md#简化删除判定2026-10-18-用户最终决定)。
 
-所有列表请求统一 refresh:false，包含扫描、分页、辅助确认和 dry-run；撤下强刷 ListFresh、祖先刷新链、目录证明复用与确认预算／冷却能力要求。缺失计数使用不同完整轮；删除前消费已提交的至少三次证据，按相同源根／目标 Get 规则重核，并检查可靠归属、精确映射、输出边界及 regular STRM。稳定且本地条件有效时至迟在阈值满足后的下一次成功同步收敛。用户接受源根可读而目标异常未读到也会计数，不宣称权威辨别了真实不存在。旧刷新候选保留为历史，当前实现尚未按新合同修正；B 须先适配 Task。
+所有列表请求统一 refresh:false，包含扫描、分页、辅助确认和 dry-run；强刷 `ListFresh`、祖先刷新链、目录证明复用与确认预算／冷却能力均已撤下并从代码移除。缺失计数使用不同完整轮；删除前消费已提交的至少三次证据，按相同源根／目标 Get 规则重核，并检查可靠归属、精确映射、输出边界及 regular STRM。稳定且本地条件有效时至迟在阈值满足后的下一次成功同步收敛。用户接受源根可读而目标异常未读到也会计数，不宣称权威辨别了真实不存在。远端判定已按本规则实现并有隔离真实服务证据；计数／删除／恢复接入仍未交付。
 
 文件 rename 和数据库 commit 不构成同一事务。清理本地失败停止该源后续删除，不保留失败轮新增证明，报告已完成项；后续重启按当前源根／Get 规则与可靠本地事实安全收敛。保持 SW-1..SW-6、未归属保护、符号链接与类型冲突检查，不新增媒体版本／发现状态机。
 
