@@ -94,7 +94,7 @@ docker compose -f dev/compose.yaml stop
 
 ## T4 验证与 Git 证据
 
-Task 1.1 的最终验证门槛见 [TASK.md](../TASK.md)：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。race／测试 hook 构建与发布二进制不同，hook 只用于隔离精确发布竞态，不可当生产产物。
+Task 1.1 的最终验证门槛见 [TASK.md](../TASK.md)：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。race／测试 hook 构建与发布二进制不同，hook 只用于隔离两个确定性故障窗口：精确发布竞态，以及归属已登记、完整轮未提交时的中断。发布二进制不含任何 hook 环境开关，不可当生产产物。
 
 验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 

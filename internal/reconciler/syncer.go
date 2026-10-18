@@ -385,7 +385,13 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			// it as an unowned conflict.
 			res.Errors++
 			res.addDiagnostic(fmt.Sprintf("published but ownership not recorded: %s", rel))
+			return
 		}
+		// afterOwnershipRecord is inert in release builds. The optional
+		// strmgen_testhooks build can stop deterministically at exactly this
+		// window (ownership durable, round not yet committed) for recovery
+		// verification without a timing race.
+		afterOwnershipRecord(rel)
 	}
 }
 

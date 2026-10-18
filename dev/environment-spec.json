@@ -108,6 +108,8 @@
     "internal/reconciler/lock_other.go",
     "internal/reconciler/lock_unix.go",
     "internal/reconciler/syncer.go",
+    "internal/reconciler/syncer_hook_default.go",
+    "internal/reconciler/syncer_hook_integration.go",
     "internal/reconciler/syncer_test.go",
     "internal/storage/storage.go",
     "internal/storage/storage_test.go",

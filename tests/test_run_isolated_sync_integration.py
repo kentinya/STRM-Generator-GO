@@ -80,6 +80,25 @@ class DriverUnitTests(unittest.TestCase):
         payload = {"scenarios": {"first_generation": {"status": "PASS"}}, "failures": []}
         self.assertIn("first_generation", json.loads(json.dumps(payload))["scenarios"])
 
+    def test_release_ownership_hook_is_inert(self):
+        source = (driver.ROOT / "internal/reconciler/syncer_hook_default.go").read_text()
+        self.assertIn("//go:build !strmgen_testhooks", source)
+        self.assertNotIn("os.Getenv", source)
+        self.assertNotIn("syscall", source)
+
+    def test_integration_ownership_hook_is_build_tagged(self):
+        source = (driver.ROOT / "internal/reconciler/syncer_hook_integration.go").read_text()
+        self.assertIn("//go:build strmgen_testhooks", source)
+        self.assertIn("STRMGEN_TEST_OWNERSHIP_HOLD", source)
+        self.assertIn("SIGSTOP", source)
+
+    def test_fault_recovery_ownership_interruption_is_deterministic(self):
+        # F-9 regression guard: the ownership-interruption sub-case must use the
+        # testhooks barrier, not racy sampling of an in-flight process.
+        source = (driver.ROOT / "scripts/run_isolated_sync_integration.py").read_text()
+        self.assertIn("STRMGEN_TEST_OWNERSHIP_HOLD", source)
+        self.assertNotIn("ownership_proc.send_signal(signal.SIGSTOP)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

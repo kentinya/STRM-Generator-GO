@@ -116,12 +116,12 @@ class Harness:
             args.append("--dry-run")
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
 
-    def start(self, config, dry_run=False, extra_env=None, ignore_sigxfsz=False):
+    def start(self, config, dry_run=False, extra_env=None, ignore_sigxfsz=False, binary=None):
         env = dict(os.environ)
         env["OPENLIST_TOKEN"] = TOKEN
         if extra_env:
             env.update(extra_env)
-        args = [str(self.binary), "sync", "--config", str(config)]
+        args = [str(binary or self.binary), "sync", "--config", str(config)]
         if dry_run:
             args.append("--dry-run")
         if ignore_sigxfsz:
@@ -1539,62 +1539,72 @@ def scenario_fault_recovery(h, results):
     observed["page2_cancel_retry"] = page_retry.returncode
     h10.cleanup()
 
-    # A process stopped immediately after a successful ownership insert and
-    # killed before CommitRound must leave those individual durable facts but
-    # no complete round. Restart recognizes owned files and completes epoch 1.
+    # F-9: interruption at exactly the window after a durable ownership insert
+    # and before the complete round is committed. The testhooks-only barrier
+    # stops the process itself immediately after RecordOwnership returns, so
+    # this no longer depends on sampling SIGSTOP between two publications.
+    # The release binary runs the restart, proving no testhook is needed to
+    # recover and that owned files are skipped rather than blindly re-claimed.
+    if h.fault_binary is None:
+        raise Failure("ownership-interruption recovery requires --fault-binary (strmgen_testhooks build)")
     h11 = Harness(h.binary, h.workdir / "ownership-before-round-interruption")
     ownership_data = [{"name": f"O{i:05d}.mkv", "is_dir": False, "size": i, "hash_info": None}
                       for i in range(2000)]
     api11, _ = h11.server(directories={"/Movies": ownership_data})
     root11 = h11.workdir / "out"
     db11 = h11.workdir / "data" / "strmgen.db"
+    marker11 = h11.workdir / "ownership-held.marker"
     cfg11 = h11.config("ownership-interrupt", api11, [("/Movies", root11)], db11, workers=1)
-    ownership_proc = h11.start(cfg11)
-    deadline = time.monotonic() + 45
-    stopped = False
-    while time.monotonic() < deadline:
+    ownership_proc = h11.start(cfg11, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_OWNERSHIP_HOLD": "O00000.strm",
+        "STRMGEN_TEST_OWNERSHIP_MARKER": str(marker11),
+    })
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline and not marker11.exists():
         if ownership_proc.poll() is not None:
             break
-        if db11.exists():
-            try:
-                conn = sqlite3.connect(db11.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.01)
-                try:
-                    ownership_count = conn.execute("SELECT COUNT(*) FROM ownership").fetchone()[0]
-                finally:
-                    conn.close()
-            except sqlite3.Error:
-                ownership_count = 0
-            if ownership_count > 0:
-                ownership_proc.send_signal(signal.SIGSTOP)
-                stop_deadline = time.monotonic() + 5
-                while time.monotonic() < stop_deadline and Path(f"/proc/{ownership_proc.pid}/status").exists():
-                    state_line = next((line for line in Path(f"/proc/{ownership_proc.pid}/status").read_text().splitlines()
-                                       if line.startswith("State:")), "")
-                    if len(state_line.split()) > 1 and state_line.split()[1] in ("T", "t"):
-                        stopped = True
-                        break
-                    time.sleep(0.001)
-                if stopped:
-                    break
+        time.sleep(0.005)
+    check(marker11.exists(), "testhooks barrier never recorded a durable ownership insert")
+    check(marker11.read_bytes() == b"O00000.strm", f"unexpected barrier marker: {marker11.read_bytes()!r}")
+    # The barrier writes the marker and immediately stops the process; confirm
+    # the observable stopped state before inspecting the database.
+    stopped_state = None
+    stop_deadline = time.monotonic() + 10
+    while time.monotonic() < stop_deadline:
+        if ownership_proc.poll() is not None:
+            break
+        try:
+            status = Path(f"/proc/{ownership_proc.pid}/status").read_text()
+        except FileNotFoundError:
+            break
+        state_line = next((line for line in status.splitlines() if line.startswith("State:")), "")
+        fields = state_line.split()
+        if len(fields) > 1 and fields[1] in ("T", "t"):
+            stopped_state = fields[1]
+            break
         time.sleep(0.002)
-    if not stopped:
-        if ownership_proc.poll() is None:
-            ownership_proc.kill()
-            ownership_proc.communicate(timeout=10)
-        raise Failure("ownership interruption did not stop after a durable ownership insert")
+    check(stopped_state in ("T", "t"),
+          f"ownership barrier did not stop the process: {stopped_state}")
     interrupted_state = read_db(db11)
-    check(len(interrupted_state["ownership"]) > 0 and interrupted_state["rounds"] == [],
-          f"interrupted run did not isolate ownership from complete round: {interrupted_state}")
+    check(len(interrupted_state["ownership"]) == 1 and interrupted_state["rounds"] == [],
+          f"barrier did not isolate one durable ownership from a complete round: {interrupted_state}")
+    interrupted_strms = list(root11.rglob("*.strm"))
+    check([p.name for p in interrupted_strms] == ["O00000.strm"],
+          f"barrier published an unexpected set of targets: {[p.name for p in interrupted_strms]}")
     ownership_proc.kill()
     ownership_proc.communicate(timeout=10)
     check(ownership_proc.returncode == -signal.SIGKILL,
           f"ownership interruption expected SIGKILL, got {ownership_proc.returncode}")
     killed_state = read_db(db11)
-    check(len(killed_state["ownership"]) > 0 and killed_state["rounds"] == [],
+    check(len(killed_state["ownership"]) == 1 and killed_state["rounds"] == [],
           f"SIGKILL changed partial ownership/round state: {killed_state}")
+    # Restart with the release binary: owned file is skipped, the remaining
+    # files are created, and the original incomplete epoch becomes complete.
     ownership_retry = h11.run(cfg11, timeout=120)
     check(ownership_retry.returncode == 0,
           f"restart after ownership interruption failed: {ownership_retry.returncode} {ownership_retry.stderr}")
+    check("skipped=1" in ownership_retry.stdout and "created=1999" in ownership_retry.stdout,
+          f"restart did not skip the owned file: {ownership_retry.stdout}")
     recovered_state = read_db(db11)
     check(len(recovered_state["ownership"]) == len(ownership_data) and
           recovered_state["rounds"] and recovered_state["rounds"][0][1] == 1,

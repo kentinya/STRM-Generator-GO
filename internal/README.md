@@ -2,7 +2,9 @@
 
 `cmd/strmgen` 装配 CLI 与同步入口。`internal/openlist` 负责 API；`pathmap` 负责路径与稳定 URL（纯函数）；`strm` 负责版本 1 协议解析、序列化与比较（纯函数）；`storage` 负责 SQLite 最小归属／轮次；`reconciler` 负责目录对账、有界遍历、跨进程互斥与原子发布；Linux 专用 `securepath` 通过目录句柄执行边界受限的路径操作。
 
-Task 1.1 当前实现范围：首次生成、最小归属登记、重复运行跳过、同哈希 Size 异常记录、需更新时保留原文件并非零退出、dry-run 零产品持久化副作用、跨进程单轮互斥。前一候选经 B 审查为 FIX REQUIRED；当前修正和审查状态见 TASK.md，这些代码能力不能视作审查 PASS。尚未实现：已拥有文件的内容替换、Mirror 删除／移动清理、serve／定时、发布镜像。依赖从接口注入；协议／路径纯函数不执行网络或数据库操作。
+Task 1.1 当前实现范围：首次生成、最小归属登记、重复运行跳过、同哈希 Size 异常记录、需更新时保留原文件并非零退出、dry-run 零产品持久化副作用、跨进程单轮互斥。前一候选经 B 审查为 FIX REQUIRED；B 复审在中断恢复处发现时序不稳定（F-9），已改为仅 `strmgen_testhooks` 构建可见的确定性归属屏障。当前修正和审查状态见 TASK.md，这些代码能力不能视作审查 PASS。尚未实现：已拥有文件的内容替换、Mirror 删除／移动清理、serve／定时、发布镜像。依赖从接口注入；协议／路径纯函数不执行网络或数据库操作。
+
+`internal/reconciler` 的 `beforePublishLink` 与 `afterOwnershipRecord` 在发布二进制中是空实现；只有显式 `-tags strmgen_testhooks` 的测试二进制会读取环境变量注入受控故障。发布二进制不含任何 hook 环境开关，隔离驱动同时用发布二进制验证恢复路径。
 
 ## 文件归属与故障恢复
 
