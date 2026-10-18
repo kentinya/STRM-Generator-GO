@@ -1,6 +1,9 @@
 package pathmap
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsMedia(t *testing.T) {
 	for _, name := range []string{"A.mkv", "A.MP4", "b.M4v", "c.m2ts"} {
@@ -39,6 +42,17 @@ func TestLocalRelativeRejectsBadNames(t *testing.T) {
 		if _, err := LocalRelative("", name); err == nil {
 			t.Fatalf("expected rejection for %q", name)
 		}
+	}
+}
+
+func TestLocalRelativeRejectsInvalidUTF8AndOversizedSegments(t *testing.T) {
+	invalid := string([]byte{'A', '.', 'm', 'k', 'v', 0xff})
+	if _, err := LocalRelative("", invalid); err == nil {
+		t.Fatal("invalid UTF-8 name must be rejected")
+	}
+	tooLong := strings.Repeat("a", MaxSegmentBytes+1) + ".mkv"
+	if _, err := LocalRelative("", tooLong); err == nil {
+		t.Fatal("oversized path segment must be rejected")
 	}
 }
 

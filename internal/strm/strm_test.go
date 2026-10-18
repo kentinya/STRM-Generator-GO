@@ -3,6 +3,7 @@ package strm
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseRoundTrip(t *testing.T) {
@@ -115,5 +116,19 @@ func TestMaxSize(t *testing.T) {
 	doc := &Document{URL: "https://example.invalid/d/" + long}
 	if err := doc.Validate(); err == nil {
 		t.Fatal("oversized document must be rejected")
+	}
+	if _, err := Parse([]byte("# strm-probe-version:1\n" + strings.Repeat("x", MaxSize))); err == nil {
+		t.Fatal("oversized existing document must be rejected before normalization")
+	}
+}
+
+func TestParseRejectsInvalidUTF8(t *testing.T) {
+	raw := append([]byte("# strm-probe-version:1\nhttps://example.invalid/d/"), 0xff)
+	raw = append(raw, []byte(".mkv\n")...)
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("invalid UTF-8 must be rejected")
+	}
+	if utf8.Valid(raw) {
+		t.Fatal("test fixture unexpectedly contains valid UTF-8")
 	}
 }

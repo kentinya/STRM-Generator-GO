@@ -129,3 +129,22 @@ class FixtureTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(timeout=3)
+
+    def test_fixture_can_rotate_synthetic_credentials_without_changing_data(self):
+        server = make_server(port=0, hooks={"tokens": ["rotated-fixture-token"]})
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            payload = json.dumps({"path": "/Movies"}).encode()
+            req = urllib.request.Request(base + "/api/fs/list", data=payload,
+                                         headers={"Authorization": "rotated-fixture-token",
+                                                  "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as response:
+                body = json.load(response)
+            self.assertEqual(body["code"], 200)
+            self.assertEqual(body["data"]["total"], 4)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)

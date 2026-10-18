@@ -159,6 +159,105 @@ func TestMissingTotalFails(t *testing.T) {
 	}
 }
 
+func TestMissingContentFailsButEmptyArraySucceeds(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		data    any
+		wantErr bool
+	}{
+		{name: "missing", data: map[string]any{"total": 0}, wantErr: true},
+		{name: "null", data: map[string]any{"content": nil, "total": 0}, wantErr: true},
+		{name: "wrong type", data: map[string]any{"content": "", "total": 0}, wantErr: true},
+		{name: "empty array", data: map[string]any{"content": []any{}, "total": 0}, wantErr: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := &fakeServer{listHandler: func(page, perPage int) (any, int, int) {
+				return tc.data, 200, 200
+			}}
+			ts := srv.serve()
+			defer ts.Close()
+			entries, err := New(ts.URL, "t").List(context.Background(), "/Movies")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("malformed content must fail")
+				}
+				return
+			}
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("empty content: entries=%v err=%v", entries, err)
+			}
+		})
+	}
+}
+
+func TestInvalidOptionalSizesAreOmitted(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		size any
+	}{
+		{name: "missing"},
+		{name: "negative", size: -1},
+		{name: "overflow", size: uint64(1 << 63)},
+		{name: "fraction", size: 1.5},
+		{name: "string", size: "not-a-size"},
+		{name: "null", size: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := map[string]any{"name": "A.mkv", "is_dir": false}
+			if tc.name != "missing" {
+				item["size"] = tc.size
+			}
+			srv := &fakeServer{
+				listHandler: func(page, perPage int) (any, int, int) {
+					return listPage([]map[string]any{item}, 1), 200, 200
+				},
+				getHandler: func(path string) (any, int, int) { return item, 200, 200 },
+			}
+			ts := srv.serve()
+			defer ts.Close()
+			list, err := New(ts.URL, "t").List(context.Background(), "/Movies")
+			if err != nil || len(list) != 1 {
+				t.Fatalf("list must tolerate an unusable optional size: %+v %v", list, err)
+			}
+			if list[0].Size != nil {
+				t.Fatalf("invalid size was retained: %+v", list[0])
+			}
+			if !strings.Contains(list[0].Anomaly, "size") {
+				t.Fatalf("invalid size anomaly missing: %+v", list[0])
+			}
+			got, err := New(ts.URL, "t").Get(context.Background(), "/A.mkv")
+			if err != nil || got.Size != nil {
+				t.Fatalf("get must omit unusable optional size: %+v %v", got, err)
+			}
+		})
+	}
+}
+
+func TestZeroOptionalSizeIsPreserved(t *testing.T) {
+	srv := &fakeServer{
+		listHandler: func(page, perPage int) (any, int, int) {
+			return listPage([]map[string]any{{"name": "A.mkv", "is_dir": false, "size": 0}}, 1), 200, 200
+		},
+	}
+	ts := srv.serve()
+	defer ts.Close()
+	entries, err := New(ts.URL, "t").List(context.Background(), "/Movies")
+	if err != nil || len(entries) != 1 || entries[0].Size == nil || *entries[0].Size != 0 {
+		t.Fatalf("zero size must be preserved: %+v %v", entries, err)
+	}
+}
+
+func TestDirectoryListLimitIsEnforced(t *testing.T) {
+	srv := &fakeServer{listHandler: func(page, perPage int) (any, int, int) {
+		return listPage([]map[string]any{}, 10001), 200, 200
+	}}
+	ts := srv.serve()
+	defer ts.Close()
+	if _, err := New(ts.URL, "t").List(context.Background(), "/Movies"); err == nil {
+		t.Fatal("oversized directory total must fail before accumulation")
+	}
+}
+
 func TestResponseByteLimit(t *testing.T) {
 	srv := &fakeServer{listHandler: func(page, perPage int) (any, int, int) {
 		big := strings.Repeat("x", int(MaxResponseBytes)+100)

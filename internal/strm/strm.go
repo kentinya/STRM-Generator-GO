@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // MaxSize is the plugin's 64 KiB parse limit; generated documents must not
@@ -132,6 +133,12 @@ func (d *Document) Bytes() []byte {
 // plugin reader does) but rejects duplicate or malformed markers and any
 // non-optional invalid value.
 func Parse(raw []byte) (*Document, error) {
+	if len(raw) > MaxSize {
+		return nil, &ValidationError{"document exceeds 65536 bytes"}
+	}
+	if !utf8.Valid(raw) {
+		return nil, &ValidationError{"document is not valid UTF-8"}
+	}
 	raw = bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
 	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	text = strings.TrimRight(text, "\n")

@@ -8,11 +8,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"strm-generator-go/internal/securepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +27,8 @@ const DefaultDirectoryWorkers = 4
 
 // MaxDirectoryWorkers bounds the per-round directory concurrency.
 const MaxDirectoryWorkers = 32
+
+const maxRemotePathBytes = 4096
 
 // OpenList holds API connectivity. token is never stored in this struct.
 type OpenList struct {
@@ -88,7 +95,7 @@ type Resolved struct {
 func Load(file string) (*Resolved, error) {
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, errors.New("cannot read configuration file")
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, errors.New("config file is empty")
@@ -97,18 +104,86 @@ func Load(file string) (*Resolved, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		// YAML diagnostics can echo arbitrary values. Never reflect raw config.
+		return nil, errors.New("configuration syntax or fields are invalid")
 	}
 	// Reject a second YAML document: the contract is a single document.
 	var extra any
 	if err := dec.Decode(&extra); err == nil {
 		return nil, errors.New("config must contain exactly one YAML document")
+	} else if !errors.Is(err, io.EOF) {
+		return nil, errors.New("configuration syntax or fields are invalid")
 	}
-	abs, err := filepath.Abs(file)
+	baseDir, err := os.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("resolve config path: %w", err)
+		return nil, errors.New("cannot determine startup working directory")
 	}
-	return validate(cfg, filepath.Dir(abs))
+	return validate(cfg, baseDir)
+}
+
+var yamlLineDiagnostic = regexp.MustCompile(`(?:^|\n)(?:yaml: )?line ([0-9]+):`)
+
+// SafeDiagnostic converts an internal config error into a stable, non-secret
+// user message. It only reflects known field names and numeric source indexes;
+// YAML snippets, input values, and filesystem paths are never returned.
+func SafeDiagnostic(err error) string {
+	if err == nil {
+		return "invalid configuration"
+	}
+	message := err.Error()
+	if match := yamlLineDiagnostic.FindStringSubmatch(message); len(match) == 2 {
+		return "invalid configuration at line " + match[1]
+	}
+	if field := safeFieldFromError(message); field != "" {
+		return "invalid " + field
+	}
+	switch {
+	case strings.Contains(message, "configuration file"):
+		return "configuration file is unavailable"
+	case strings.Contains(message, "working directory"):
+		return "startup working directory is unavailable"
+	case strings.Contains(message, "exactly one YAML document"):
+		return "configuration must contain exactly one YAML document"
+	case strings.Contains(message, "at least one source"):
+		return "sources must contain at least one entry"
+	default:
+		return "invalid configuration"
+	}
+}
+
+func safeFieldFromError(message string) string {
+	for _, field := range []string{
+		"openlist.api_url", "openlist.public_url", "openlist.token_env",
+		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged",
+		"cleanup.enabled", "database.path",
+	} {
+		if strings.HasPrefix(message, field+":") || strings.HasPrefix(message, field+" ") {
+			return field
+		}
+	}
+	if strings.HasPrefix(message, "database.path or SQLite sidecar") {
+		return "database.path"
+	}
+	if strings.HasPrefix(message, "sources[") {
+		close := strings.IndexByte(message, ']')
+		if close <= len("sources[") || close+2 >= len(message) || message[close+1] != '.' {
+			return ""
+		}
+		indexText := message[len("sources["):close]
+		if _, err := strconv.Atoi(indexText); err != nil {
+			return ""
+		}
+		fieldEnd := close + 2
+		for fieldEnd < len(message) && ((message[fieldEnd] >= 'a' && message[fieldEnd] <= 'z') || message[fieldEnd] == '_') {
+			fieldEnd++
+		}
+		field := message[close+2 : fieldEnd]
+		if field != "remote" && field != "output" {
+			return ""
+		}
+		return "sources[" + indexText + "]." + field
+	}
+	return ""
 }
 
 func validate(cfg *Config, baseDir string) (*Resolved, error) {
@@ -123,8 +198,8 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if strings.TrimSpace(cfg.OpenList.TokenEnv) == "" {
 		return nil, errors.New("openlist.token_env is required")
 	}
-	if strings.ContainsAny(cfg.OpenList.TokenEnv, "= \t") {
-		return nil, errors.New("openlist.token_env must be an environment variable name")
+	if !validEnvName(cfg.OpenList.TokenEnv) {
+		return nil, errors.New("openlist.token_env must be a valid environment variable name")
 	}
 	if len(cfg.Sources) == 0 {
 		return nil, errors.New("at least one source is required")
@@ -170,10 +245,14 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 			return nil, fmt.Errorf("sources[%d].output: %w", i, err)
 		}
 		if prev, ok := seenOutputs[output]; ok {
-			return nil, fmt.Errorf("sources[%d].output duplicates sources[%d].output (%s)", i, prev, output)
+			return nil, fmt.Errorf("sources[%d].output duplicates sources[%d].output", i, prev)
 		}
 		for j := range resolved.Sources {
-			if pathsOverlap(resolved.Sources[j].Output, output) {
+			overlap, err := securepath.PathsOverlap(resolved.Sources[j].Output, output)
+			if err != nil {
+				return nil, fmt.Errorf("sources[%d].output has an unsafe physical path", i)
+			}
+			if overlap {
 				return nil, fmt.Errorf("sources[%d].output overlaps sources[%d].output", i, j)
 			}
 		}
@@ -186,8 +265,11 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 		return nil, err
 	}
 	for _, src := range resolved.Sources {
-		if isWithin(src.Output, dbPath) || dbPath == src.Output {
-			return nil, fmt.Errorf("database.path must not be inside an output root (%s)", dbPath)
+		for _, path := range databaseFiles(dbPath) {
+			inside, err := securepath.DirectoryContainsPath(src.Output, path)
+			if err != nil || inside || pathsOverlap(src.Output, path) {
+				return nil, errors.New("database.path or SQLite sidecar must not be inside an output root")
+			}
 		}
 	}
 	resolved.DatabasePath = dbPath
@@ -235,6 +317,9 @@ func validateRemote(raw string) (string, error) {
 	if raw == "" {
 		return "", errors.New("must not be empty")
 	}
+	if len(raw) > maxRemotePathBytes {
+		return "", errors.New("path exceeds the supported length limit")
+	}
 	if !strings.HasPrefix(raw, "/") {
 		return "", errors.New("must be an absolute remote path")
 	}
@@ -263,8 +348,7 @@ func validateRemote(raw string) (string, error) {
 }
 
 func resolveOutput(baseDir, raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("must not be empty")
 	}
 	abs := raw
@@ -273,18 +357,17 @@ func resolveOutput(baseDir, raw string) (string, error) {
 	}
 	abs, err := filepath.Abs(abs)
 	if err != nil {
-		return "", err
+		return "", errors.New("cannot resolve output path")
 	}
 	abs = filepath.Clean(abs)
-	if err := rejectSymlink(abs); err != nil {
-		return "", err
+	if err := securepath.ValidateDirPath(abs); err != nil {
+		return "", errors.New("path contains a symlink or non-directory component")
 	}
 	return abs, nil
 }
 
 func resolveDatabase(baseDir, raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("database.path is required")
 	}
 	abs := raw
@@ -293,29 +376,13 @@ func resolveDatabase(baseDir, raw string) (string, error) {
 	}
 	abs, err := filepath.Abs(abs)
 	if err != nil {
-		return "", err
+		return "", errors.New("cannot resolve database path")
 	}
 	abs = filepath.Clean(abs)
-	if err := rejectSymlink(abs); err != nil {
-		return "", err
+	if err := securepath.ValidateFilePath(abs); err != nil {
+		return "", errors.New("database.path must not contain symlinks or name a non-regular file")
 	}
 	return abs, nil
-}
-
-// rejectSymlink refuses an existing symlink at the configured path so a root
-// cannot silently point outside the intended tree.
-func rejectSymlink(p string) error {
-	info, err := os.Lstat(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing symlink at %s", p)
-	}
-	return nil
 }
 
 // pathsOverlap reports whether a and b are equal or one is an ancestor of the
@@ -325,6 +392,14 @@ func pathsOverlap(a, b string) bool {
 		return true
 	}
 	return isWithin(a, b) || isWithin(b, a)
+}
+
+func databaseFiles(databasePath string) []string {
+	paths := []string{databasePath}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		paths = append(paths, databasePath+suffix)
+	}
+	return paths
 }
 
 // isWithin reports whether child is strictly inside parent.
@@ -345,12 +420,25 @@ func hasControl(s string) bool {
 	return false
 }
 
+func validEnvName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // Token reads the configured environment variable. The value is returned to
 // the caller and never persisted or logged.
 func (r *Resolved) Token() (string, error) {
 	value, ok := os.LookupEnv(r.TokenEnv)
 	if !ok || strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("environment variable %s is not set", r.TokenEnv)
+		return "", errors.New("configured token environment variable is not set")
 	}
 	return value, nil
 }

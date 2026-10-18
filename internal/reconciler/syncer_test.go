@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/storage"
 )
@@ -20,12 +22,16 @@ type fakeLister struct {
 	getErr   map[string]error
 	listErr  map[string]error
 	getCalls int
+	rootFile bool
 }
 
 func (f *fakeLister) Get(_ context.Context, path string) (*openlist.Entry, error) {
 	f.getCalls++
 	if err := f.getErr[path]; err != nil {
 		return nil, err
+	}
+	if f.rootFile && path == "/Movies" {
+		return &openlist.Entry{Name: "Movies", IsDir: false}, nil
 	}
 	return &openlist.Entry{Name: filepath.Base(path), IsDir: true}, nil
 }
@@ -352,6 +358,151 @@ func TestRootFailureIsNotEmptyDirectory(t *testing.T) {
 	if report.Sources[0].Filtered != 0 {
 		t.Fatalf("failure must not look like an empty directory: %+v", report.Sources[0])
 	}
+	if report.Sources[0].Errors == 0 || !report.Sources[0].Partial {
+		t.Fatalf("root failure must be reported as an error/partial result: %+v", report.Sources[0])
+	}
+}
+
+func TestSourceRootMustBeDirectory(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := standardTree()
+	lister.rootFile = true
+	report, err := New(lister, store, Options{PublicPrefix: "https://openlist.example.invalid"}).Run(
+		context.Background(), []Source{sourceFor(root)},
+	)
+	if err == nil || report.Sources[0].Errors == 0 || !report.Sources[0].Partial {
+		t.Fatalf("file-shaped source root must fail: report=%+v err=%v", report, err)
+	}
+	if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 1 {
+		t.Fatalf("invalid source root committed a round: epoch=%d err=%v", epoch, err)
+	}
+}
+
+type rootSwapLister struct {
+	*fakeLister
+	onList func()
+}
+
+func (l *rootSwapLister) List(ctx context.Context, path string) ([]openlist.Entry, error) {
+	if l.onList != nil {
+		l.onList()
+		l.onList = nil
+	}
+	return l.fakeLister.List(ctx, path)
+}
+
+func TestOutputRootReplacementDuringHTTPDoesNotEscapeOrCommit(t *testing.T) {
+	for _, initiallyExists := range []bool{false, true} {
+		name := "missing-root"
+		if initiallyExists {
+			name = "existing-root"
+		}
+		t.Run(name, func(t *testing.T) {
+			base := t.TempDir()
+			root := filepath.Join(base, "out")
+			outside := filepath.Join(base, "outside")
+			if err := os.Mkdir(outside, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if initiallyExists {
+				if err := os.Mkdir(root, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lister := &rootSwapLister{
+				fakeLister: &fakeLister{
+					dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, "")}},
+					getErr:  map[string]error{},
+					listErr: map[string]error{},
+				},
+			}
+			lister.onList = func() {
+				if initiallyExists {
+					moved := filepath.Join(base, "moved-out")
+					if err := os.Rename(root, moved); err != nil {
+						t.Errorf("move output root: %v", err)
+						return
+					}
+				}
+				if err := os.Symlink(outside, root); err != nil {
+					t.Errorf("swap output root: %v", err)
+				}
+			}
+			store := newStore(t)
+			report, err := New(lister, store, Options{PublicPrefix: "https://openlist.example.invalid"}).Run(
+				context.Background(), []Source{sourceFor(root)},
+			)
+			if err == nil || report.Sources[0].Errors == 0 || !report.Sources[0].Partial {
+				t.Fatalf("root replacement must fail partially: report=%+v err=%v", report.Sources[0], err)
+			}
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+				t.Fatalf("replacement target was modified: entries=%v err=%v", entries, err)
+			}
+			if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 1 {
+				t.Fatalf("replacement advanced the round: epoch=%d err=%v", epoch, err)
+			}
+			if _, ok, err := store.Lookup("/Movies", "A.strm"); err != nil || ok {
+				t.Fatalf("replacement fabricated ownership: ok=%t err=%v", ok, err)
+			}
+		})
+	}
+}
+
+func TestDiagnosticsAreSampledAndCountOmissions(t *testing.T) {
+	var result SourceResult
+	for i := 0; i < maxDiagnosticSamples+17; i++ {
+		result.addDiagnostic(fmt.Sprintf("diagnostic %d", i))
+	}
+	if len(result.Diagnostics) != maxDiagnosticSamples || result.DiagnosticsOmitted != 17 {
+		t.Fatalf("diagnostics were not bounded: samples=%d omitted=%d", len(result.Diagnostics), result.DiagnosticsOmitted)
+	}
+}
+
+type fifoSwapFS struct {
+	LocalFS
+	swapped bool
+}
+
+func (f *fifoSwapFS) ReadFile(root, rel string) ([]byte, error) {
+	if !f.swapped {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		if err := unix.Mkfifo(path, 0o600); err != nil {
+			return nil, err
+		}
+		f.swapped = true
+	}
+	return f.LocalFS.ReadFile(root, rel)
+}
+
+func TestReadFileRaceToFIFOIsBoundedAndDoesNotCommit(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := &fakeLister{
+		dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, "")}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	options := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(lister, store, options).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	options.FS = &fifoSwapFS{}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	report, err := New(lister, store, options).Run(ctx, []Source{sourceFor(root)})
+	if err == nil || ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("FIFO swap must fail promptly without completing a round: err=%v ctx=%v", err, ctx.Err())
+	}
+	if report.Sources[0].Conflicts == 0 || !report.Sources[0].Partial {
+		t.Fatalf("FIFO swap was not reported as a conflict: %+v", report.Sources[0])
+	}
+	if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 2 {
+		t.Fatalf("failed FIFO read advanced round: epoch=%d err=%v", epoch, err)
+	}
 }
 
 func TestPublishFailureIsReportedAndPartial(t *testing.T) {
@@ -489,6 +640,29 @@ func TestPartialPublishKeepsEarlierFiles(t *testing.T) {
 	}
 }
 
+func TestRoundCommitFailureIsCountedAndDoesNotAdvanceRound(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := &fakeLister{
+		dirs:    map[string][]openlist.Entry{"/Movies": {}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	s := New(lister, &failingRoundCommitStore{Store: store},
+		Options{PublicPrefix: "https://openlist.example.invalid"})
+	report, err := s.Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("round commit failure must fail the source")
+	}
+	result := report.Sources[0]
+	if result.Errors != 1 || !result.Partial {
+		t.Fatalf("round commit failure must be counted and partial: %+v", result)
+	}
+	if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 1 {
+		t.Fatalf("failed commit advanced round: epoch=%d err=%v", epoch, err)
+	}
+}
+
 // failingFS injects a publish failure for one relative path.
 type failingFS struct {
 	LocalFS
@@ -507,6 +681,12 @@ type failingOwnershipStore struct{ *storage.Store }
 
 func (f *failingOwnershipStore) RecordOwnership(context.Context, storage.Ownership, int64) error {
 	return errors.New("injected ownership failure")
+}
+
+type failingRoundCommitStore struct{ *storage.Store }
+
+func (f *failingRoundCommitStore) CommitRound(context.Context, string, int64, time.Time) error {
+	return errors.New("injected round commit failure")
 }
 
 func collectFiles(t *testing.T, root string) []string {

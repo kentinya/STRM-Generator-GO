@@ -1,5 +1,13 @@
 # 进度
 
+## 当前状态（2026-10-18）
+
+- Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
+- Task 1.1 的最近 B 决定为 FIX REQUIRED。Developer 已在同一 Task 内继续修正；TASK.md 的当前状态为 IN PROGRESS，Task Base／Contract Checkpoint 未变。
+- 本轮已在 `artifacts/validation-evidence/task-1.1-fix-20261018-03/incremental/` 留下聚焦 Go 测试、41 项 Python 回归及实际 CLI API／限额、故障恢复运行。两组实际 CLI 子场景 PASS；一次 SIGKILL 故障恢复记录到一个可能残留的 `.strmgen-*.tmp`，STRM／归属和完整轮次恢复断言通过。此为增量证据，不是完整 T4 通过。
+- 最终 T4（治理、依赖、quality、race、双架构构建、完整隔离 CLI `--scenario all`、diff check）、实现提交和新的 B 审查尚未完成。当前工作区修改尚未提交；不得复用旧候选绿灯代替最终门槛。
+- 真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍为 NOT RUN；无生产服务、媒体或配套仓库测试。
+
 ## 开发准备
 
 2026-10-17：按用户要求保留原始V4.3方案，复用配套项目Slice／Task流程，建立需求、用户旅程、架构、兼容性、测试矩阵、四个Slice路线、规划合同及角色指南。创建本地Go环境工具、合成OpenList夹具、配置示例和CI定义。
@@ -10,7 +18,7 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 
 用户补充Git身份后，已仅在本仓库配置 `kentinya <szd123956@outlook.com>`，开发准备文件保存为main的首个本地基线提交。真实完整提交号通过 `git log --reverse --format='%H %s'` 查看；未配置远程，未推送。基线提交后治理使用常规模式。CI定义尚未在GitHub运行，环境准备不计为产品Slice通过。
 
-## 当前指针
+## 初始指针（历史，2026-10-17）
 
 2026-10-17：用户明确要求激活第一个Slice；A提交Slice 1「安全的单轮生成闭环」ACTIVE合同及同步Roadmap，固定开发准备基线 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`。本次只激活合同，没有产品实现或审查结论。
 
@@ -29,7 +37,7 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 本机已执行（证据见 `artifacts/validation-evidence/task-1.1-final/`）：治理、mod download／verify、quality（gofmt／vet／Go test／build＋Python回归）、race、Linux amd64／arm64 CGO=0构建、以及隔离CLI全场景驱动（首次、重复与比较、归属与路径、API与限额、dry-run边界、多进程、故障恢复）全部PASS。产品未完成：已拥有文件内容替换、Mirror删除／移动、serve／定时、发布镜像；真实OpenList、固定插件解析、Jellyfin／代理、ARM64实机与性能仍NOT RUN。B独立审查PENDING，不预设Slice通过。
 
 
-## 最新审查指针（2026-10-18）
+## B 审查记录（2026-10-18）
 
 B 已读取仓库约束／必读文档并在审查前取得常规治理 PASS；独立审查 Task Base 951aaeeeca966e8ef79e8ac9500827ce27d0f035 至 Developer Head 4752ec2057f998d762829cdb352c8b75198ee900，核对纯报告后继和本机原始 quality／race／构建证据。现有实际 CLI 七类场景独立重跑 7/7 PASS，但新增隔离反例复现了根／祖先符号链接逃逸、锁命名空间分裂及预览锁写输出、多 source 归属覆盖、DB URI 路径误解、错误列表形状提交成功轮、可选 Size 阻断、诊断泄露、FIFO 阻塞及相对路径语义不符。
 

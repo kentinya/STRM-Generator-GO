@@ -19,8 +19,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import resource
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -38,6 +40,8 @@ ALL_SCENARIOS = [
     "api_and_limits",
     "dry_run_boundaries",
     "multiprocess",
+    "source_identity",
+    "database_uri",
     "fault_recovery",
 ]
 
@@ -58,16 +62,12 @@ def base_directories():
 class Harness:
     """One scenario's isolated filesystem, service and process space."""
 
-    def __init__(self, binary, workdir):
+    def __init__(self, binary, workdir, fault_binary=None):
         self.binary = binary
+        self.fault_binary = fault_binary
         self.workdir = workdir
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.processes = []
-        # Isolate the cross-process lock namespace so this driver never blocks
-        # or is blocked by an unrelated sync. All processes inside one scenario
-        # share it, so cross-process exclusion is still exercised.
-        self.lock_dir = workdir / "locks"
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
 
     def server(self, directories=None, hooks=None):
         fixture = {"directories": directories if directories is not None else base_directories()}
@@ -109,7 +109,6 @@ class Harness:
     def run(self, config, dry_run=False, timeout=60, extra_env=None, capture=True):
         env = dict(os.environ)
         env["OPENLIST_TOKEN"] = TOKEN
-        env["STRMGEN_LOCK_DIR"] = str(self.lock_dir)
         if extra_env:
             env.update(extra_env)
         args = [str(self.binary), "sync", "--config", str(config)]
@@ -117,15 +116,22 @@ class Harness:
             args.append("--dry-run")
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
 
-    def start(self, config, dry_run=False, extra_env=None):
+    def start(self, config, dry_run=False, extra_env=None, ignore_sigxfsz=False):
         env = dict(os.environ)
         env["OPENLIST_TOKEN"] = TOKEN
-        env["STRMGEN_LOCK_DIR"] = str(self.lock_dir)
         if extra_env:
             env.update(extra_env)
         args = [str(self.binary), "sync", "--config", str(config)]
         if dry_run:
             args.append("--dry-run")
+        if ignore_sigxfsz:
+            # exec preserves SIG_IGN. The integration process can then lower
+            # the child RLIMIT_FSIZE after DB initialization and exercise a
+            # real temporary-file write error without changing the host.
+            wrapper = ("import os, signal, sys; "
+                       "signal.signal(signal.SIGXFSZ, signal.SIG_IGN); "
+                       "os.execv(sys.argv[1], sys.argv[1:])")
+            args = [sys.executable, "-c", wrapper, *args]
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         self.processes.append(proc)
         return proc
@@ -164,7 +170,7 @@ def read_db(db):
     db = Path(db)
     if not db.exists():
         return {"exists": False, "ownership": [], "rounds": [], "sidecars": []}
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         ownership = list(conn.execute(
             "SELECT source_key, relative_path, absolute_path, missing_count FROM ownership ORDER BY relative_path"))
@@ -172,6 +178,38 @@ def read_db(db):
     finally:
         conn.close()
     return {"exists": True, "ownership": ownership, "rounds": rounds, "sidecars": sidecars(db)}
+
+
+def snapshot_tree(root):
+    """Capture directory entries without following symlinks or opening special files."""
+    root = Path(root)
+    try:
+        root_stat = root.lstat()
+    except FileNotFoundError:
+        return {"exists": False, "root": None, "entries": {}}
+
+    def info(st, path):
+        digest = None
+        link = None
+        if stat.S_ISREG(st.st_mode):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif stat.S_ISLNK(st.st_mode):
+            link = os.readlink(path)
+        return (st.st_mode, st.st_size, st.st_mtime_ns, digest, link)
+
+    entries = {}
+    stack = [(root, "")]
+    while stack:
+        parent, rel_parent = stack.pop()
+        with os.scandir(parent) as children:
+            for item in children:
+                child = Path(item.path)
+                rel = (Path(rel_parent) / item.name).as_posix() if rel_parent else item.name
+                st = item.stat(follow_symlinks=False)
+                entries[rel] = info(st, child)
+                if stat.S_ISDIR(st.st_mode):
+                    stack.append((child, rel))
+    return {"exists": True, "root": info(root_stat, root), "entries": entries}
 
 
 def assert_valid_strm(path, expect_url):
@@ -385,6 +423,33 @@ def scenario_ownership_and_paths(h, results):
     check("created=31" in deep_run.stdout, f"deep summary: {deep_run.stdout}")
     h3d.cleanup()
 
+    # A breadth-first frontier that would exceed the in-memory directory
+    # queue limit fails explicitly before output or a successful round.
+    h3e = Harness(h.binary, h.workdir / "directory-queue-limit")
+    queue_dirs = {"/Movies": [{"name": f"D{i:04d}", "is_dir": True, "size": 0} for i in range(5000)]}
+    for i in range(5000):
+        queue_dirs[f"/Movies/D{i:04d}"] = [
+            {"name": "L", "is_dir": True, "size": 0},
+            {"name": "R", "is_dir": True, "size": 0},
+        ]
+    queue_dirs["/Movies/D0000/L"] = [
+        {"name": "X", "is_dir": True, "size": 0},
+        {"name": "Y", "is_dir": True, "size": 0},
+    ]
+    api3e, _ = h3e.server(directories=queue_dirs)
+    root3e = h3e.workdir / "out"
+    db3e = h3e.workdir / "data" / "strmgen.db"
+    cfg3e = h3e.config("queue-limit", api3e, [("/Movies", root3e)], db3e, workers=1)
+    queue_limit = h3e.run(cfg3e, timeout=120)
+    check(queue_limit.returncode == 1, f"queue overflow must fail explicitly: {queue_limit.returncode}")
+    check("errors=1" in queue_limit.stdout and "partial=true" in queue_limit.stdout,
+          f"queue overflow was not summarized as incomplete: {queue_limit.stdout}")
+    check(not root3e.exists(), "queue overflow created output despite having no media files")
+    queue_state = read_db(db3e)
+    check(queue_state["ownership"] == [] and queue_state["rounds"] == [],
+          "queue overflow created ownership or a complete round")
+    h3e.cleanup()
+
     # Invalid existing owned file -> conflict on restart.
     h4 = Harness(h.binary, h.workdir / "invalidowned")
     api4, _ = h4.server()
@@ -414,8 +479,99 @@ def scenario_ownership_and_paths(h, results):
     clean = h5.run(cleanup)
     check(clean.returncode == 2, f"cleanup.enabled must be rejected: {clean.returncode}")
     h5.cleanup()
+
+    # Every existing output ancestor is checked, and a symlink is rejected
+    # before database/output creation.
+    h6 = Harness(h.binary, h.workdir / "ancestor-symlink")
+    api6, _ = h6.server()
+    real6 = h6.workdir / "outside"
+    real6.mkdir()
+    (real6 / "sentinel.txt").write_bytes(b"unchanged")
+    alias6 = h6.workdir / "alias"
+    alias6.symlink_to(real6, target_is_directory=True)
+    before6 = snapshot_tree(real6)
+    out6 = alias6 / "out"
+    db6 = h6.workdir / "data" / "db.sqlite"
+    cfg6 = h6.config("ancestor-symlink", api6, [("/Movies", out6)], db6)
+    ancestor_link = h6.run(cfg6)
+    check(ancestor_link.returncode == 2, f"ancestor symlink must be rejected: {ancestor_link.returncode}")
+    check(snapshot_tree(real6) == before6, "ancestor symlink rejection changed the real target")
+    check(not db6.exists(), "ancestor symlink rejection created a database")
+    h6.cleanup()
+
+    # Database paths through aliases and sidecar paths under an output root
+    # are rejected before any product file is created.
+    h7 = Harness(h.binary, h.workdir / "database-alias")
+    api7, _ = h7.server()
+    real7 = h7.workdir / "real"
+    real7.mkdir()
+    alias7 = h7.workdir / "alias"
+    alias7.symlink_to(real7, target_is_directory=True)
+    out7 = real7 / "out"
+    db7 = alias7 / "out" / "db.sqlite"
+    before7 = snapshot_tree(real7)
+    cfg7 = h7.config("database-alias", api7, [("/Movies", out7)], db7)
+    db_alias = h7.run(cfg7)
+    check(db_alias.returncode == 2, f"database alias must be rejected: {db_alias.returncode}")
+    check(snapshot_tree(real7) == before7, "database alias rejection changed the output tree")
+    h7.cleanup()
+
+    h8 = Harness(h.binary, h.workdir / "database-sidecar")
+    api8, _ = h8.server()
+    sidecar_root = h8.workdir / "data.sqlite-wal"
+    sidecar_root.mkdir()
+    sidecar_cfg = h8.config("database-sidecar", api8, [("/Movies", sidecar_root)],
+                            h8.workdir / "data.sqlite")
+    sidecar_before = snapshot_tree(sidecar_root)
+    sidecar_rejected = h8.run(sidecar_cfg)
+    check(sidecar_rejected.returncode == 2,
+          f"SQLite sidecar under output must be rejected: {sidecar_rejected.returncode}")
+    check(snapshot_tree(sidecar_root) == sidecar_before, "sidecar rejection changed output directory")
+    h8.cleanup()
+
+    # The output root is pinned before the API request. A root pathname swap
+    # during the HTTP request must not redirect writes into its replacement.
+    for initially_exists in (False, True):
+        name = "root-swap-existing" if initially_exists else "root-swap-missing"
+        hh = Harness(h.binary, h.workdir / name)
+        outside = hh.workdir / "sentinel"
+        outside.mkdir()
+        (outside / "keep.txt").write_bytes(b"stable")
+        root = hh.workdir / "out"
+        if initially_exists:
+            root.mkdir()
+        swapped = threading.Event()
+
+        def swap_before(endpoint, path, request):
+            if endpoint.endswith("/list") and path == "/Movies" and not swapped.is_set():
+                swapped.set()
+                if initially_exists:
+                    os.rename(root, hh.workdir / "detached-out")
+                os.symlink(outside, root, target_is_directory=True)
+
+        api_swap, _ = hh.server(hooks={"before": swap_before})
+        db = hh.workdir / "data" / "strmgen.db"
+        cfg = hh.config(name, api_swap, [("/Movies", root)], db)
+        outside_before = snapshot_tree(outside)
+        result = hh.run(cfg)
+        check(swapped.is_set(), "root-swap fixture did not reach its HTTP barrier")
+        check(result.returncode == 1, f"root swap must fail safely: {result.returncode} {result.stderr}")
+        # Each eligible media target attempts a bound-root operation and is
+        # rejected after the pathname swap; count those four item failures
+        # rather than collapsing them into a false success summary.
+        check("errors=4" in result.stdout and "partial=true" in result.stdout,
+              f"root swap item failures were not summarized: {result.stdout}")
+        check(snapshot_tree(outside) == outside_before, "root swap wrote into the replacement directory")
+        state = read_db(db)
+        check(state["ownership"] == [] and state["rounds"] == [],
+              f"root swap produced ownership or a successful round: {state}")
+        hh.cleanup()
+
     results["ownership_and_paths"] = {"conflict_exit": conflict.returncode, "symlink_exit": link.returncode,
-                                      "same_target_exit": same.returncode, "invalid_exit": invalid.returncode}
+                                      "same_target_exit": same.returncode, "invalid_exit": invalid.returncode,
+                                      "ancestor_symlink_exit": ancestor_link.returncode,
+                                      "database_alias_exit": db_alias.returncode,
+                                      "database_sidecar_exit": sidecar_rejected.returncode}
 
 
 def _override_list(data, status=200, code=200):
@@ -455,9 +611,42 @@ def scenario_api_and_limits(h, results):
     # Invalid required field (missing is_dir).
     run_case("badshape", {"/Movies": [{"name": "x", "is_dir": False, "size": 1}]},
              _override_list({"content": [{"name": "A.mkv", "size": 1, "hash_info": None}], "total": 1}))
+    run_case("contentmissing", {"/Movies": []}, _override_list({"total": 0}))
+    run_case("contentnull", {"/Movies": []}, _override_list({"content": None, "total": 0}))
+    run_case("contentwrongtype", {"/Movies": []},
+             _override_list({"content": {"name": "A.mkv"}, "total": 1}))
     # Early empty page before total was reached.
     run_case("earlyempty", {"/Movies": [{"name": "x", "is_dir": False, "size": 1}]},
              _override_list({"content": [], "total": 3}))
+    # A second-page failure must leave the first page unprocessed and retryable.
+    page_two_calls = {"n": 0}
+
+    def fail_page_two(endpoint, path, request, directories):
+        if endpoint.endswith("/list") and path == "/Movies" and request.get("page") == 2 and page_two_calls["n"] == 0:
+            page_two_calls["n"] += 1
+            return 503, 503, None
+        return None
+
+    h_page2 = Harness(h.binary, h.workdir / "page2-failure-retry")
+    page_entries = [{"name": f"F{i:03d}.mkv", "is_dir": False, "size": i, "hash_info": None}
+                    for i in range(250)]
+    api_page2, _ = h_page2.server(directories={"/Movies": page_entries}, hooks={"override": fail_page_two})
+    page2_root = h_page2.workdir / "out"
+    page2_db = h_page2.workdir / "data" / "strmgen.db"
+    page2_cfg = h_page2.config("page2", api_page2, [("/Movies", page2_root)], page2_db)
+    page2_failed = h_page2.run(page2_cfg)
+    check(page2_failed.returncode == 1 and page_two_calls["n"] == 1,
+          f"page-two failure was not observed: {page2_failed.returncode} {page2_failed.stderr}")
+    check(not page2_root.exists(), "failed second page created output")
+    page2_state = read_db(page2_db)
+    check(page2_state["ownership"] == [] and page2_state["rounds"] == [],
+          "failed second page created ownership or a successful round")
+    page2_retry = h_page2.run(page2_cfg)
+    check(page2_retry.returncode == 0, f"page-two retry failed: {page2_retry.returncode} {page2_retry.stderr}")
+    check(len(snapshot(page2_root)) == 250 and len(read_db(page2_db)["rounds"]) == 1,
+          "page-two retry did not complete from a fresh listing")
+    h_page2.cleanup()
+    observed["page2_failure_retry"] = page2_retry.returncode
     # Duplicate entry names.
     run_case("duplicate", {"/Movies": [{"name": "x", "is_dir": False, "size": 1}]},
              _override_list({"content": [
@@ -468,17 +657,177 @@ def scenario_api_and_limits(h, results):
     run_case("oversized", {"/Movies": [{"name": "x", "is_dir": False, "size": 1}]},
              _override_list({"content": [{"name": big, "is_dir": False, "size": 1, "hash_info": None}], "total": 1}))
 
+    # The per-directory entry count and aggregate name bytes are independently
+    # capped, before any STRM or ownership row can be produced.
+    too_many = [{"name": f"F{i:05d}.mkv", "is_dir": False, "size": i} for i in range(10001)]
+    run_case("directory_entry_limit", {"/Movies": too_many})
+    long_name = "N" * ((2 << 20) + 1) + ".mkv"
+    run_case("directory_name_byte_limit", {"/Movies": [
+        {"name": long_name, "is_dir": False, "size": 1}]})
+
     # 401 for a wrong token.
     hh = Harness(h.binary, h.workdir / "unauthorized")
     api, _ = hh.server()
     root = hh.workdir / "out"
     db = hh.workdir / "data" / "strmgen.db"
     cfg = hh.config("unauthorized", api, [("/Movies", root)], db)
-    proc = hh.run(cfg, extra_env={"OPENLIST_TOKEN": "wrong-token"})
+    token_marker = "SYNTHETIC_TOKEN_COOKIE_SIGN_MARKER_20261018"
+    proc = hh.run(cfg, extra_env={"OPENLIST_TOKEN": token_marker})
     check(proc.returncode == 1, f"wrong token must exit 1: {proc.returncode}")
     check(len(read_db(db)["rounds"]) == 0, "wrong token committed a round")
+    check(token_marker not in proc.stdout + proc.stderr,
+          "authentication failure echoed a token")
     hh.cleanup()
     observed["unauthorized"] = proc.returncode
+
+    # Synthetic API body secrets and a private remote root must never be
+    # reflected in diagnostics or the source summary.
+    hh_redact = Harness(h.binary, h.workdir / "redaction")
+    secret = "SYNTHETIC_COOKIE_SIGN_SECRET_20261018"
+    private_remote = f"/private/full/root/{secret}"
+
+    def secret_api(endpoint, path, request, directories):
+        if endpoint.endswith("/get") and path == private_remote:
+            return 200, 403, {
+                "message": secret,
+                "url": f"https://private.example.invalid/file?sign={secret}",
+            }
+        return None
+
+    api_redact, _ = hh_redact.server(hooks={"override": secret_api})
+    root_redact = hh_redact.workdir / "PRIVATE_OUTPUT_PATH_MARKER" / "out"
+    db_redact = hh_redact.workdir / "PRIVATE_DATABASE_PATH_MARKER" / "db.sqlite"
+    cfg_redact = hh_redact.config("redaction", api_redact, [(private_remote, root_redact)], db_redact)
+    api_redacted = hh_redact.run(cfg_redact)
+    combined = api_redacted.stdout + api_redacted.stderr
+    check(api_redacted.returncode == 1, f"API redaction case failed: {api_redacted.returncode}")
+    for marker in (secret, private_remote, "private/full/root", "private.example.invalid",
+                   "PRIVATE_OUTPUT_PATH_MARKER", "PRIVATE_DATABASE_PATH_MARKER", "sign="):
+        check(marker not in combined, f"API/configured path marker leaked: {marker}")
+    check("errors=1" in api_redacted.stdout and "partial=true" in api_redacted.stdout,
+          f"API root failure was not counted: {api_redacted.stdout}")
+    check(read_db(db_redact)["rounds"] == [] and not root_redact.exists(),
+          "redacted API failure created output or committed a round")
+    hh_redact.cleanup()
+    observed["redacted_api_root_failure"] = api_redacted.returncode
+
+    hh_yaml = Harness(h.binary, h.workdir / "yaml-redaction")
+    api_yaml, _ = hh_yaml.server()
+    yaml_cfg = hh_yaml.config("unknown", api_yaml, [("/Movies", hh_yaml.workdir / "out")],
+                              hh_yaml.workdir / "db.sqlite")
+    yaml_secret = "SYNTHETIC_UNKNOWN_FIELD_SECRET_20261018"
+    with yaml_cfg.open("a", encoding="utf-8") as stream:
+        stream.write(f'private_{yaml_secret}: "https://private.example.invalid/?sign={yaml_secret}"\n')
+    yaml_result = hh_yaml.run(yaml_cfg)
+    check(yaml_result.returncode == 2, f"unknown YAML field should fail: {yaml_result.returncode}")
+    check(yaml_secret not in yaml_result.stdout + yaml_result.stderr and
+          "private.example.invalid" not in yaml_result.stdout + yaml_result.stderr,
+          "unknown-field YAML details leaked")
+    missing_path = hh_yaml.workdir / "PRIVATE_CONFIG_PATH_MARKER" / "missing.yaml"
+    missing_result = hh_yaml.run(missing_path)
+    check(missing_result.returncode == 2 and
+          "PRIVATE_CONFIG_PATH_MARKER" not in missing_result.stdout + missing_result.stderr,
+          "missing config path leaked")
+    hh_yaml.cleanup()
+    observed["redacted_yaml_error"] = yaml_result.returncode
+
+    # Duplicate roots should identify only the trusted field/index, not the
+    # configured private output path.
+    hh_duplicate = Harness(h.binary, h.workdir / "duplicate-root-redaction")
+    api_duplicate, _ = hh_duplicate.server()
+    duplicate_marker = "PRIVATE_DUPLICATE_OUTPUT_MARKER_20261018"
+    duplicate_root = hh_duplicate.workdir / duplicate_marker / "out"
+    duplicate_db = hh_duplicate.workdir / "PRIVATE_DUPLICATE_DB_MARKER" / "db.sqlite"
+    duplicate_cfg = hh_duplicate.config("duplicate", api_duplicate,
+                                        [("/Movies", duplicate_root), ("/TV", duplicate_root)],
+                                        duplicate_db)
+    duplicate_result = hh_duplicate.run(duplicate_cfg)
+    duplicate_text = duplicate_result.stdout + duplicate_result.stderr
+    check(duplicate_result.returncode == 2,
+          f"duplicate output config should fail before sync: {duplicate_result.returncode}")
+    check("sources[1].output" in duplicate_text and duplicate_marker not in duplicate_text and
+          str(duplicate_root) not in duplicate_text,
+          f"duplicate-root diagnostic leaked a private path: {duplicate_text}")
+    check(not duplicate_root.exists() and not duplicate_db.exists(),
+          "duplicate-root rejection created output or database")
+    hh_duplicate.cleanup()
+    observed["redacted_duplicate_root"] = duplicate_result.returncode
+
+    # A database path through a symlinked ancestor is a preflight error; only
+    # its field name may be shown, not either path target.
+    hh_db_alias = Harness(h.binary, h.workdir / "database-alias-redaction")
+    api_db_alias, _ = hh_db_alias.server()
+    db_target = hh_db_alias.workdir / "PRIVATE_DATABASE_TARGET_MARKER"
+    db_target.mkdir()
+    db_alias = hh_db_alias.workdir / "PRIVATE_DATABASE_ALIAS_MARKER"
+    db_alias.symlink_to(db_target, target_is_directory=True)
+    db_alias_path = db_alias / "db.sqlite"
+    db_alias_root = hh_db_alias.workdir / "PRIVATE_OUTPUT_ALIAS_MARKER" / "out"
+    db_alias_cfg = hh_db_alias.config("database-alias", api_db_alias,
+                                      [("/Movies", db_alias_root)], db_alias_path)
+    db_alias_result = hh_db_alias.run(db_alias_cfg)
+    db_alias_text = db_alias_result.stdout + db_alias_result.stderr
+    check(db_alias_result.returncode == 2,
+          f"symlinked database path should be rejected: {db_alias_result.returncode}")
+    check("database.path" in db_alias_text and all(marker not in db_alias_text for marker in
+          ("PRIVATE_DATABASE_TARGET_MARKER", "PRIVATE_DATABASE_ALIAS_MARKER",
+           "PRIVATE_OUTPUT_ALIAS_MARKER", str(db_alias_path))),
+          f"database path diagnostic leaked a private path: {db_alias_text}")
+    check(not db_alias_root.exists() and list(db_target.iterdir()) == [],
+          "database alias rejection changed configured paths")
+    hh_db_alias.cleanup()
+    observed["redacted_database_alias"] = db_alias_result.returncode
+
+    # A syntactically valid but corrupt SQLite file reaches runtime storage
+    # initialization. The CLI must not expose SQLite text/path or change the
+    # file, and it must not create output before failing.
+    hh_db_error = Harness(h.binary, h.workdir / "database-error-redaction")
+    api_db_error, _ = hh_db_error.server()
+    private_db_marker = "PRIVATE_DATABASE_RUNTIME_MARKER"
+    content_marker = "SYNTHETIC_DATABASE_CONTENT_SECRET_20261018"
+    db_error = hh_db_error.workdir / private_db_marker / "strmgen.db"
+    db_error.parent.mkdir()
+    db_bytes = ("not a sqlite database: " + content_marker).encode()
+    db_error.write_bytes(db_bytes)
+    db_error_root = hh_db_error.workdir / "PRIVATE_OUTPUT_RUNTIME_MARKER" / "out"
+    db_error_cfg = hh_db_error.config("database-error", api_db_error,
+                                      [("/Movies", db_error_root)], db_error)
+    db_error_result = hh_db_error.run(db_error_cfg)
+    db_error_text = db_error_result.stdout + db_error_result.stderr
+    check(db_error_result.returncode == 1,
+          f"corrupt database should be a runtime error: {db_error_result.returncode}")
+    check("database.path is unavailable or unsafe" in db_error_text and
+          all(marker not in db_error_text for marker in
+              (content_marker, private_db_marker, "PRIVATE_OUTPUT_RUNTIME_MARKER", str(db_error_root), str(db_error))),
+          f"database runtime diagnostic leaked a private value: {db_error_text}")
+    check(db_error.read_bytes() == db_bytes, "corrupt database file was changed")
+    check(sidecars(db_error) == [(db_error.name, len(db_bytes))],
+          f"database failure created or changed sidecars: {sidecars(db_error)}")
+    check(not db_error_root.exists(), "database error created output")
+    hh_db_error.cleanup()
+    observed["redacted_database_runtime_error"] = db_error_result.returncode
+
+    # Source root get semantics are required: a file-shaped root is not an
+    # empty directory and cannot commit a successful round.
+    hh_root = Harness(h.binary, h.workdir / "file-root")
+
+    def file_root(endpoint, path, request, directories):
+        if endpoint.endswith("/get") and path == "/Movies":
+            return 200, 200, {"name": "Movies", "is_dir": False, "size": 1}
+        return None
+
+    api_root, _ = hh_root.server(hooks={"override": file_root})
+    root_file = hh_root.workdir / "out"
+    db_root = hh_root.workdir / "db.sqlite"
+    cfg_root = hh_root.config("file-root", api_root, [("/Movies", root_file)], db_root)
+    root_result = hh_root.run(cfg_root)
+    check(root_result.returncode == 1, f"file-shaped source root must fail: {root_result.returncode}")
+    check("errors=1" in root_result.stdout and "partial=true" in root_result.stdout,
+          f"file-shaped root was not counted: {root_result.stdout}")
+    check(read_db(db_root)["rounds"] == [], "file-shaped root committed a round")
+    check(not root_file.exists(), "file-shaped root created output")
+    hh_root.cleanup()
+    observed["file_root"] = root_result.returncode
 
     # A genuinely empty directory is a success, not a failure.
     hh2 = Harness(h.binary, h.workdir / "emptydir")
@@ -493,6 +842,82 @@ def scenario_api_and_limits(h, results):
     hh2.cleanup()
     observed["emptydir"] = empty.returncode
 
+    # Invalid optional Size values are omitted and reported, not allowed to
+    # suppress an otherwise valid media entry. Unknown values do not imply a
+    # change on the next run; valid zero and Int64 max remain representable.
+    optional_cases = [
+        ("missing", "__missing__"),
+        ("null", None),
+        ("negative", -1),
+        ("overflow", 9223372036854775808),
+        ("fraction", 1.5),
+        ("string", "not-a-size"),
+    ]
+    for case_name, value in optional_cases:
+        hh_opt = Harness(h.binary, h.workdir / f"optional-size-{case_name}")
+        item = {"name": "A.mkv", "is_dir": False}
+        if value != "__missing__":
+            item["size"] = value
+        directories_opt = {"/Movies": [item]}
+        api_opt, _ = hh_opt.server(directories=directories_opt)
+        root_opt = hh_opt.workdir / "out"
+        db_opt = hh_opt.workdir / "db.sqlite"
+        cfg_opt = hh_opt.config(case_name, api_opt, [("/Movies", root_opt)], db_opt)
+        first_opt = hh_opt.run(cfg_opt)
+        check(first_opt.returncode == 0,
+              f"optional {case_name} size should not block media: {first_opt.returncode} {first_opt.stderr}")
+        document = (root_opt / "A.strm").read_text()
+        check("strm-probe-size" not in document, f"invalid {case_name} size was serialized")
+        check("size" in first_opt.stderr.lower(), f"invalid {case_name} size reason missing")
+        check(len(read_db(db_opt)["ownership"]) == 1 and read_db(db_opt)["rounds"][0][1] == 1,
+              f"invalid {case_name} size did not create/commit valid media")
+        before_opt = snapshot(root_opt)
+        item["size"] = "still-unavailable"
+        repeat_opt = hh_opt.run(cfg_opt)
+        check(repeat_opt.returncode == 0 and "skipped=1" in repeat_opt.stdout,
+              f"unknown size information should not infer a change: {repeat_opt.returncode} {repeat_opt.stdout}")
+        check(snapshot(root_opt) == before_opt, f"invalid {case_name} size repeat rewrote STRM")
+        hh_opt.cleanup()
+        observed[f"optional_size_{case_name}"] = first_opt.returncode
+
+    for case_name, size_value in (("zero", 0), ("max", 9223372036854775807)):
+        hh_size = Harness(h.binary, h.workdir / f"valid-size-{case_name}")
+        api_size, _ = hh_size.server(directories={"/Movies": [
+            {"name": "A.mkv", "is_dir": False, "size": size_value}]})
+        root_size = hh_size.workdir / "out"
+        db_size = hh_size.workdir / "db.sqlite"
+        cfg_size = hh_size.config(case_name, api_size, [("/Movies", root_size)], db_size)
+        valid_size = hh_size.run(cfg_size)
+        check(valid_size.returncode == 0, f"valid {case_name} size failed: {valid_size.stderr}")
+        check(f"# strm-probe-size:{size_value}" in (root_size / "A.strm").read_text(),
+              f"valid {case_name} size not serialized")
+        hh_size.cleanup()
+        observed[f"optional_size_{case_name}"] = valid_size.returncode
+
+    # A batch of invalid names bounds diagnostics rather than retaining one
+    # message per object; the directory still fails without a success round.
+    hh_diag = Harness(h.binary, h.workdir / "diagnostics-bounded")
+    invalid_entries = [{"name": f"bad{i}/A.mkv", "is_dir": False, "size": 1} for i in range(150)]
+    api_diag, _ = hh_diag.server(directories={"/Movies": invalid_entries})
+    root_diag = hh_diag.workdir / "out"
+    db_diag = hh_diag.workdir / "db.sqlite"
+    cfg_diag = hh_diag.config("diagnostics", api_diag, [("/Movies", root_diag)], db_diag)
+    diag_result = hh_diag.run(cfg_diag)
+    check(diag_result.returncode == 1, f"invalid-name batch must fail: {diag_result.returncode}")
+    check("errors=150" in diag_result.stdout and "diagnostics_omitted=51" in diag_result.stdout,
+          f"batch diagnostics were not counted/bounded: {diag_result.stdout}")
+    diagnostic_lines = [line for line in diag_result.stderr.splitlines() if line.startswith("source 0:")]
+    check(len(diagnostic_lines) == 100, f"expected 100 sampled diagnostics, got {len(diagnostic_lines)}")
+    check(read_db(db_diag)["rounds"] == [] and not root_diag.exists(),
+          "invalid-name batch produced output or a successful round")
+    db_diag_before = db_diag.read_bytes()
+    dry_diag = hh_diag.run(cfg_diag, dry_run=True)
+    check(dry_diag.returncode == 1, "dry-run should report the same invalid-name failure")
+    check(not root_diag.exists() and db_diag.read_bytes() == db_diag_before,
+          "dry-run invalid-name batch changed output or database")
+    observed["bounded_diagnostics"] = diag_result.returncode
+    hh_diag.cleanup()
+
     # 403 / forbidden.
     run_case("forbidden", {"/Movies": [{"name": "x", "is_dir": False, "size": 1}]},
              _override_list(None, status=200, code=403))
@@ -506,10 +931,14 @@ def scenario_dry_run_boundaries(h, results):
     root = h.workdir / "empty" / "out"
     db = h.workdir / "empty" / "data" / "strmgen.db"
     cfg = h.config("dryempty", api, [("/Movies", root)], db)
-    dry = h.run(cfg, dry_run=True)
+    dry = h.run(cfg, dry_run=True, extra_env={
+        "STRMGEN_LOCK_DIR": str(root / "locks"),
+        "TMPDIR": str(root / "tmp"),
+    })
     check(dry.returncode == 0, f"dry-run exit {dry.returncode}: {dry.stderr}")
     check(not root.exists(), "dry-run created the output root")
     check(not db.exists(), "dry-run created the database")
+    check(snapshot_tree(root)["entries"] == {}, "dry-run created a lock or temporary output entry")
     observed["no_side_effects"] = dry.returncode
 
     # With existing ownership: SQL bytes and mtimes must be unchanged.
@@ -546,13 +975,33 @@ def scenario_dry_run_boundaries(h, results):
     for suffix in ("-wal", "-shm", "-journal"):
         Path(str(db2b) + suffix).unlink(missing_ok=True)
     before_wal = snapshot(root2b)
-    dry2b = h2b.run(cfg2b, dry_run=True)
+    before_wal_tree = snapshot_tree(root2b)
+    dry2b = h2b.run(cfg2b, dry_run=True, extra_env={
+        "STRMGEN_LOCK_DIR": str(root2b / "locks"),
+        "TMPDIR": str(root2b),
+    })
     check(dry2b.returncode == 0, f"dry-run on WAL db exit {dry2b.returncode}: {dry2b.stderr}")
     check(snapshot(root2b) == before_wal, "WAL dry-run changed output")
+    check(snapshot_tree(root2b) == before_wal_tree, "WAL dry-run changed output directory entries")
     check(not any(Path(str(db2b) + s).exists() for s in ("-wal", "-shm", "-journal")),
           "WAL dry-run created a sidecar")
     observed["wal_database"] = dry2b.returncode
     h2b.cleanup()
+
+    # A configured output equal to the immutable runtime lock namespace is
+    # rejected before creating/locking anything, even during preview.
+    fixed_lock_root = Path("/tmp/strmgen-locks")
+    lock_before = snapshot_tree(fixed_lock_root)
+    h2c = Harness(h.binary, h.workdir / "lock-path-overlap")
+    api2c, _ = h2c.server()
+    db2c = h2c.workdir / "data" / "strmgen.db"
+    cfg2c = h2c.config("lock-overlap", api2c, [("/Movies", fixed_lock_root)], db2c)
+    rejected = h2c.run(cfg2c, dry_run=True)
+    check(rejected.returncode == 1, f"runtime lock overlap must fail: {rejected.returncode}")
+    check(not db2c.exists(), "lock-overlap rejection created a database")
+    check(snapshot_tree(fixed_lock_root) == lock_before, "lock-overlap rejection changed lock directory")
+    observed["lock_path_overlap"] = rejected.returncode
+    h2c.cleanup()
 
     # Dry-run still reports conflicts and needs-update with a non-zero exit.
     h3 = Harness(h.binary, h.workdir / "dryconflict")
@@ -569,6 +1018,148 @@ def scenario_dry_run_boundaries(h, results):
     results["dry_run_boundaries"] = observed
 
 
+def scenario_source_identity(h, results):
+    directories = {"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 10, "hash_info": {"sha1": "a" * 40}},
+        {"name": "B.mp4", "is_dir": False, "size": 20, "hash_info": {"sha1": "b" * 40}},
+    ]}
+    api, _ = h.server(directories=directories, hooks={"tokens": ["rotated-fixture-token"]})
+    out1 = h.workdir / "out-one"
+    out2 = h.workdir / "out-two"
+    db = h.workdir / "data" / "strmgen.db"
+    sources = [("/Movies", out1), ("/Movies", out2)]
+    cfg = h.config("two-output-sources", api, sources, db)
+    first = h.run(cfg)
+    check(first.returncode == 0, f"two-output first sync failed: {first.returncode} {first.stderr}")
+    state1 = read_db(db)
+    check(len(snapshot(out1)) == 2 and len(snapshot(out2)) == 2, "two independent outputs were not both created")
+    check(len(state1["ownership"]) == 4, f"two output mappings lost ownership rows: {state1['ownership']}")
+    check(len(state1["rounds"]) == 2, f"two output mappings lost rounds: {state1['rounds']}")
+    source_keys = {row[0] for row in state1["ownership"]}
+    check(len(source_keys) == 2 and all(key.startswith("source-v1:") for key in source_keys),
+          f"source identities were not mapping-bound: {source_keys}")
+    before1, before2 = snapshot(out1), snapshot(out2)
+
+    repeat = h.run(cfg)
+    check(repeat.returncode == 0 and repeat.stdout.count("skipped=2") == 2,
+          f"both source mappings must be repeatable: {repeat.returncode} {repeat.stdout}")
+    check(snapshot(out1) == before1 and snapshot(out2) == before2,
+          "repeated source run changed output bytes or mtimes")
+
+    # Array order and token rotation are not source identity; both sources
+    # remain independently owned under the same two keys.
+    reordered = h.config("sources-reordered", api, list(reversed(sources)), db)
+    reordered_result = h.run(reordered)
+    check(reordered_result.returncode == 0 and reordered_result.stdout.count("skipped=2") == 2,
+          f"source reorder changed ownership: {reordered_result.returncode} {reordered_result.stdout}")
+    rotated_cfg = h.config("rotated-token", api, [("/Movies", out1)], db)
+    rotated = h.run(rotated_cfg, extra_env={"OPENLIST_TOKEN": "rotated-fixture-token"})
+    check(rotated.returncode == 0 and "skipped=2" in rotated.stdout,
+          f"credential rotation changed source identity: {rotated.returncode} {rotated.stdout}")
+    state_after_rotate = read_db(db)
+    check({row[0] for row in state_after_rotate["ownership"]} == source_keys,
+          "credential rotation created a new source identity")
+    check(len(state_after_rotate["rounds"]) == 2, "credential rotation created another round identity")
+
+    # public_url is intentionally excluded from identity; URL comparison still
+    # reports a required update without touching the previous STRM.
+    public_cfg = h.config("changed-public-url", api, [("/Movies", out1)], db,
+                          public="https://changed.example.invalid")
+    public_before = snapshot(out1)
+    public_change = h.run(public_cfg)
+    check(public_change.returncode == 1 and "needs_update=2" in public_change.stdout,
+          f"public URL change did not use STRM comparison: {public_change.returncode} {public_change.stdout}")
+    check(snapshot(out1) == public_before, "public URL change replaced an existing owned file")
+    check(len(read_db(db)["rounds"]) == 2, "pending public URL update committed a round")
+
+    # Changing the API source creates a new identity and must not borrow old
+    # ownership to update or commit against existing files.
+    h.stop_server()
+    api2, _ = h.server(directories=directories)
+    api_changed_cfg = h.config("changed-api", api2, [("/Movies", out1)], db)
+    before_api_change = snapshot(out1)
+    api_changed = h.run(api_changed_cfg)
+    check(api_changed.returncode == 1 and "conflicts=2" in api_changed.stdout,
+          f"API change borrowed prior ownership: {api_changed.returncode} {api_changed.stdout}")
+    check(snapshot(out1) == before_api_change, "API identity change modified prior files")
+    state_after_api = read_db(db)
+    check({row[0] for row in state_after_api["ownership"]} == source_keys,
+          "API change overwrote or silently migrated old ownership")
+    check(len(state_after_api["rounds"]) == 2, "API identity conflict committed a round")
+
+    # A previous release's plain remote key is not trusted as proof of current
+    # ownership and cannot turn an orphan into an owned file.
+    legacy = Harness(h.binary, h.workdir / "legacy-remote-key")
+    api_legacy, _ = legacy.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1}]})
+    root_legacy = legacy.workdir / "out"
+    db_legacy = legacy.workdir / "db.sqlite"
+    write_unowned(root_legacy / "A.strm", b"legacy-owned-by-old-key\n")
+    precreate_db_with_trigger(db_legacy, "")
+    connection = sqlite3.connect(str(db_legacy))
+    connection.execute("INSERT INTO ownership VALUES (?, ?, ?, ?, ?)",
+                       ("/Movies", "A.strm", str(root_legacy / "A.strm"), 7, 0))
+    connection.execute("INSERT INTO rounds VALUES (?, ?, ?)", ("/Movies", 7, "legacy"))
+    connection.commit()
+    connection.close()
+    legacy_cfg = legacy.config("legacy-key", api_legacy, [("/Movies", root_legacy)], db_legacy)
+    legacy_before = snapshot_tree(root_legacy)
+    legacy_result = legacy.run(legacy_cfg)
+    check(legacy_result.returncode == 1 and "conflicts=1" in legacy_result.stdout,
+          f"legacy remote key was trusted: {legacy_result.returncode} {legacy_result.stdout}")
+    check(snapshot_tree(root_legacy) == legacy_before, "legacy unowned file was modified")
+    legacy_state = read_db(db_legacy)
+    check(len(legacy_state["ownership"]) == 1 and legacy_state["ownership"][0][0] == "/Movies",
+          "legacy ownership was migrated or overwritten")
+    check(legacy_state["rounds"] == [("/Movies", 7)], "legacy record advanced a successful round")
+    legacy.cleanup()
+
+    results["source_identity"] = {
+        "ownership_rows": len(state1["ownership"]),
+        "source_identities": len(source_keys),
+        "repeat_exit": repeat.returncode,
+        "reordered_exit": reordered_result.returncode,
+        "rotated_token_exit": rotated.returncode,
+        "public_url_exit": public_change.returncode,
+        "changed_api_exit": api_changed.returncode,
+        "legacy_key_exit": legacy_result.returncode,
+    }
+
+
+def scenario_database_uri(h, results):
+    api, _ = h.server()
+    root = h.workdir / "out"
+    db = h.workdir / "data ?name#percent%" / "state ?#%.sqlite"
+    cfg = h.config("special-db-name", api, [("/Movies", root)], db)
+    first = h.run(cfg)
+    check(first.returncode == 0, f"special database path failed: {first.returncode} {first.stderr}")
+    check(db.is_file(), "configured special database file was not created")
+    check(len(read_db(db)["ownership"]) == 4 and len(read_db(db)["rounds"]) == 1,
+          f"configured special database did not retain state: {read_db(db)}")
+    check([entry.name for entry in db.parent.iterdir()] == [db.name],
+          f"SQLite created a file at an interpreted URI location: {[p.name for p in db.parent.iterdir()]}")
+
+    output_before = snapshot(root)
+    repeated = h.run(cfg)
+    check(repeated.returncode == 0 and "skipped=4" in repeated.stdout,
+          f"special database repeat failed: {repeated.returncode} {repeated.stdout}")
+    check(snapshot(root) == output_before, "special database repeat changed output")
+    db_before_dry = db.read_bytes()
+    state_before_dry = read_db(db)
+    dry = h.run(cfg, dry_run=True, extra_env={
+        "TMPDIR": str(root),
+        "STRMGEN_LOCK_DIR": str(root / "locks"),
+    })
+    check(dry.returncode == 0, f"special database dry-run failed: {dry.returncode} {dry.stderr}")
+    check(db.read_bytes() == db_before_dry and read_db(db) == state_before_dry,
+          "special database dry-run changed database bytes or rows")
+    check(snapshot(root) == output_before, "special database dry-run changed output")
+    check([entry.name for entry in db.parent.iterdir()] == [db.name],
+          "special database path created an unexpected sidecar or alternate file")
+    results["database_uri"] = {"db_name": db.name, "repeat_exit": repeated.returncode,
+                               "dry_run_exit": dry.returncode, "ownership_rows": len(state_before_dry["ownership"])}
+
+
 def scenario_multiprocess(h, results):
     barrier = threading.Event()
     entered = threading.Event()
@@ -582,47 +1173,68 @@ def scenario_multiprocess(h, results):
     root1 = h.workdir / "first" / "out"
     db1 = h.workdir / "first" / "data" / "strmgen.db"
     cfg1 = h.config("first", api, [("/Movies", root1)], db1)
-    proc1 = h.start(cfg1)
+    proc1 = h.start(cfg1, extra_env={
+        "STRMGEN_LOCK_DIR": str(root1 / "lock-override-one"),
+        "TMPDIR": str(root1 / "tmp-one"),
+    })
     check(entered.wait(timeout=15), "first process never reached the barrier")
+    root_before = snapshot_tree(root1)
 
-    # A second process with a different output range and database must still be
-    # excluded by the shared round lock.
-    root2 = h.workdir / "second" / "out"
-    db2 = h.workdir / "second" / "data" / "strmgen.db"
-    cfg2 = h.config("second", api, [("/Movies", root2)], db2)
-    second = h.run(cfg2, timeout=30)
+    # Same physical output, but a different database, TMPDIR and attempted
+    # lock override must all contend for the same production lock namespace.
+    db2 = h.workdir / "second.sqlite"
+    same_root_cfg = h.config("same-root-second", api, [("/Movies", root1)], db2)
+    second = h.run(same_root_cfg, timeout=30, extra_env={
+        "STRMGEN_LOCK_DIR": str(root1 / "lock-override-two"),
+        "TMPDIR": str(root1 / "tmp-two"),
+    })
     check(second.returncode == 1, f"second process must be excluded: {second.returncode}")
     check("another sync is already running" in second.stderr, f"busy message missing: {second.stderr}")
-    check(not root2.exists(), "excluded process created output")
     check(not db2.exists(), "excluded process created a database")
+    check(snapshot_tree(root1) == root_before, "excluded process changed the shared output root")
 
-    # An ancestor output range must also be excluded.
-    ancestor = h.workdir / "ancestor" / "out"
-    cfg3 = h.config("ancestor", api, [("/Movies", ancestor)], h.workdir / "ancestor" / "data" / "strmgen.db")
+    # A true ancestor and a true child output range are excluded too.
+    ancestor = root1.parent
+    ancestor_before = snapshot_tree(ancestor)
+    cfg3 = h.config("ancestor", api, [("/Movies", ancestor)], h.workdir / "ancestor.sqlite")
     third = h.run(cfg3, timeout=30)
     check(third.returncode == 1, f"ancestor range must be excluded: {third.returncode}")
-    check(not ancestor.exists(), "ancestor-range process created output")
+    check(snapshot_tree(ancestor) == ancestor_before, "ancestor-range process changed output entries")
 
-    # A subdirectory output range and a path alias must also be excluded.
-    subdir = h.workdir / "first" / "out" / "nested"
-    cfg4 = h.config("subdir", api, [("/Movies", subdir)], h.workdir / "alias" / "data" / "strmgen.db")
+    subdir = root1 / "nested"
+    subdir_before = snapshot_tree(subdir)
+    cfg4 = h.config("subdir", api, [("/Movies", subdir)], h.workdir / "subdir.sqlite")
     fourth = h.run(cfg4, timeout=30)
     check(fourth.returncode == 1, f"subdirectory range must be excluded: {fourth.returncode}")
-    alias_cfg = h.config("alias", api, [("/Movies", h.workdir / "first" / ".." / "first" / "out" / "alias")],
-                         h.workdir / "alias2" / "data" / "strmgen.db")
+    check(snapshot_tree(subdir) == subdir_before, "subdirectory-range process created output")
+
+    alias_output = root1 / "nested" / ".."
+    alias_cfg = h.config("alias", api, [("/Movies", alias_output)], h.workdir / "alias.sqlite")
     fifth = h.run(alias_cfg, timeout=30)
     check(fifth.returncode == 1, f"aliased range must be excluded: {fifth.returncode}")
+    check(snapshot_tree(root1) == root_before, "aliased-range process changed shared output")
+
+    # A symlink alias is not followed; it is a preflight safety rejection.
+    link_alias = h.workdir / "link-alias"
+    link_alias.symlink_to(root1, target_is_directory=True)
+    alias_link_cfg = h.config("alias-link", api, [("/Movies", link_alias)], h.workdir / "alias-link.sqlite")
+    sixth = h.run(alias_link_cfg, timeout=30)
+    check(sixth.returncode == 2, f"symlink alias must be rejected before work: {sixth.returncode}")
+    check(snapshot_tree(root1) == root_before, "symlink-alias rejection changed shared output")
 
     barrier.set()
     out1, err1 = proc1.communicate(timeout=60)
     check(proc1.returncode == 0, f"first process failed: {proc1.returncode} {err1}")
     check("created=4" in out1, f"first process summary: {out1}")
 
-    # After the first process exits the lock is available again.
+    # After normal exit a different output/database can take the shared lock.
+    root2 = h.workdir / "after-release" / "out"
+    cfg2 = h.config("after-release", api, [("/Movies", root2)], db2)
     again = h.run(cfg2, timeout=60)
     check(again.returncode == 0, f"rerun after release failed: {again.returncode} {again.stderr}")
     results["multiprocess"] = {"second_exit": second.returncode, "ancestor_exit": third.returncode,
                                "subdir_exit": fourth.returncode, "alias_exit": fifth.returncode,
+                               "symlink_alias_exit": sixth.returncode,
                                "rerun_exit": again.returncode}
 
 
@@ -724,6 +1336,280 @@ def scenario_fault_recovery(h, results):
     observed["cancel_exit"] = proc.returncode
     observed["rerun_after_kill"] = rerun.returncode
     h4.cleanup()
+
+    # FIFO replacement of an owned target must be rejected without blocking;
+    # the original special file and prior complete round remain untouched.
+    h5 = Harness(h.binary, h.workdir / "owned-fifo")
+    directories5 = {"/Movies": [{"name": "A.mkv", "is_dir": False, "size": 1}]}
+    api5, _ = h5.server(directories=directories5)
+    root5 = h5.workdir / "out"
+    db5 = h5.workdir / "db.sqlite"
+    cfg5 = h5.config("fifo", api5, [("/Movies", root5)], db5)
+    check(h5.run(cfg5).returncode == 0, "FIFO seed sync failed")
+    target5 = root5 / "A.strm"
+    target5.unlink()
+    os.mkfifo(target5, 0o600)
+    fifo_before = target5.lstat()
+    fifo_run = h5.run(cfg5, timeout=8)
+    check(fifo_run.returncode == 1, f"owned FIFO must fail promptly: {fifo_run.returncode}")
+    check("conflicts=1" in fifo_run.stdout and "partial=true" in fifo_run.stdout,
+          f"owned FIFO was not reported as a conflict: {fifo_run.stdout}")
+    fifo_after = target5.lstat()
+    check(stat.S_ISFIFO(fifo_after.st_mode), "owned FIFO was replaced")
+    check((fifo_after.st_ino, fifo_after.st_size, fifo_after.st_mtime_ns) ==
+          (fifo_before.st_ino, fifo_before.st_size, fifo_before.st_mtime_ns),
+          "owned FIFO metadata changed during the failed read")
+    check(len(read_db(db5)["rounds"]) == 1 and read_db(db5)["rounds"][0][1] == 1,
+          "owned FIFO failure advanced the round")
+    directories5["/Movies"] = []
+    fifo_lock_release = h5.run(cfg5, timeout=8)
+    check(fifo_lock_release.returncode == 0, "lock was not released after FIFO failure")
+    check(target5.lstat().st_ino == fifo_before.st_ino, "follow-up run changed the FIFO")
+    observed["owned_fifo_exit"] = fifo_run.returncode
+    observed["after_fifo_lock_release"] = fifo_lock_release.returncode
+    h5.cleanup()
+
+    # Oversized regular owned targets are bounded before parse and preserved.
+    h6 = Harness(h.binary, h.workdir / "owned-oversized")
+    directories6 = {"/Movies": [{"name": "A.mkv", "is_dir": False, "size": 1}]}
+    api6, _ = h6.server(directories=directories6)
+    root6 = h6.workdir / "out"
+    db6 = h6.workdir / "db.sqlite"
+    cfg6 = h6.config("oversized", api6, [("/Movies", root6)], db6)
+    check(h6.run(cfg6).returncode == 0, "oversized seed sync failed")
+    target6 = root6 / "A.strm"
+    target6.write_bytes(b"x" * 65537)
+    large_before = snapshot_tree(root6)
+    large_run = h6.run(cfg6, timeout=8)
+    check(large_run.returncode == 1, f"oversized owned target must fail: {large_run.returncode}")
+    check(snapshot_tree(root6) == large_before, "oversized owned target was changed")
+    check(read_db(db6)["rounds"][0][1] == 1, "oversized target failure advanced the round")
+    directories6["/Movies"] = []
+    large_lock_release = h6.run(cfg6, timeout=8)
+    check(large_lock_release.returncode == 0, "lock was not released after oversized-target failure")
+    check(snapshot_tree(root6) == large_before, "follow-up run changed oversized target")
+    observed["oversized_target_exit"] = large_run.returncode
+    observed["after_oversized_lock_release"] = large_lock_release.returncode
+    h6.cleanup()
+
+    # SIGKILL releases the kernel flock without unlinking/replacing the shared
+    # lock file, and the next process can acquire it normally.
+    h7 = Harness(h.binary, h.workdir / "sigkill")
+    kill_barrier = threading.Event()
+    kill_entered = threading.Event()
+
+    def wait_for_kill(endpoint, path, request):
+        if endpoint.endswith("/list") and path == "/Movies" and not kill_entered.is_set():
+            kill_entered.set()
+            kill_barrier.wait(timeout=20)
+
+    api7, _ = h7.server(hooks={"before": wait_for_kill})
+    root7 = h7.workdir / "out"
+    db7 = h7.workdir / "db.sqlite"
+    cfg7 = h7.config("sigkill", api7, [("/Movies", root7)], db7)
+    killed = h7.start(cfg7)
+    check(kill_entered.wait(timeout=15), "SIGKILL process never reached the API barrier")
+    killed.kill()
+    killed.communicate(timeout=8)
+    kill_barrier.set()
+    check(killed.returncode == -signal.SIGKILL, f"expected SIGKILL exit, got {killed.returncode}")
+    check(read_db(db7)["ownership"] == [] and read_db(db7)["rounds"] == [],
+          "SIGKILL process left ownership or a complete round")
+    after_kill = h7.run(cfg7, timeout=30)
+    check(after_kill.returncode == 0, f"lock was not released after SIGKILL: {after_kill.returncode}")
+    check("created=4" in after_kill.stdout, f"post-SIGKILL sync did not recover: {after_kill.stdout}")
+    observed["sigkill_exit"] = killed.returncode
+    observed["after_sigkill_lock_release"] = after_kill.returncode
+    h7.cleanup()
+
+    # Lower the CLI child's file-size soft limit after DB setup but before its
+    # first STRM publish. With SIGXFSZ ignored, the real write returns EFBIG;
+    # LocalFS must remove the temporary file, leave no target/ownership, and
+    # allow a normal retry after the process releases the global flock.
+    h8 = Harness(h.binary, h.workdir / "temporary-write-failure")
+    write_barrier = threading.Event()
+    write_entered = threading.Event()
+
+    def hold_before_write(endpoint, path, request):
+        if endpoint.endswith("/list") and path == "/Movies" and not write_entered.is_set():
+            write_entered.set()
+            write_barrier.wait(timeout=20)
+
+    api8, _ = h8.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None},
+    ]}, hooks={"before": hold_before_write})
+    root8 = h8.workdir / "out"
+    db8 = h8.workdir / "data" / "strmgen.db"
+    cfg8 = h8.config("write-failure", api8, [("/Movies", root8)], db8)
+    write_proc = h8.start(cfg8, ignore_sigxfsz=True)
+    check(write_entered.wait(timeout=15), "write-failure process never reached the API barrier")
+    _, hard_limit = resource.prlimit(write_proc.pid, resource.RLIMIT_FSIZE)
+    resource.prlimit(write_proc.pid, resource.RLIMIT_FSIZE, (0, hard_limit))
+    write_barrier.set()
+    try:
+        write_out, write_err = write_proc.communicate(timeout=30)
+    finally:
+        write_barrier.set()
+    check(write_proc.returncode == 1,
+          f"temporary-file write failure should be a handled runtime error: {write_proc.returncode} {write_err}")
+    check("errors=1" in write_out and "partial=true" in write_out,
+          f"temporary-file write error was not counted: {write_out}")
+    write_tree = snapshot_tree(root8)
+    check(write_tree["exists"] and write_tree["entries"] == {},
+          f"failed temporary write left a target or temp file: {write_tree}")
+    write_state = read_db(db8)
+    check(write_state["ownership"] == [] and write_state["rounds"] == [],
+          f"failed temporary write registered ownership or a round: {write_state}")
+    write_retry = h8.run(cfg8, timeout=30)
+    check(write_retry.returncode == 0 and len(snapshot(root8)) == 1,
+          f"normal retry after write failure failed: {write_retry.returncode} {write_retry.stderr}")
+    observed["temporary_write_failure"] = write_proc.returncode
+    observed["write_failure_retry"] = write_retry.returncode
+    h8.cleanup()
+
+    # Test-only build-tagged CLI injects a foreign target after the no-follow
+    # check and just before Linkat. The ordinary binary is still used for all
+    # other scenarios; without --fault-binary the fallback adds the same
+    # unowned target at the API barrier and checks preservation.
+    race_binary = h.fault_binary or h.binary
+    h9 = Harness(race_binary, h.workdir / "target-appears-before-publish")
+    race_root = h9.workdir / "out"
+    race_db = h9.workdir / "data" / "strmgen.db"
+    race_ready = threading.Event()
+
+    def add_target_at_barrier(endpoint, path, request):
+        if endpoint.endswith("/list") and path == "/Movies" and not race_ready.is_set():
+            race_ready.set()
+            if h.fault_binary is None:
+                race_root.mkdir(parents=True, exist_ok=True)
+                (race_root / "A.strm").write_bytes(b"external")
+
+    api9, _ = h9.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None},
+    ]}, hooks={"before": add_target_at_barrier})
+    race_cfg = h9.config("target-race", api9, [("/Movies", race_root)], race_db)
+    race_env = {"STRMGEN_TEST_PUBLISH_BEFORE_LINK_TARGET": "A.strm"} if h.fault_binary is not None else None
+    race_result = h9.run(race_cfg, extra_env=race_env)
+    check(race_ready.is_set(), "target-race fixture did not reach its barrier")
+    check(race_result.returncode == 1 and "errors=1" in race_result.stdout,
+          f"late target should fail safely: {race_result.returncode} {race_result.stdout} {race_result.stderr}")
+    check((race_root / "A.strm").read_bytes() == b"external", "late external target was overwritten")
+    race_tree = snapshot_tree(race_root)
+    check(set(race_tree["entries"]) == {"A.strm"}, f"late-target publish left a temporary file: {race_tree}")
+    race_state = read_db(race_db)
+    check(race_state["ownership"] == [] and race_state["rounds"] == [],
+          f"late target acquired ownership or a round: {race_state}")
+    observed["target_appears_after_check"] = race_result.returncode
+    h9.cleanup()
+
+    # Cancel after page 1 has been accepted but while page 2 is blocked. The
+    # client has not yet handed an incomplete list to the reconciler, so no
+    # output/ownership/round may be committed; the same source then retries.
+    h10 = Harness(h.binary, h.workdir / "page2-cancellation")
+    page_barrier = threading.Event()
+    page_entered = threading.Event()
+
+    def hold_second_page(endpoint, path, request):
+        if endpoint.endswith("/list") and path == "/Movies" and request.get("page") == 2 and not page_entered.is_set():
+            page_entered.set()
+            page_barrier.wait(timeout=20)
+
+    page_data = [{"name": f"P{i:03d}.mkv", "is_dir": False, "size": i, "hash_info": None}
+                 for i in range(250)]
+    api10, _ = h10.server(directories={"/Movies": page_data}, hooks={"before": hold_second_page})
+    root10 = h10.workdir / "out"
+    db10 = h10.workdir / "data" / "strmgen.db"
+    cfg10 = h10.config("page2-cancel", api10, [("/Movies", root10)], db10)
+    page_proc = h10.start(cfg10)
+    check(page_entered.wait(timeout=15), "page-two cancellation never reached the barrier")
+    page_proc.send_signal(signal.SIGTERM)
+    try:
+        page_out, page_err = page_proc.communicate(timeout=15)
+    finally:
+        page_barrier.set()
+    check(page_proc.returncode != 0, f"page-two cancellation must fail: {page_proc.returncode}")
+    check(not root10.exists(), "cancelled incomplete page created the output root")
+    page_state = read_db(db10)
+    check(page_state["ownership"] == [] and page_state["rounds"] == [],
+          f"page-two cancellation created ownership or a successful round: {page_state}")
+    page_retry = h10.run(cfg10, timeout=60)
+    check(page_retry.returncode == 0 and len(snapshot(root10)) == 250,
+          f"retry after page-two cancellation failed: {page_retry.returncode} {page_retry.stderr}")
+    observed["page2_cancel_exit"] = page_proc.returncode
+    observed["page2_cancel_retry"] = page_retry.returncode
+    h10.cleanup()
+
+    # A process stopped immediately after a successful ownership insert and
+    # killed before CommitRound must leave those individual durable facts but
+    # no complete round. Restart recognizes owned files and completes epoch 1.
+    h11 = Harness(h.binary, h.workdir / "ownership-before-round-interruption")
+    ownership_data = [{"name": f"O{i:05d}.mkv", "is_dir": False, "size": i, "hash_info": None}
+                      for i in range(2000)]
+    api11, _ = h11.server(directories={"/Movies": ownership_data})
+    root11 = h11.workdir / "out"
+    db11 = h11.workdir / "data" / "strmgen.db"
+    cfg11 = h11.config("ownership-interrupt", api11, [("/Movies", root11)], db11, workers=1)
+    ownership_proc = h11.start(cfg11)
+    deadline = time.monotonic() + 45
+    stopped = False
+    while time.monotonic() < deadline:
+        if ownership_proc.poll() is not None:
+            break
+        if db11.exists():
+            try:
+                conn = sqlite3.connect(db11.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.01)
+                try:
+                    ownership_count = conn.execute("SELECT COUNT(*) FROM ownership").fetchone()[0]
+                finally:
+                    conn.close()
+            except sqlite3.Error:
+                ownership_count = 0
+            if ownership_count > 0:
+                ownership_proc.send_signal(signal.SIGSTOP)
+                stop_deadline = time.monotonic() + 5
+                while time.monotonic() < stop_deadline and Path(f"/proc/{ownership_proc.pid}/status").exists():
+                    state_line = next((line for line in Path(f"/proc/{ownership_proc.pid}/status").read_text().splitlines()
+                                       if line.startswith("State:")), "")
+                    if len(state_line.split()) > 1 and state_line.split()[1] in ("T", "t"):
+                        stopped = True
+                        break
+                    time.sleep(0.001)
+                if stopped:
+                    break
+        time.sleep(0.002)
+    if not stopped:
+        if ownership_proc.poll() is None:
+            ownership_proc.kill()
+            ownership_proc.communicate(timeout=10)
+        raise Failure("ownership interruption did not stop after a durable ownership insert")
+    interrupted_state = read_db(db11)
+    check(len(interrupted_state["ownership"]) > 0 and interrupted_state["rounds"] == [],
+          f"interrupted run did not isolate ownership from complete round: {interrupted_state}")
+    ownership_proc.kill()
+    ownership_proc.communicate(timeout=10)
+    check(ownership_proc.returncode == -signal.SIGKILL,
+          f"ownership interruption expected SIGKILL, got {ownership_proc.returncode}")
+    killed_state = read_db(db11)
+    check(len(killed_state["ownership"]) > 0 and killed_state["rounds"] == [],
+          f"SIGKILL changed partial ownership/round state: {killed_state}")
+    ownership_retry = h11.run(cfg11, timeout=120)
+    check(ownership_retry.returncode == 0,
+          f"restart after ownership interruption failed: {ownership_retry.returncode} {ownership_retry.stderr}")
+    recovered_state = read_db(db11)
+    check(len(recovered_state["ownership"]) == len(ownership_data) and
+          recovered_state["rounds"] and recovered_state["rounds"][0][1] == 1,
+          f"restart did not finish the original incomplete epoch: {recovered_state}")
+    recovered_strms = list(root11.rglob("*.strm"))
+    check(len(recovered_strms) == len(ownership_data),
+          "restart after ownership interruption lost STRM targets")
+    leftover_temps = [path.name for path in root11.iterdir() if path.name.startswith(".strmgen-")]
+    check(all(name.endswith(".tmp") for name in leftover_temps),
+          f"unexpected interruption residue in output: {leftover_temps}")
+    observed["ownership_then_sigkill"] = ownership_proc.returncode
+    observed["ownership_interruption_recovery"] = ownership_retry.returncode
+    observed["unreferenced_temp_files_after_sigkill"] = len(leftover_temps)
+    h11.cleanup()
+
     results["fault_recovery"] = observed
 
 
@@ -734,6 +1620,8 @@ SCENARIOS = {
     "api_and_limits": scenario_api_and_limits,
     "dry_run_boundaries": scenario_dry_run_boundaries,
     "multiprocess": scenario_multiprocess,
+    "source_identity": scenario_source_identity,
+    "database_uri": scenario_database_uri,
     "fault_recovery": scenario_fault_recovery,
 }
 
@@ -752,6 +1640,8 @@ def validate_output_dir(output_dir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--fault-binary",
+                        help="optional strmgen_testhooks build used only for exact publish-race injection")
     parser.add_argument("--scenario", default="all",
                         help="'all' or a comma-separated subset: " + ", ".join(ALL_SCENARIOS))
     parser.add_argument("--output-dir", required=True)
@@ -760,6 +1650,9 @@ def main():
     binary = Path(args.binary).resolve()
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise SystemExit(f"binary not executable: {binary}")
+    fault_binary = Path(args.fault_binary).resolve() if args.fault_binary else None
+    if fault_binary is not None and (not fault_binary.is_file() or not os.access(fault_binary, os.X_OK)):
+        raise SystemExit(f"fault-injection binary not executable: {fault_binary}")
     output_dir = validate_output_dir(Path(args.output_dir))
     if args.scenario == "all":
         selected = ALL_SCENARIOS
@@ -775,7 +1668,7 @@ def main():
         workdir = output_dir / "run" / name
         if workdir.exists():
             raise SystemExit(f"scenario work directory already exists: {workdir}")
-        harness = Harness(binary, workdir)
+        harness = Harness(binary, workdir, fault_binary=fault_binary)
         started = time.time()
         try:
             SCENARIOS[name](harness, results)
@@ -800,6 +1693,8 @@ def main():
     summary = {
         "binary": str(binary),
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "fault_binary": str(fault_binary) if fault_binary is not None else None,
+        "fault_binary_sha256": hashlib.sha256(fault_binary.read_bytes()).hexdigest() if fault_binary else None,
         "scenarios": results,
         "failures": failures,
     }

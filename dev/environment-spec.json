@@ -102,6 +102,8 @@
     "internal/pathmap/pathmap_test.go",
     "internal/reconciler/fs.go",
     "internal/reconciler/fs_test.go",
+    "internal/reconciler/fs_publish_hook_default.go",
+    "internal/reconciler/fs_publish_hook_integration.go",
     "internal/reconciler/lock.go",
     "internal/reconciler/lock_other.go",
     "internal/reconciler/lock_unix.go",
@@ -111,6 +113,8 @@
     "internal/storage/storage_test.go",
     "internal/strm/strm.go",
     "internal/strm/strm_test.go",
+    "internal/securepath/securepath_linux.go",
+    "internal/securepath/securepath_linux_test.go",
     "scripts/run_isolated_sync_integration.py",
     "tests/test_run_isolated_sync_integration.py"
   ],

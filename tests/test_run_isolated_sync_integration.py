@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -55,6 +56,25 @@ class DriverUnitTests(unittest.TestCase):
             (Path(str(db) + "-wal")).write_bytes(b"x")
             names = [name for name, _ in driver.sidecars(db)]
             self.assertIn("strmgen.db-wal", names)
+
+    def test_read_db_escapes_uri_special_characters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "data ?name#percent%" / "state ?#%.sqlite"
+            db.parent.mkdir()
+            conn = sqlite3.connect(db)
+            try:
+                conn.executescript(
+                    "CREATE TABLE ownership (source_key TEXT, relative_path TEXT, absolute_path TEXT, missing_count INTEGER);"
+                    "CREATE TABLE rounds (source_key TEXT, epoch INTEGER);"
+                    "INSERT INTO ownership VALUES ('source', 'A.strm', '/out/A.strm', 0);"
+                    "INSERT INTO rounds VALUES ('source', 1);"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            state = driver.read_db(db)
+            self.assertEqual(len(state["ownership"]), 1)
+            self.assertEqual(state["rounds"], [("source", 1)])
 
     def test_summary_shape_is_json_serializable(self):
         payload = {"scenarios": {"first_generation": {"status": "PASS"}}, "failures": []}

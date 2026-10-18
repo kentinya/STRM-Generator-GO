@@ -95,6 +95,105 @@ func TestDatabaseInsideOutputRejected(t *testing.T) {
 	}
 }
 
+func TestOutputAncestorSymlinkRejected(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(validBase, "out/Movies", filepath.Join(alias, "out"), 1)
+	path := filepath.Join(base, "case.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("output path through a symlinked ancestor must be rejected")
+	}
+}
+
+func TestDatabaseAncestorSymlinkRejected(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(validBase, "data/strmgen.db", filepath.Join(alias, "data", "strmgen.db"), 1)
+	path := filepath.Join(base, "case.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("database path through a symlinked ancestor must be rejected")
+	}
+}
+
+func TestOutputRootsCannotOverlapThroughPhysicalAlias(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(validBase, "  - remote: \"/Movies\"\n    output: \"out/Movies\"\n",
+		"  - remote: \"/Movies\"\n    output: \""+filepath.Join(real, "out")+"\"\n  - remote: \"/TV\"\n    output: \""+filepath.Join(alias, "out")+"\"\n", 1)
+	path := filepath.Join(base, "case.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("lexically distinct roots resolving through an alias must be rejected")
+	}
+}
+
+func TestRelativePathsUseWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	cwd := filepath.Join(root, "cwd")
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "case.yaml")
+	if err := os.WriteFile(configPath, []byte(validBase), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	resolved, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if resolved.Sources[0].Output != filepath.Join(cwd, "out", "Movies") {
+		t.Fatalf("relative output resolved against config directory: %q", resolved.Sources[0].Output)
+	}
+	if resolved.DatabasePath != filepath.Join(cwd, "data", "strmgen.db") {
+		t.Fatalf("relative database resolved against config directory: %q", resolved.DatabasePath)
+	}
+}
+
 func TestQueryInPublicURLRejected(t *testing.T) {
 	for _, value := range []string{"https://e.invalid?sign=x", "https://e.invalid#frag", "https://u:p@e.invalid", "ftp://e.invalid"} {
 		body := strings.Replace(validBase, "\"https://openlist.example.invalid\"", "\""+value+"\"", 1)

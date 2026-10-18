@@ -6,13 +6,21 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
+
+	"strm-generator-go/internal/securepath"
 
 	_ "modernc.org/sqlite"
 )
@@ -44,132 +52,295 @@ type Ownership struct {
 type Store struct {
 	db       *sql.DB
 	readOnly bool
-	tempDir  string // removed on Close for a WAL snapshot copy
+	dir      *securepath.Dir // pins the configured database parent for SQLite
+	tempDir  *securepath.Dir // private WAL snapshot directory under the pinned DB parent
+	tempName string
+	tempBase *securepath.Dir
 }
 
-// Open opens or creates the ownership database for writing.
+// Open opens or creates the ownership database for writing. Parent traversal,
+// final-file inspection, and file creation are descriptor-relative and reject
+// symlinks. SQLite receives an escaped URI rooted at the pinned parent fd.
 func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("create database directory: %w", err)
-	}
-	dsn := "file:" + path + "?_pragma=busy_timeout(5000)"
-	db, err := sql.Open("sqlite", dsn)
+	dir, base, err := openDatabaseParent(path, true)
 	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
+		return nil, fmt.Errorf("prepare database: %w", err)
 	}
-	db.SetMaxOpenConns(1)
+	info, err := dir.Lstat(base)
+	if errors.Is(err, os.ErrNotExist) {
+		file, createErr := dir.OpenFile(base, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if createErr != nil {
+			dir.Close()
+			return nil, errors.New("create database file")
+		}
+		if closeErr := file.Close(); closeErr != nil {
+			dir.Close()
+			return nil, errors.New("close new database file")
+		}
+	} else if err != nil {
+		dir.Close()
+		return nil, errors.New("inspect database file")
+	} else if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		dir.Close()
+		return nil, errors.New("database path is not a regular non-symlink file")
+	}
+	dsn, err := sqliteDSN(dir, base, "_pragma=busy_timeout(5000)")
+	if err != nil {
+		dir.Close()
+		return nil, errors.New("construct database address")
+	}
+	db, err := openSQL(dsn)
+	if err != nil {
+		dir.Close()
+		return nil, errors.New("open database")
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("initialize schema: %w", err)
+		dir.Close()
+		return nil, errors.New("initialize database schema")
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, dir: dir}, nil
 }
 
 // OpenReadOnly opens an existing database without modifying it or creating
 // journal/WAL/SHM files. For a WAL-mode database, which cannot be read
-// read-only without shared-memory sidecars, it reads a private snapshot copy so
-// the original file and its sidecars stay untouched. It returns ErrNoDatabase
-// when the file is absent so the caller can treat every path as unowned without
-// creating anything.
-func OpenReadOnly(path string) (*Store, error) {
-	info, err := os.Stat(path)
+// read-only without shared-memory sidecars, it reads a private snapshot copy
+// so the original file and its sidecars stay untouched. It returns
+// ErrNoDatabase when the configured file is absent.
+func OpenReadOnly(path string, forbiddenOutputRoots ...string) (*Store, error) {
+	dir, base, err := openDatabaseParent(path, false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNoDatabase
+	}
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrNoDatabase
-		}
 		return nil, err
 	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("database path is a directory")
+	info, err := dir.Lstat(base)
+	if errors.Is(err, os.ErrNotExist) {
+		dir.Close()
+		return nil, ErrNoDatabase
 	}
-	wal, err := isWALMode(path)
 	if err != nil {
-		return nil, fmt.Errorf("database is not safely readable: %w", err)
+		dir.Close()
+		return nil, errors.New("inspect database file")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		dir.Close()
+		return nil, errors.New("database path is not a regular non-symlink file")
+	}
+	wal, err := isWALMode(dir, base)
+	if err != nil {
+		dir.Close()
+		return nil, errors.New("database is not safely readable")
 	}
 	if wal {
-		return openWALSnapshot(path)
+		store, err := openWALSnapshot(dir, base, filepath.Dir(filepath.Clean(path)), forbiddenOutputRoots)
+		dir.Close()
+		return store, err
 	}
-	dsn := "file:" + path + "?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
+	dsn, err := sqliteDSN(dir, base, "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		dir.Close()
+		return nil, errors.New("construct database address")
+	}
+	db, err := openSQL(dsn)
+	if err != nil {
+		dir.Close()
+		return nil, errors.New("database is not safely readable")
+	}
+	return &Store{db: db, readOnly: true, dir: dir}, nil
+}
+
+func openDatabaseParent(path string, create bool) (*securepath.Dir, string, error) {
+	if path == "" || strings.ContainsRune(path, 0) {
+		return nil, "", errors.New("invalid database path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, "", errors.New("cannot resolve database path")
+	}
+	abs = filepath.Clean(abs)
+	base := filepath.Base(abs)
+	if base == "." || base == string(filepath.Separator) || base == ".." {
+		return nil, "", errors.New("invalid database file name")
+	}
+	dir, err := securepath.OpenDir(filepath.Dir(abs), create, 0o755)
+	if err != nil {
+		return nil, "", err
+	}
+	return dir, base, nil
+}
+
+func sqliteDSN(dir *securepath.Dir, name, query string) (string, error) {
+	path, err := dir.ProcPath(name)
+	if err != nil {
+		return "", err
+	}
+	u := url.URL{Scheme: "file", Path: filepath.ToSlash(path)}
+	return u.String() + "?" + query, nil
+}
+
+func openSQL(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open database read-only: %w", err)
+		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("database is not safely readable: %w", err)
+		return nil, err
 	}
-	return &Store{db: db, readOnly: true}, nil
+	return db, nil
 }
 
-// isWALMode reads the SQLite header to detect WAL mode (format read/write
-// version bytes at offset 18/19 equal 2). This never opens the database, so it
-// cannot create sidecars.
-func isWALMode(path string) (bool, error) {
-	f, err := os.Open(path)
+// isWALMode reads the SQLite header from an opened no-follow file descriptor.
+// Read/write version bytes at offsets 18/19 equal 2 for WAL mode.
+func isWALMode(dir *securepath.Dir, name string) (bool, error) {
+	f, err := dir.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return false, errors.New("database is not a regular file")
+	}
 	header := make([]byte, 20)
 	if _, err := io.ReadFull(f, header); err != nil {
-		return false, fmt.Errorf("cannot read database header")
+		return false, errors.New("cannot read database header")
 	}
 	if string(header[:16]) != "SQLite format 3\x00" {
-		return false, fmt.Errorf("not a SQLite database")
+		return false, errors.New("not a SQLite database")
 	}
 	return header[18] == 2 && header[19] == 2, nil
 }
 
-// openWALSnapshot copies the database and any WAL/SHM sidecars into a private
-// temporary directory and opens the copy read-only. The copy is removed on
-// Close. The original database and its sidecars are never modified.
-func openWALSnapshot(path string) (*Store, error) {
-	tempDir, err := os.MkdirTemp("", "strmgen-ro-*")
+// openWALSnapshot copies a database and optional sidecars into a private
+// directory under the already validated database parent, then opens that copy
+// read-only. It deliberately ignores TMPDIR so a configured output root can
+// never receive dry-run snapshot files through an environment override.
+func openWALSnapshot(sourceDir *securepath.Dir, base, parentPath string, forbiddenOutputRoots []string) (*Store, error) {
+	tempBase, err := sourceDir.Duplicate()
 	if err != nil {
-		return nil, fmt.Errorf("create read-only snapshot directory: %w", err)
+		return nil, errors.New("pin read-only snapshot parent")
 	}
-	copyFile := func(src, dst string) error {
-		in, err := os.Open(src)
+	tempName, tempDir, err := createSnapshotDirectory(tempBase, parentPath, forbiddenOutputRoots)
+	if err != nil {
+		_ = tempBase.Close()
+		return nil, errors.New("create read-only snapshot directory")
+	}
+	cleanup := func() {
+		_ = removeSnapshot(tempBase, tempDir, tempName)
+	}
+	copyOne := func(srcName, dstName string, required bool) error {
+		in, err := sourceDir.OpenFile(srcName, os.O_RDONLY|unix.O_NONBLOCK, 0)
+		if errors.Is(err, os.ErrNotExist) && !required {
+			return nil
+		}
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
 			return err
 		}
 		defer in.Close()
-		out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		info, err := in.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			return errors.New("snapshot source is not a regular file")
+		}
+		out, err := tempDir.OpenFile(dstName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err != nil {
 			return err
 		}
-		defer out.Close()
-		_, err = io.Copy(out, in)
-		return err
+		_, copyErr := io.Copy(out, in)
+		syncErr := out.Sync()
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if syncErr != nil {
+			return syncErr
+		}
+		return closeErr
 	}
-	target := filepath.Join(tempDir, "snapshot.db")
-	if err := copyFile(path, target); err != nil {
-		os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("snapshot database: %w", err)
+	if err := copyOne(base, "snapshot.db", true); err != nil {
+		cleanup()
+		return nil, errors.New("snapshot database")
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
-		if err := copyFile(path+suffix, target+suffix); err != nil {
-			os.RemoveAll(tempDir)
-			return nil, fmt.Errorf("snapshot %s: %w", suffix, err)
+		if err := copyOne(base+suffix, "snapshot.db"+suffix, false); err != nil {
+			cleanup()
+			return nil, errors.New("snapshot database sidecar")
 		}
 	}
-	dsn := "file:" + target + "?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
-	db, err := sql.Open("sqlite", dsn)
+	dsn, err := sqliteDSN(tempDir, "snapshot.db", "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)")
 	if err != nil {
-		os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("open database snapshot: %w", err)
+		cleanup()
+		return nil, errors.New("construct database snapshot address")
 	}
-	db.SetMaxOpenConns(1)
-	if err := db.Ping(); err != nil {
-		db.Close()
-		os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("database snapshot is not safely readable: %w", err)
+	db, err := openSQL(dsn)
+	if err != nil {
+		cleanup()
+		return nil, errors.New("open database snapshot")
 	}
-	return &Store{db: db, readOnly: true, tempDir: tempDir}, nil
+	return &Store{db: db, readOnly: true, tempDir: tempDir, tempName: tempName, tempBase: tempBase}, nil
+}
+
+func createSnapshotDirectory(parent *securepath.Dir, parentPath string, forbiddenOutputRoots []string) (string, *securepath.Dir, error) {
+	for attempt := 0; attempt < 10; attempt++ {
+		var token [12]byte
+		if _, err := rand.Read(token[:]); err != nil {
+			return "", nil, err
+		}
+		name := ".strmgen-ro-" + hex.EncodeToString(token[:])
+		candidate := filepath.Join(parentPath, name)
+		unsafe := false
+		for _, output := range forbiddenOutputRoots {
+			overlap, err := securepath.PathsOverlap(candidate, output)
+			if err != nil || overlap {
+				unsafe = true
+				break
+			}
+		}
+		if unsafe {
+			continue
+		}
+		if err := parent.Mkdir(name, 0o700); err != nil {
+			if errors.Is(err, unix.EEXIST) {
+				continue
+			}
+			return "", nil, err
+		}
+		dir, err := parent.OpenSubdir(name, false, 0)
+		if err != nil {
+			_ = parent.RemoveDir(name)
+			return "", nil, err
+		}
+		return name, dir, nil
+	}
+	return "", nil, errors.New("cannot allocate snapshot directory")
+}
+
+func removeSnapshot(parent, dir *securepath.Dir, name string) error {
+	var first error
+	if dir != nil {
+		for _, file := range []string{"snapshot.db-wal", "snapshot.db-shm", "snapshot.db-journal", "snapshot.db"} {
+			if err := dir.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
+				first = err
+			}
+		}
+		if err := dir.Close(); err != nil && first == nil {
+			first = err
+		}
+	}
+	if parent != nil {
+		if name != "" {
+			if err := parent.RemoveDir(name); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
+				first = err
+			}
+		}
+		if err := parent.Close(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // ErrNoDatabase signals an absent database in read-only mode.
@@ -178,16 +349,31 @@ var ErrNoDatabase = errors.New("database does not exist")
 // ReadOnly reports whether the store refuses writes.
 func (s *Store) ReadOnly() bool { return s.readOnly }
 
-// Close releases the database handle and removes any snapshot copy.
+// Close releases the database handle, path pin and any private WAL snapshot.
 func (s *Store) Close() error {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil
 	}
-	err := s.db.Close()
-	if s.tempDir != "" {
-		os.RemoveAll(s.tempDir)
+	var first error
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			first = err
+		}
+		s.db = nil
 	}
-	return err
+	if s.dir != nil {
+		if err := s.dir.Close(); err != nil && first == nil {
+			first = err
+		}
+		s.dir = nil
+	}
+	if s.tempDir != nil || s.tempBase != nil {
+		if err := removeSnapshot(s.tempBase, s.tempDir, s.tempName); err != nil && first == nil {
+			first = err
+		}
+		s.tempDir, s.tempBase, s.tempName = nil, nil, ""
+	}
+	return first
 }
 
 // Lookup returns the ownership record for a relative path when present.

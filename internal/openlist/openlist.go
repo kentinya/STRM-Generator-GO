@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,8 +24,13 @@ const (
 	MaxResponseBytes = 8 << 20
 	// perPage is the explicit page size used for directory listing.
 	perPage = 200
+	// MaxDirectoryEntries bounds the accumulated objects for one directory.
+	// At most 10,000 entries are retained by one List call.
+	MaxDirectoryEntries = 10000
+	// MaxDirectoryNameBytes bounds names retained for duplicate/conflict checks.
+	MaxDirectoryNameBytes = 2 << 20
 	// maxPages bounds a single directory traversal to avoid unbounded loops.
-	maxPages = 100000
+	maxPages = MaxDirectoryEntries/perPage + 1
 )
 
 // APIError reports a transport, HTTP or application-level API failure.
@@ -133,7 +139,7 @@ func (c *Client) Get(ctx context.Context, remotePath string) (*Entry, error) {
 type rawEntry struct {
 	Name     string          `json:"name"`
 	IsDir    *bool           `json:"is_dir"`
-	Size     *int64          `json:"size"`
+	Size     json.RawMessage `json:"size"`
 	HashInfo json.RawMessage `json:"hash_info"`
 	Hashinfo json.RawMessage `json:"hashinfo"`
 }
@@ -145,10 +151,37 @@ func (r *rawEntry) toEntry() (*Entry, error) {
 	if r.IsDir == nil {
 		return nil, &APIError{Op: "entry", Detail: "missing is_dir"}
 	}
-	e := &Entry{Name: r.Name, IsDir: *r.IsDir, Size: r.Size}
+	size, sizeAnomaly := decodeSize(r.Size)
+	e := &Entry{Name: r.Name, IsDir: *r.IsDir, Size: size}
 	sha, ok, anomaly := decodeSHA1(r.HashInfo, r.Hashinfo)
-	e.SHA1, e.HasSHA, e.Anomaly = sha, ok, anomaly
+	e.SHA1, e.HasSHA = sha, ok
+	e.Anomaly = joinAnomalies(anomaly, sizeAnomaly)
 	return e, nil
+}
+
+func decodeSize(raw json.RawMessage) (*int64, string) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, "size is missing"
+	}
+	if bytes.Equal(raw, []byte("null")) {
+		return nil, "size is unavailable"
+	}
+	n, err := strconv.ParseInt(string(raw), 10, 64)
+	if err != nil || n < 0 {
+		return nil, "size is not a non-negative Int64"
+	}
+	return &n, ""
+}
+
+func joinAnomalies(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + "; " + b
 }
 
 // decodeSHA1 prefers the structured hash_info.sha1 field and only falls back
@@ -203,11 +236,6 @@ func normalizeSHA1(value string) (string, bool) {
 	return strings.ToLower(value), true
 }
 
-type listData struct {
-	Content []rawEntry `json:"content"`
-	Total   *int64     `json:"total"`
-}
-
 // List walks every page of a remote directory. A directory is only reported
 // complete when all pages succeed, the total stays consistent and the final
 // page terminates exactly at the declared total.
@@ -215,6 +243,7 @@ func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
 	var all []Entry
 	seen := map[string]struct{}{}
 	var expectedTotal *int64
+	var nameBytes int64
 	page := 1
 	for {
 		if page > maxPages {
@@ -226,37 +255,59 @@ func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		var parsed listData
+		var parsed struct {
+			Content json.RawMessage `json:"content"`
+			Total   json.RawMessage `json:"total"`
+		}
 		if err := json.Unmarshal(data, &parsed); err != nil {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "invalid list shape"}
 		}
-		if parsed.Total == nil || *parsed.Total < 0 {
+		if len(parsed.Content) == 0 || bytes.Equal(bytes.TrimSpace(parsed.Content), []byte("null")) {
+			return nil, &APIError{Op: "/api/fs/list", Detail: "missing or invalid content"}
+		}
+		var content []rawEntry
+		if err := json.Unmarshal(parsed.Content, &content); err != nil || content == nil {
+			return nil, &APIError{Op: "/api/fs/list", Detail: "content is not an array"}
+		}
+		var total int64
+		if len(parsed.Total) == 0 || bytes.Equal(bytes.TrimSpace(parsed.Total), []byte("null")) ||
+			json.Unmarshal(parsed.Total, &total) != nil || total < 0 {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "missing or invalid total"}
 		}
 		if expectedTotal == nil {
-			expectedTotal = parsed.Total
-		} else if *parsed.Total != *expectedTotal {
+			expectedTotal = &total
+			if total > MaxDirectoryEntries {
+				return nil, &APIError{Op: "/api/fs/list", Detail: "directory entry limit exceeded"}
+			}
+		} else if total != *expectedTotal {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "total changed during traversal"}
 		}
-		if len(parsed.Content) == 0 {
+		if len(content) == 0 {
 			if int64(len(all)) < *expectedTotal {
 				return nil, &APIError{Op: "/api/fs/list", Detail: "page returned no content before total was reached"}
 			}
 			break
 		}
-		if len(parsed.Content) > perPage {
+		if len(content) > perPage {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "page exceeds per_page"}
 		}
-		for i := range parsed.Content {
-			entry, err := parsed.Content[i].toEntry()
+		for i := range content {
+			entry, err := content[i].toEntry()
 			if err != nil {
 				return nil, err
 			}
 			if _, dup := seen[entry.Name]; dup {
-				return nil, &APIError{Op: "/api/fs/list", Detail: "duplicate entry name " + entry.Name}
+				return nil, &APIError{Op: "/api/fs/list", Detail: "duplicate entry name"}
+			}
+			nameBytes += int64(len(entry.Name))
+			if nameBytes > MaxDirectoryNameBytes {
+				return nil, &APIError{Op: "/api/fs/list", Detail: "directory name byte limit exceeded"}
 			}
 			seen[entry.Name] = struct{}{}
 			all = append(all, *entry)
+		}
+		if len(all) > MaxDirectoryEntries {
+			return nil, &APIError{Op: "/api/fs/list", Detail: "directory entry limit exceeded"}
 		}
 		if int64(len(all)) > *expectedTotal {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "received more entries than total"}

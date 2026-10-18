@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"strm-generator-go/internal/reconciler"
 )
 
 // startFakeAPI serves a minimal two-file tree.
@@ -47,9 +49,6 @@ func startFakeAPI(t *testing.T) *httptest.Server {
 
 func writeConfig(t *testing.T, apiURL, root, db string) string {
 	t.Helper()
-	// Isolate the cross-process lock so parallel package tests cannot contend on
-	// the shared runtime lock.
-	t.Setenv("STRMGEN_LOCK_DIR", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	body := "openlist:\n" +
@@ -134,8 +133,8 @@ func TestMissingTokenIsUsageError(t *testing.T) {
 	if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitUsage {
 		t.Fatalf("exit=%d want %d", code, exitUsage)
 	}
-	if strings.Contains(errBuf.String(), "tok") {
-		t.Fatal("token value must not be echoed")
+	if strings.Contains(errBuf.String(), "STRMGEN_TEST_TOKEN") || strings.Contains(errBuf.String(), "SENTINEL_TOKEN_SECRET") {
+		t.Fatal("token configuration details must not be echoed")
 	}
 }
 
@@ -160,5 +159,258 @@ func TestAPIFailureIsRuntimeError(t *testing.T) {
 	if _, err := os.Stat(db); !os.IsNotExist(err) {
 		// A failed round may still have created the DB file at open time; the
 		// important invariant is that no round was committed.
+	}
+}
+
+func TestConfigurationDiagnosticsDoNotEchoUntrustedValues(t *testing.T) {
+	ts := startFakeAPI(t)
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	base := writeConfig(t, ts.URL, root, db)
+	secret := "SYNTHETIC_COOKIE_SECRET_MARKER_20261018"
+
+	badUnknown := filepath.Join(t.TempDir(), "unknown.yaml")
+	raw, err := os.ReadFile(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, []byte("\n"+secret+": \"https://private.example.invalid/path?sign="+secret+"\"\n")...)
+	if err := os.WriteFile(badUnknown, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := run([]string{"sync", "--config", badUnknown}, &out, &stderr); code != exitUsage {
+		t.Fatalf("unknown key exit=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(out.String()+stderr.String(), secret) || strings.Contains(out.String()+stderr.String(), "private.example.invalid") {
+		t.Fatalf("unknown-key config details leaked: %s", stderr.String())
+	}
+
+	badValue := filepath.Join(t.TempDir(), "value.yaml")
+	raw, err = os.ReadFile(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, []byte("\nsync:\n  directory_workers: \""+secret+"\"\n")...)
+	if err := os.WriteFile(badValue, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := run([]string{"sync", "--config", badValue}, &out, &stderr); code != exitUsage {
+		t.Fatalf("invalid-value exit=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(out.String()+stderr.String(), secret) {
+		t.Fatalf("invalid YAML value leaked: %s", stderr.String())
+	}
+
+	missing := filepath.Join(t.TempDir(), "PRIVATE_FULL_PATH_MARKER", "secret.yaml")
+	out.Reset()
+	stderr.Reset()
+	if code := run([]string{"sync", "--config", missing}, &out, &stderr); code != exitUsage {
+		t.Fatalf("missing config exit=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "PRIVATE_FULL_PATH_MARKER") || strings.Contains(stderr.String(), missing) {
+		t.Fatalf("missing-config path leaked: %s", stderr.String())
+	}
+}
+
+func TestConfigurationDiagnosticsUseKnownFieldNamesOnly(t *testing.T) {
+	secret := "SYNTHETIC_URL_SECRET_MARKER"
+	badURL := filepath.Join(t.TempDir(), "bad-url.yaml")
+	base := writeConfig(t, "https://api.example.invalid", filepath.Join(t.TempDir(), "out"),
+		filepath.Join(t.TempDir(), "data", "db.sqlite"))
+	raw, err := os.ReadFile(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := strings.ReplaceAll(string(raw), "https://openlist.example.invalid",
+		"https://private.example.invalid/?sign="+secret)
+	if err := os.WriteFile(badURL, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := run([]string{"sync", "--config", badURL}, &out, &stderr); code != exitUsage {
+		t.Fatalf("invalid URL exit=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "openlist.public_url") || strings.Contains(stderr.String(), secret) ||
+		strings.Contains(stderr.String(), "private.example.invalid") || strings.Contains(stderr.String(), "sign=") {
+		t.Fatalf("unsafe or unhelpful config diagnostic: %s", stderr.String())
+	}
+}
+
+func TestConfigurationDiagnosticsRedactDuplicateOutputAndDatabaseAlias(t *testing.T) {
+	ts := startFakeAPI(t)
+	const duplicateMarker = "PRIVATE_DUPLICATE_OUTPUT_MARKER_20261018"
+	root := filepath.Join(t.TempDir(), duplicateMarker, "out")
+	db := filepath.Join(t.TempDir(), "db", "strmgen.db")
+	base := writeConfig(t, ts.URL, root, db)
+	raw, err := os.ReadFile(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputLine := "    output: \"" + root + "\"\n"
+	duplicated := strings.Replace(string(raw), outputLine,
+		outputLine+"  - remote: \"/TV\"\n    output: \""+root+"\"\n", 1)
+	if duplicated == string(raw) {
+		t.Fatal("test configuration did not contain the expected output line")
+	}
+	duplicateConfig := filepath.Join(t.TempDir(), "duplicate.yaml")
+	if err := os.WriteFile(duplicateConfig, []byte(duplicated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := run([]string{"sync", "--config", duplicateConfig}, &out, &stderr); code != exitUsage {
+		t.Fatalf("duplicate output exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "sources[1].output") ||
+		strings.Contains(out.String()+stderr.String(), duplicateMarker) ||
+		strings.Contains(out.String()+stderr.String(), root) {
+		t.Fatalf("duplicate-root diagnostic was unsafe or unhelpful: %s", stderr.String())
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("duplicate root validation created output: %v", err)
+	}
+	if _, err := os.Stat(db); !os.IsNotExist(err) {
+		t.Fatalf("duplicate root validation created database: %v", err)
+	}
+
+	privateParent := filepath.Join(t.TempDir(), "PRIVATE_DATABASE_PATH_MARKER_20261018")
+	if err := os.Mkdir(privateParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "database-alias")
+	if err := os.Symlink(privateParent, alias); err != nil {
+		t.Fatal(err)
+	}
+	aliasDB := filepath.Join(alias, "db", "strmgen.db")
+	aliasRoot := filepath.Join(t.TempDir(), "output")
+	aliasConfig := writeConfig(t, ts.URL, aliasRoot, aliasDB)
+	out.Reset()
+	stderr.Reset()
+	if code := run([]string{"sync", "--config", aliasConfig}, &out, &stderr); code != exitUsage {
+		t.Fatalf("database alias exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
+	}
+	combined := out.String() + stderr.String()
+	if !strings.Contains(combined, "database.path") || strings.Contains(combined, "PRIVATE_DATABASE_PATH_MARKER") ||
+		strings.Contains(combined, aliasDB) {
+		t.Fatalf("database path diagnostic leaked a configured path: %s", combined)
+	}
+	if _, err := os.Stat(aliasRoot); !os.IsNotExist(err) {
+		t.Fatalf("database path validation created output: %v", err)
+	}
+	if entries, err := os.ReadDir(privateParent); err != nil || len(entries) != 0 {
+		t.Fatalf("database alias validation changed its target: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestDatabaseFailureDiagnosticIsRedactedAndPreservesExistingFile(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "synthetic-fixture-token")
+	const contentMarker = "SYNTHETIC_DATABASE_CONTENT_SECRET_20261018"
+	root := filepath.Join(t.TempDir(), "PRIVATE_OUTPUT_PATH_MARKER", "out")
+	db := filepath.Join(t.TempDir(), "PRIVATE_DATABASE_PATH_MARKER", "strmgen.db")
+	if err := os.MkdirAll(filepath.Dir(db), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := []byte("not a sqlite database: " + contentMarker)
+	if err := os.WriteFile(db, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := writeConfig(t, ts.URL, root, db)
+	var out, stderr bytes.Buffer
+	if code := run([]string{"sync", "--config", cfg}, &out, &stderr); code != exitRuntime {
+		t.Fatalf("invalid database exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
+	}
+	combined := out.String() + stderr.String()
+	for _, marker := range []string{contentMarker, "PRIVATE_DATABASE_PATH_MARKER", "PRIVATE_OUTPUT_PATH_MARKER", db, root} {
+		if strings.Contains(combined, marker) {
+			t.Fatalf("database diagnostic leaked %q: %s", marker, combined)
+		}
+	}
+	if !strings.Contains(combined, "database.path is unavailable or unsafe") {
+		t.Fatalf("database failure lacks a useful safe category: %s", combined)
+	}
+	after, err := os.ReadFile(db)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("invalid database file was changed: %q err=%v", after, err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("database failure created output: %v", err)
+	}
+}
+
+func TestAPIErrorAndSourceSummaryAreRedactedAndCounted(t *testing.T) {
+	const remote = "/private/full/root/SYNTHETIC_PATH_MARKER"
+	const secret = "SYNTHETIC_TOKEN_COOKIE_SIGN_MARKER"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/fs/get", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"code":403,"message":"` + secret + ` https://private.invalid/?sign=` + secret + `","data":null}`))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	t.Setenv("STRMGEN_TEST_TOKEN", "synthetic-fixture-token")
+	root := filepath.Join(t.TempDir(), "out")
+	db := filepath.Join(t.TempDir(), "db", "strmgen.sqlite")
+	cfg := writeConfig(t, ts.URL, root, db)
+	contents, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = []byte(strings.ReplaceAll(string(contents), "/Movies", remote))
+	if err := os.WriteFile(cfg, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := run([]string{"sync", "--config", cfg}, &out, &stderr); code != exitRuntime {
+		t.Fatalf("API failure exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
+	}
+	combined := out.String() + stderr.String()
+	if strings.Contains(combined, remote) || strings.Contains(combined, secret) || strings.Contains(combined, "private.invalid") {
+		t.Fatalf("remote/API details leaked: %s", combined)
+	}
+	if !strings.Contains(out.String(), "errors=1") || !strings.Contains(out.String(), "partial=true") {
+		t.Fatalf("API failure was not accurately summarized: %s", out.String())
+	}
+}
+
+func TestLockBusyMessageDoesNotEchoConfiguredPaths(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "token")
+	root := filepath.Join(t.TempDir(), "PRIVATE_OUTPUT_MARKER")
+	db := filepath.Join(t.TempDir(), "PRIVATE_DB_MARKER", "db.sqlite")
+	cfg := writeConfig(t, ts.URL, root, db)
+	lock, err := reconciler.AcquireLockFor([]string{root}, db)
+	if err != nil {
+		t.Fatalf("acquire test lock: %v", err)
+	}
+	defer lock.Release()
+	var out, stderr bytes.Buffer
+	if code := run([]string{"sync", "--config", cfg}, &out, &stderr); code != exitRuntime {
+		t.Fatalf("busy exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
+	}
+	if strings.Contains(out.String()+stderr.String(), "PRIVATE_OUTPUT_MARKER") || strings.Contains(out.String()+stderr.String(), "PRIVATE_DB_MARKER") {
+		t.Fatalf("lock path leaked: %s", stderr.String())
+	}
+}
+
+func TestSourceIdentityBindsAPIRemoteAndOutputWithoutPlaintext(t *testing.T) {
+	base := sourceIdentity("https://api.example.invalid", "/Movies", "/srv/strm/Movies")
+	if base != sourceIdentity("https://api.example.invalid", "/Movies", "/srv/strm/Movies") {
+		t.Fatal("same source mapping must have a stable identity")
+	}
+	for _, changed := range []string{
+		sourceIdentity("https://other.example.invalid", "/Movies", "/srv/strm/Movies"),
+		sourceIdentity("https://api.example.invalid", "/TV", "/srv/strm/Movies"),
+		sourceIdentity("https://api.example.invalid", "/Movies", "/srv/strm/TV"),
+	} {
+		if changed == base {
+			t.Fatal("API, remote, or output change must produce a distinct source identity")
+		}
+	}
+	if strings.Contains(base, "/Movies") || strings.Contains(base, "/srv/strm") {
+		t.Fatalf("source identity must not expose path data: %q", base)
 	}
 }

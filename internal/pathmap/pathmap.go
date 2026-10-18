@@ -7,6 +7,15 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"unicode/utf8"
+)
+
+// MaxSegmentBytes matches the common Linux NAME_MAX limit used by supported
+// runtime targets. MaxRelativePathBytes caps path strings retained in queues,
+// SQLite keys, and diagnostics.
+const (
+	MaxSegmentBytes      = 255
+	MaxRelativePathBytes = 4096
 )
 
 // MediaExtensions is the fixed initial set of media extensions. Comparison is
@@ -42,9 +51,17 @@ func LocalRelative(remoteDir, name string) (string, error) {
 	rel := strings.TrimPrefix(remoteDir, "/")
 	stem := strings.TrimSuffix(name, path.Ext(name))
 	if rel == "" {
-		return stem + ".strm", nil
+		mapped := stem + ".strm"
+		if len(mapped) > MaxRelativePathBytes {
+			return "", errors.New("relative path exceeds limit")
+		}
+		return mapped, nil
 	}
-	return rel + "/" + stem + ".strm", nil
+	mapped := rel + "/" + stem + ".strm"
+	if len(mapped) > MaxRelativePathBytes {
+		return "", errors.New("relative path exceeds limit")
+	}
+	return mapped, nil
 }
 
 // ValidateSegment rejects names that cannot become a safe single local path
@@ -52,6 +69,12 @@ func LocalRelative(remoteDir, name string) (string, error) {
 func ValidateSegment(name string) error {
 	if name == "" || name == "." || name == ".." {
 		return errors.New("invalid file name")
+	}
+	if !utf8.ValidString(name) {
+		return errors.New("file name is not valid UTF-8")
+	}
+	if len(name) > MaxSegmentBytes {
+		return errors.New("file name exceeds component length limit")
 	}
 	if strings.ContainsAny(name, "/\\") {
 		return errors.New("file name must not contain a path separator")

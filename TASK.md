@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.1
 Parent Slice: 1
-Status: FIX REQUIRED
+Status: IN PROGRESS
 Task Base: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -151,7 +151,7 @@ B 审查 Task Base..Developer Head 的全部实际差异，核对锁文件／配
 - 不把 Python 合成 API 验收算作真实 OpenList、稳定 `/d/` 可访问性或固定插件解析实证。Slice Final 前仍须补足合同要求的真实证据，不能在本 Task 报告中清零这些缺口；真实 Jellyfin 播放仍不在本 Slice 范围。
 - B 在本 Task PASS 后重新核对全部 RO，再决定下一项完整 Task，不预填后续 Task 或 A 最终结论。
 
-## Developer Completion Report
+## Developer Completion Report — Original Candidate (Historical)
 
 - Changed Files：`cmd/strmgen/main.go`（+`main_test.go`）；`internal/config/config.go`（+测试）；`internal/openlist/openlist.go`（+测试）；`internal/pathmap/pathmap.go`（+测试）；`internal/strm/strm.go`（+测试）；`internal/storage/storage.go`（+测试）；`internal/reconciler/{syncer,fs,lock,lock_unix,lock_other}.go`（+`syncer_test.go`、`fs_test.go`）；`go.mod`／`go.sum`；`config.example.yaml`；`internal/README.md`；`scripts/development_environment.py`（`install-cc`）；`scripts/mock_openlist.py`（可编程 hooks）；`scripts/run_isolated_sync_integration.py`（新）；`tests/test_mock_openlist.py`、`tests/test_run_isolated_sync_integration.py`（新）；`dev/environment-spec.json`（cc 身份与新增文件清单）；`.github/workflows/quality.yml`；`README.md`、`docs/architecture.md`、`docs/development-environment.md`、`docs/progress.md`。
 - Implemented：`strmgen sync --config <file>` 与 `--dry-run`；严格 YAML（未知字段拒绝、token 仅来自环境变量、URL 拒绝 userinfo／query／fragment、remote 拒绝 `..`、输出根重叠／重复／符号链接拒绝、数据库不入输出根、cleanup 启用拒绝）；有界 OpenList list/get（显式分页、HTTP 状态／外层 code／data 形状、响应字节上限、total 一致性、提前空页／重复条目拒绝、`hash_info` 优先与 `hashinfo` 回退、缺失／无效哈希省略）；纯路径映射与稳定 `/d/` URL 逐段编码；版本 1 协议解析／序列化与 URL→SHA-1→Size 比较；SQLite 最小归属与完整轮次（dry-run 对 WAL 库读私有快照，不创建 DB／WAL／SHM）；有界 BFS 目录遍历（仅排队目录路径、队列上限、无每文件 goroutine）；同目录目标冲突拒绝；同目录临时文件 + `os.Link` 不覆盖发布；跨进程 flock 单轮互斥；需更新时保留原文件并非零退出；退出码 0／1／2。

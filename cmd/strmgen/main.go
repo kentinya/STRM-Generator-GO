@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -63,7 +65,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "serve is not supported by this task")
 		return exitUsage
 	default:
-		fmt.Fprintf(stderr, "unsupported command %q\n", args[0])
+		fmt.Fprintln(stderr, "unsupported command")
 		usage(stderr)
 		return exitUsage
 	}
@@ -71,11 +73,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func runSync(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs.SetOutput(io.Discard)
 	configPath := fs.String("config", "", "path to the YAML configuration file")
 	dryRun := fs.Bool("dry-run", false, "preview without modifying files, database or rounds")
 	fs.Usage = func() { usage(stderr) }
 	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(stderr, "invalid sync arguments")
 		return exitUsage
 	}
 	if fs.NArg() != 0 {
@@ -89,32 +92,42 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 
 	resolved, err := config.Load(*configPath)
 	if err != nil {
-		fmt.Fprintln(stderr, "configuration error:", err)
+		fmt.Fprintf(stderr, "configuration error: %s\n", config.SafeDiagnostic(err))
 		return exitUsage
 	}
 	token, err := resolved.Token()
 	if err != nil {
-		fmt.Fprintln(stderr, "configuration error:", err)
+		fmt.Fprintln(stderr, "configuration error: configured token environment variable is not set")
 		return exitUsage
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	lock, err := reconciler.AcquireLock()
+	outputs := make([]string, 0, len(resolved.Sources))
+	for _, src := range resolved.Sources {
+		outputs = append(outputs, src.Output)
+	}
+	lock, err := reconciler.AcquireLockFor(outputs, resolved.DatabasePath)
 	if err != nil {
 		if errors.Is(err, reconciler.ErrBusy) {
 			fmt.Fprintln(stderr, "another sync is already running")
 			return exitRuntime
 		}
-		fmt.Fprintln(stderr, "cannot acquire sync lock:", err)
+		fmt.Fprintln(stderr, "runtime lock is unavailable or unsafe")
 		return exitRuntime
 	}
 	defer lock.Release()
+	filesystem := &reconciler.LocalFS{}
+	if err := filesystem.PrepareRoots(outputs); err != nil {
+		fmt.Fprintln(stderr, "source output roots are unavailable or unsafe")
+		return exitRuntime
+	}
+	defer filesystem.CloseRoots()
 
 	store, err := openStore(resolved, *dryRun)
 	if err != nil {
-		fmt.Fprintln(stderr, "database error:", err)
+		fmt.Fprintln(stderr, "database.path is unavailable or unsafe")
 		return exitRuntime
 	}
 	if store != nil {
@@ -126,7 +139,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	for _, src := range resolved.Sources {
 		sources = append(sources, reconciler.Source{
 			Index:  src.Index,
-			Key:    src.Remote,
+			Key:    sourceIdentity(resolved.APIURL, src.Remote, src.Output),
 			Remote: src.Remote,
 			Output: src.Output,
 		})
@@ -139,6 +152,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		DryRun:       *dryRun,
 		PublicPrefix: resolved.PublicPrefix,
 		Workers:      resolved.DirectoryWorkers,
+		FS:           filesystem,
 	})
 
 	report, runErr := syncer.Run(ctx, sources)
@@ -159,7 +173,11 @@ func openStore(resolved *config.Resolved, dryRun bool) (*storage.Store, error) {
 	if !dryRun {
 		return storage.Open(resolved.DatabasePath)
 	}
-	store, err := storage.OpenReadOnly(resolved.DatabasePath)
+	outputs := make([]string, 0, len(resolved.Sources))
+	for _, source := range resolved.Sources {
+		outputs = append(outputs, source.Output)
+	}
+	store, err := storage.OpenReadOnly(resolved.DatabasePath, outputs...)
 	if errors.Is(err, storage.ErrNoDatabase) {
 		return nil, nil
 	}
@@ -176,15 +194,24 @@ func printReport(stdout, stderr io.Writer, report *reconciler.Report, dryRun boo
 	}
 	fmt.Fprintf(stdout, "mode: %s\n", mode)
 	for _, src := range report.Sources {
-		fmt.Fprintf(stdout, "source %d %s: created=%d skipped=%d conflicts=%d needs_update=%d filtered=%d errors=%d\n",
-			src.SourceIndex, src.Remote, src.Created, src.Skipped, src.Conflicts, src.NeedsUpdate, src.Filtered, src.Errors)
+		fmt.Fprintf(stdout, "source %d: created=%d skipped=%d conflicts=%d needs_update=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d\n",
+			src.SourceIndex, src.Created, src.Skipped, src.Conflicts, src.NeedsUpdate, src.Filtered, src.Errors, src.Partial, src.DiagnosticsOmitted)
 		diagnostics := append([]string(nil), src.Diagnostics...)
 		sort.Strings(diagnostics)
 		for _, d := range diagnostics {
-			fmt.Fprintf(stderr, "source %d %s: %s\n", src.SourceIndex, src.Remote, d)
+			fmt.Fprintf(stderr, "source %d: %s\n", src.SourceIndex, d)
 		}
 		if src.Err != nil {
-			fmt.Fprintf(stderr, "source %d %s: error: %v\n", src.SourceIndex, src.Remote, src.Err)
+			fmt.Fprintf(stderr, "source %d: source round incomplete\n", src.SourceIndex)
 		}
 	}
+}
+
+func sourceIdentity(apiURL, remote, output string) string {
+	// Length framing avoids ambiguous string concatenation. Token and public URL
+	// are intentionally excluded: credential rotation retains identity, while
+	// public URL changes use the existing STRM URL comparison rule.
+	payload := fmt.Sprintf("%d:%s%d:%s%d:%s", len(apiURL), apiURL, len(remote), remote, len(output), output)
+	sum := sha256.Sum256([]byte(payload))
+	return "source-v1:" + hex.EncodeToString(sum[:])
 }

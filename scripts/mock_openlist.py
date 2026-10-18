@@ -18,6 +18,8 @@ def load_fixture():
 def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
     directories = (fixture or load_fixture())["directories"]
     hooks = hooks or {}
+    accepted_tokens = {TOKEN}
+    accepted_tokens.update(token for token in hooks.get("tokens", []) if isinstance(token, str))
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -39,7 +41,7 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
             self.respond(200 if self.path == "/health" else 404)
 
         def do_POST(self):
-            if self.headers.get("Authorization") != TOKEN:
+            if self.headers.get("Authorization") not in accepted_tokens:
                 self.respond(401)
                 return
             if self.path not in ("/api/fs/list", "/api/fs/get"):
