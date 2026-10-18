@@ -19,7 +19,7 @@ sync:
 # 本 Task 不删除；enabled: true 会在任何同步写入前被明确拒绝。
 cleanup:
   enabled: false
-  missing_confirmations: 2
+  missing_confirmations: 3
 
 database:
   path: "./artifacts/dev-env/data/strmgen.db"
