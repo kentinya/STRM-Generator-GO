@@ -274,7 +274,7 @@ internal/config/config.go:107-111,270-273,290-293 以配置目录而非批准的
 - **首次失败与修正：** 保留 `task-1.1-fix-20261018-04/` 的完整首轮 T4 失败证据；`ownership_and_paths` 当时观测到根路径换链后四个媒体候选分别失败（`errors=4`），而测试断言错误地要求 `errors=1`。修正断言为四项错误并保持 `partial=true`；聚焦场景及后续完整 T4 均 PASS，未覆盖或删除首次失败记录。SIGKILL 恢复用例观察到一个未引用 `.strmgen-*.tmp`；已登记 STRM、归属与轮次恢复断言通过，残留恢复说明已加入文档，不能盲目清理。
 - **Remaining / Risk：** 本 Task 不执行已拥有文件的内容更新；Mirror 删除／移动清理、serve／定时、发布镜像与性能保证未实现。真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能均 **NOT RUN**；夹具证据不替代外部兼容／播放证据。无生产服务、媒体或配套项目改动。
 - **Head SHA：** `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`。
-- **交接：** 当前 Task 状态为 **READY FOR B REVIEW**。这是 Developer 交付报告，不是独立 B 审查 PASS，也不表示 Slice 完成。
+- **交接（候选提交时）：** Developer 将候选交为 **READY FOR B REVIEW**；随后本次独立 B 审查将 Task 退回 **FIX REQUIRED**。该报告不是独立 B 审查 PASS，也不表示 Slice 完成。
 
 ## B Review Result — 2026-10-18 (Independent Review)
 
