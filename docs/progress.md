@@ -3,10 +3,9 @@
 ## 当前状态（2026-10-18）
 
 - Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
-- Task 1.1 的最近 B 决定为 FIX REQUIRED。Developer 已在同一 Task 内继续修正；TASK.md 的当前状态为 IN PROGRESS，Task Base／Contract Checkpoint 未变。
-- 本轮已在 `artifacts/validation-evidence/task-1.1-fix-20261018-03/incremental/` 留下聚焦 Go 测试、41 项 Python 回归及实际 CLI API／限额、故障恢复运行。两组实际 CLI 子场景 PASS；一次 SIGKILL 故障恢复记录到一个可能残留的 `.strmgen-*.tmp`，STRM／归属和完整轮次恢复断言通过。此为增量证据，不是完整 T4 通过。
-- 最终 T4（治理、依赖、quality、race、双架构构建、完整隔离 CLI `--scenario all`、diff check）、实现提交和新的 B 审查尚未完成。当前工作区修改尚未提交；不得复用旧候选绿灯代替最终门槛。
-- 真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍为 NOT RUN；无生产服务、媒体或配套仓库测试。
+- B 对前一候选的 FIX REQUIRED 已由 Developer 在同一 Task 内修正；当前 Task 状态为 READY FOR B REVIEW，Task Base／Contract Checkpoint 未变。实现检查点 `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`；Slice 仍 ACTIVE，未形成 Slice PASS 或 Closure Packet。
+- 最终 T4 证据位于本机 `artifacts/validation-evidence/task-1.1-fix-20261018-05/`：治理、mod download／verify、quality、race（134 test pass）、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all`（9/9）及 diff check 均 PASS。`task-1.1-fix-20261018-04/` 保留一项首轮断言失败及修正前后证据，不覆盖、不隐藏。
+- SIGKILL 恢复场景观察到一个未引用的 `.strmgen-*.tmp`；已验证已有 STRM／归属／完整轮次恢复断言，恢复文档要求先核实而非盲目清理。真实外部 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍为 NOT RUN；无生产服务、媒体或配套仓库测试。
 
 ## 开发准备
 

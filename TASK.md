@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.1
 Parent Slice: 1
-Status: IN PROGRESS
+Status: READY FOR B REVIEW
 Task Base: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -160,7 +160,7 @@ B 审查 Task Base..Developer Head 的全部实际差异，核对锁文件／配
 - Remaining In-Slice Work：已拥有文件的内容替换与原子更新及其恢复证据（RO-4 未完成部分）；真实 OpenList 驱动／鉴权／无签名 `/d/` 实证与固定插件解析实证；`serve`／定时、Mirror 删除／移动清理、发布镜像、性能测量仍属后续 Slice／Task。
 - Head SHA：`4752ec2057f998d762829cdb352c8b75198ee900`。
 
-## B Review Result
+## B Review Result — Historical Candidate
 
 ```text
 Reviewed: 951aaeeeca966e8ef79e8ac9500827ce27d0f035..4752ec2057f998d762829cdb352c8b75198ee900
@@ -264,3 +264,13 @@ internal/config/config.go:107-111,270-273,290-293 以配置目录而非批准的
 | RO-5 | 未满足 | F-2 互斥／预览副作用、F-7 容量；关键恢复证据待补 |
 
 合同可执行，无需 A 改 Contract；Task 1.1 原地修正，Slice 保持 ACTIVE。没有 Task PASS、Closure Packet 或 A 最终结论。删除／serve／生产联调／ARM64实机／性能不伪报通过。可复用经验留待 Slice 收尾，不将审查流水账写入角色经验文档。
+
+## Developer Completion Report — FIX Candidate (2026-10-18)
+
+- **Changed Files / Implementation Checkpoint：** 实现检查点 `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`，父提交 `596dbae3c4d36b3a577145ba211f63bab6e3e3bb`。包含 CLI、config、OpenList、pathmap、STRM、SQLite、reconciler、Linux `securepath`、Go/Python 回归、测试专用发布竞态 hook 和实现／恢复文档。`SLICE.md` 的 Implementation Head 随后的报告提交更新到该检查点；未修改合同边界、Roadmap 或稳定需求。
+- **Implemented：** F-1 使用逐组件无符号链接检查、绑定输出根的目录句柄和相对文件操作，拒绝物理别名／输出与数据库及 SQLite sidecar 重叠；F-2 生产 CLI 共用固定 `/tmp/strmgen-locks/sync.lock`，不受 DB、TMPDIR 或环境覆写分裂，锁路径冲突在创建锁之前拒绝；F-3 source identity 绑定校验后的 API URL、remote 与输出映射，不含 token／public URL，旧 remote-key 行不被静默信任；F-4 以 URI 编码的文件名访问 SQLite；F-5 必需 list `content` 形状与可选 Size 分开校验，非法 Size 省略并报告，不伪造零值；F-6 统一脱敏配置、API、数据库及路径错误并统计部分失败；F-7 对单目录条目数（10,000）、名称总字节（2 MiB）、待处理目录（10,000）、每 source 诊断样例（100）设界，并有界读取 STRM、拒绝 FIFO／非普通目标；F-8 相对 output／database 路径按启动 cwd 解析并校正文档事实。
+- **Tests / Results / Evidence：** 最终候选全套 T4 原始证据位于本机 `artifacts/validation-evidence/task-1.1-fix-20261018-05/`（不在远端可读）。`python3 scripts/check_governance.py`、`bash scripts/go-local mod download`、`bash scripts/go-local mod verify`、`python3 scripts/quality.py`（41 项 Python 回归及 Go gofmt／vet／test／build）、`CC="$PWD/artifacts/dev-env/cc/bin/cc" CGO_ENABLED=1 bash scripts/go-local test -race -count=1 -json ./...`（134 test PASS、0 FAIL、0 SKIP）、`git diff --check` 均 PASS。Linux amd64 与 arm64 `CGO_ENABLED=0 -trimpath` 构建 PASS，SHA-256 分别为 `6a48a78623450155b396d8ff009f5e41a061e5506b1635f2a9c2dfd075475dff` 与 `3df8a7e714d56a98edaaa9559d6f608a0bb5ad03a84cc942b58869eeace8dac5`；另一个仅启用 `strmgen_testhooks` 的 amd64 故障注入测试二进制 SHA-256 为 `18d6f4b101beb256a2278038f16d2f419b308ebb71a2e872975833a2ac973b84`，不作为发布产物。实际 CLI 隔离驱动 `--scenario all` 9/9 场景 PASS，包含路径换链、不同锁输入多进程、特殊 DB 名、API／容量边界、WAL dry-run、精确发布竞态和 SIGKILL 恢复。交叉构建不代表 ARM64 实机验证。
+- **首次失败与修正：** 保留 `task-1.1-fix-20261018-04/` 的完整首轮 T4 失败证据；`ownership_and_paths` 当时观测到根路径换链后四个媒体候选分别失败（`errors=4`），而测试断言错误地要求 `errors=1`。修正断言为四项错误并保持 `partial=true`；聚焦场景及后续完整 T4 均 PASS，未覆盖或删除首次失败记录。SIGKILL 恢复用例观察到一个未引用 `.strmgen-*.tmp`；已登记 STRM、归属与轮次恢复断言通过，残留恢复说明已加入文档，不能盲目清理。
+- **Remaining / Risk：** 本 Task 不执行已拥有文件的内容更新；Mirror 删除／移动清理、serve／定时、发布镜像与性能保证未实现。真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能均 **NOT RUN**；夹具证据不替代外部兼容／播放证据。无生产服务、媒体或配套项目改动。
+- **Head SHA：** `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`。
+- **交接：** 当前 Task 状态为 **READY FOR B REVIEW**。这是 Developer 交付报告，不是独立 B 审查 PASS，也不表示 Slice 完成。
