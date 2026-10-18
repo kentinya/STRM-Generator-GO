@@ -2,7 +2,7 @@
 
 OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。开发依据为原样保留的 [V4.3 方案](<STRM Generator Go.md>)。
 
-**Slice 1「安全的单轮生成闭环」已 PASS / CLOSED；Slice 2「安全目录镜像与清理恢复」已 READY FOR A REVIEW。** A 审查 Slice 1 的 Base `f90f9560e55b07fd2d6a20e8bac43741c39176c4` 至实现 Head `248a609eb70dbb8591091463ed51c5146d7c378a`，接受配置、单轮生成／更新／跳过、最小归属、正常中断恢复、dry-run 与互斥的本地闭环；Task 1.1／1.2 均有独立 B PASS，完整关闭记录保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 [合同](SLICE.md) 以该关闭检查点为 Base，交付三轮缺失、源根／目标 Get 重核与本地安全清理；Task 2.1 与 2.2 均获独立 B PASS。Slice 2 Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`，A 最终审查尚待进行。
+**Slice 1「安全的单轮生成闭环」与 Slice 2「安全目录镜像与清理恢复」均已 PASS / CLOSED。** Slice 2 的 Base 为 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`；Task 2.1／2.2 均有独立 B PASS，A 已审查完整范围并接受三轮缺失、源根／目标 Get 重核、本地安全清理、移动收敛、dry-run 和正常失败恢复。后续 Slice 尚未选择或激活，分层证据和限制见 [最终审查](SLICE.md)。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
 

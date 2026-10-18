@@ -3,7 +3,7 @@
 ```text
 Slice ID: 2
 Owner: A
-Status: READY FOR A REVIEW
+Status: PASS / CLOSED
 Base SHA: 930782035615512be811a7b8bcc8416050f0c12f
 Implementation Head: d0a0f6db5447f38467c67612ed7173d77e6bea27
 ```
@@ -72,7 +72,7 @@ B 须在本合同提交后重评 Task 2.1，调整或重规划目标、接口、
 ## Closure Packet
 
 ```text
-Packet Status: READY FOR A REVIEW
+Packet Status: CLOSED
 Slice Base: 930782035615512be811a7b8bcc8416050f0c12f
 Reviewed Implementation Head: d0a0f6db5447f38467c67612ed7173d77e6bea27
 Task Index: Task 2.1 PASS at c629858ba7559a03c1eba30f8cd91a269f4b2702; Task 2.2 B PASS, reviewed c629858ba7559a03c1eba30f8cd91a269f4b2702..d0a0f6db5447f38467c67612ed7173d77e6bea27
@@ -81,8 +81,8 @@ Final Evidence: artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md (lo
 Invariants: protocol/comparison, unowned-file protection, output boundary, dry-run zero-write, refresh:false, source isolation, bounded traversal/ownership batches, and shared output lock retained
 Known limitations / deferred: /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 runtime, and 100k/1M scale remain NOT RUN; wide-directory repeated enumeration cost is P2; unlink plus SQLite ownership is not a cross-resource transaction
 Documentation coordination: README, architecture CURRENT, scope, product journey, test matrix, progress, environment spec, and examples updated in the Task 2.2 range; no requirement, Slice, Roadmap, or V4.3 behavior change
-A Final Review: PENDING
-Next Action: A REVIEWS SLICE 2 BASE..IMPLEMENTATION HEAD
+A Final Review: PASS
+Next Action: A SELECTS THE NEXT LARGE SLICE
 ```
 
 ## A 合同修订记录
@@ -94,8 +94,30 @@ Next Action: A REVIEWS SLICE 2 BASE..IMPLEMENTATION HEAD
 ## A Final Review
 
 ```text
-Reviewed Range: PENDING
-Decision: PENDING
-P0/P1 Blockers: NOT ASSESSED
-Next Action: A REVIEWS SLICE 2 BASE..IMPLEMENTATION HEAD
+Reviewed Range: 930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27
+Decision: PASS
+P0/P1 Blockers: NONE
+Next Action: A SELECTS THE NEXT LARGE SLICE
 ```
+
+A reviewed the complete Slice 2 Base..Implementation Head, including the configuration,
+storage migration and round accounting, remote root/Get confirmation, bounded directory
+reconciliation, local deletion boundary, move convergence, dry-run behavior, failure hooks,
+CLI drivers, and documentation changes. The Task 2.1 and Task 2.2 B PASS decisions were
+checked against their exact source and binary identities. Governance passed at the review
+checkout; focused Go and Python integration checks passed, and the recorded T4 final gate
+and independent B replay are input-matched to the implementation head.
+
+RO-1..RO-6 are accepted as PASS. No P0/P1 blocker remains. The local-only evidence boundary
+is retained: `/d/` playback, fixed plugin parsing, Jellyfin/proxy integration, ARM64 runtime,
+100k/1M scale, and formal release remain NOT RUN; wide-directory repeated enumeration is a
+known P2. Unlink and SQLite ownership recovery remains deliberately non-transactional across
+resources, with partial completion reported and retried by the normal flow.
+
+### Closure Reconciliation
+
+This closure synchronizes the current Slice status, the no-active-Task handoff, README,
+architecture CURRENT, roadmap, progress, scope, user journey, test matrix, environment
+facts, and package boundary notes. The V4.3 plan, stable requirements, product code,
+dependencies, and evidence identities are unchanged. The next Slice is not selected or
+activated in this closure.

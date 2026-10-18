@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 已 PASS / CLOSED，Task 1.1／1.2 均有独立 B PASS，完整关闭合同及证据保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 Slice 2 已 ACTIVE，无活动实施 Task；Mirror 清理仍未实现，环境 smoke 不代表新 Slice 通过。状态见 [SLICE.md](../SLICE.md) 和 [TASK.md](../TASK.md)。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 2 A Final 证据保留于 [SLICE.md](../SLICE.md) 和可达历史。环境 smoke 不代表后续 Slice 通过；后续 Slice 尚未激活。
 
 ## 安装与检查
 
@@ -169,5 +169,5 @@ TTL 自然到期后仍不能被读取。运行器准备、轮询与取证请求�
 场景同时保留“根可读 → 缺失观察”和“根不可读 → 保留”两种真实结果。`nested_mount_masking`
 与 `hidden_entries` 记录的是用户明确接受的局限，不写成已安全辨别或已修复。
 
-Task 2.2 实现候选已接入生产 CLI：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。`/d/` 播放、固定插件解析、
+Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。`/d/` 播放、固定插件解析、
 Jellyfin／代理、ARM64 实机与规模仍为 NOT RUN。

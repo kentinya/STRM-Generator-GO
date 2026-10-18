@@ -9,3 +9,7 @@
 Slice 1 复盘：
 
 - 任意外部写者防护挤占正常重试闭环 → A 明确正常单写者与最终一致性合同，再由 B 映射旧反例、保留正常故障门槛 → 适用于安全边界调整，不能把撤回过度要求当产品 PASS。
+
+Slice 2 复盘：
+
+- 关闭审查容易只确认最后一个修复 → A 固定 Base..Implementation Head，逐项复核 RO、B 的输入身份和分层 NOT RUN，再统一同步 CURRENT／Roadmap／Progress → 适用于持久化清理等跨模块 Slice 的最终收口。
