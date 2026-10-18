@@ -333,3 +333,91 @@ Developer 按以下顺序在同一 Task 修正：
 - **已知残余:** B 的临时 Go overlay `remove_review_test.go.txt` 包装的是 `LocalFS.remove` 接缝——它先把名字换成外部对象、再由该包装函数自己执行 `unlink`;只要算法使用任何按名 `unlink`,外部对象都会被包装函数自身删除。因此该 overlay 无法在保留按名删除的前提下通过。其针对的实质行为(F-11 合法外部恢复、F-13 暂存替换、F-10 双替换)已由仓库回归与 B 集成复现覆盖为 PASS;残余按名删除窗口如实记为未完全关闭,交由 B 判断。
 - **Risks / Remaining:** 真实 OpenList/无签名 `/d/`、固定插件解析、Jellyfin/代理、ARM64 实机与性能仍 **NOT RUN**;合成夹具、交叉编译与 testhooks 不替代外部证据。Mirror 清理、serve/定时、发布镜像仍属后续 Slice。
 - **Head SHA:** `d0e2bacfb824b4876c647059e43c2996a9339417`。
+
+## B Re-review Result — Task 1.2 第二次修正复审（2026-10-18）
+
+```text
+Reviewed: 15d749b3f151e94a6fb5e9850e6e21d7101aa603..d0e2bacfb824b4876c647059e43c2996a9339417
+Report Checkpoint: e474e64d8a895283b4641a980ce8523e2b17b190
+Decision: FIX REQUIRED
+Slice Required Outcomes all satisfied: NO
+Next: DEVELOPER FIXES TASK 1.2 IN PLACE; A DECIDES ANY NECESSARY CONTRACT CHANGE
+```
+
+### 审查范围与可复用证据
+
+- 本轮 B 已完成 AGENTS／必读清单与三份角色指南，审查前工作区干净、常规治理 PASS。核对完整 Task Base..Head；合同能力、Roadmap、稳定需求、原方案、依赖及 SQLite schema 未变。`d0e2bac..e474e64` 仅 TASK 与架构事实文档变化，可执行输入相同。本轮不改产品实现、不改变合同指针／状态。Task 头部继续 FIX REQUIRED；Developer 报告中的 READY FOR B REVIEW 仅是送审事实，不是当前决定。
+- 新独立证据：`artifacts/validation-evidence/task-1.2-b-rereview-20261018-02/`。`index.json`、输入 SHA-256、逐命令日志、`reproductions.json`、两份 `.go.txt` overlay、构建产物和原始场景摘要均保留；仅本机可读，不声称已远端交接。所有 CLI 运行均为自建 localhost 合成 API、仓库 artifacts 内专用输出／SQLite，不访问生产或配套仓库。
+- B 独立聚焦五包、amd64 发布／testhooks 构建 PASS。`fault_recovery`、`repeat_and_compare`、`dry_run_boundaries` 分别顺序执行均 PASS；旧 F-10 双替换与两个 pre-exchange F-13 CLI 反例独立 PASS。合法外部 STRM 第一次恢复也 PASS，但第二次重启及多文件根目录反例 FAIL，不能据第一轮通过关闭 F-11。
+- `04-post-proof-remove.log` 中原 F-10 两条注入仍 FAIL；`06-recovery-and-distinct-inodes.log` 使用保留旧 fd 的新反例，证明旧对象与外部对象为不同且同时存活的 inode，两条清理仍删除外部对象。因此问题不是 inode 复用；`entryMatches` 仅证明检查时对象，不能绑定稍后的名字操作。`08-late-stage-exchange.log` 另确认 F-13 最后检查后的交换窗口仍 FAIL。overlay 只增加测试，经现有 remove／exchange 接缝执行原 syscall，不修改校验算法；是确定性时序证据，不声称无插桩发布二进制自然命中该极短窗口。
+- 核对 `task-1.2-fix-20261018-03/` 原始 evidence 与可执行输入：Python 48 项，race **163 个测试／8 个包 PASS、0 fail／skip**，隔离 9/9、双架构和 testhooks 构建、二进制摘要均匹配；当前发布二进制无 `STRMGEN_TEST`。B 复用这些已通过事实，未重跑完整 quality／race／arm64；新失败不在原断言内，不能被旧通过抵消。详见 `11-reused-evidence-audit.json`。
+- 保留 B 夹具准备问题：artifact-only logger 首次 SyntaxError，修正后才执行检查；一次重复传 `--scenario` 的 argparse 命令实际只执行最后的 `fault_recovery`，随后另行顺序跑两场景。没有把该首次命令计成 3/3，也没有把准备错误计为产品缺陷。
+
+### F-10 / P1：检查后清理仍删除未知对象（AC-3／AC-5／R-06／R-07）
+
+位置：`internal/reconciler/fs.go:393-400`、`:420-429`、`:695-713`；Recover 的 `:496`、`:532`、`:541` 也仍按名删除。
+
+`entryMatches` 成功后 `removeFile` 仍调用 `unlinkat(name)`。在最终证明后、syscall 前替换名字，两条旧反例和保留旧 fd 的两条新反例均丢失外部字节；成功分支甚至返回 nil。报告已承认残余，但该残余是 P1，不是可接受 P2。不能把“反例在 remove 接缝注入，所以任何 unlink 都失败”当作排除反例的理由：这正是按名操作未绑定被证明对象的窗口。
+
+Developer 在同一 Task 按次序处理：
+
+1. 把 `TestBReviewCleanupNameCanChangeAfterProof` 与 `TestBReviewCleanupWithDistinctLiveInodes` 的关键行为纳入版本控制；目标和所有残留逐一检查字节与身份，不能只断言 error。先保存当前失败。
+2. 为 Update／undoExchange／Recover／早期错误清理逐项列“实际破坏性 syscall、受作用对象、对象归属证明、证明后仍可改名的范围”。写入失败等分支的 `removeIfIdentity` 也必须纳入，不能只修成功路径。
+3. 设计能把实际破坏性操作限制于可证明对象的统一协议；无法证明时保留目标／残留并保守失败，不执行按名盲清理。可复用已有目录句柄、锁和文件接口；不能只再加 Lstat／字节／inode 检查、随机名或注释证明。
+4. 保留正常更新可交付性、原子目标完整性、原双替换／回滚失败／发布失败回归。若不能在当前合同内实现，先提供最小不可区分状态／系统调用限制和所需合同变更交 A；A 提交修订前不继续自定降低不变量，B 再判断当前 Task 是否合法调整。当前 B 未判合同不可满足，也未授权修改合同。
+
+### F-11 / P1：冲突证据被消费，下一次运行覆盖合法外部 STRM（AC-3／AC-6）
+
+位置：`internal/reconciler/fs.go:512-538`；`internal/reconciler/syncer.go:318-321`、`:330-365`。
+
+`valid-foreign-three-restarts` 使用已提交 pre／post-exchange testhooks 和真正 SIGKILL；随后连续三次均为无插桩发布二进制。第一次：exit 1、conflicts=1、round=1、外部 STRM 留在目标；第二次：exit 0、updated=1、round=2、目标及全部残留均无外部字节；第三次正常 skip、round=3。Recover 第一次返回冲突前已删掉唯一 staging，旧 ownership 路径映射不变，下一进程找不到该冲突事实。只延迟一次覆盖不能通过归属安全验收。
+
+修复清单：
+
+1. 扩展现有合法外部恢复 Go／CLI 用例，在相同 cfg、同一 API 身份、同一 DB／输出上连续运行至少三次；每次检查 exit、摘要、所有外部字节、ownership 不扩张、round 不推进。首轮恢复通过不是结束条件。
+2. 保留可供后续运行判定的不明归属事实；不得在返回 `ErrStagingPresent` 前清除唯一证据，再让旧路径 ownership 自动恢复为可写权限。不能通过仅改日志／计数，或把外部 STRM 改成不可解析来通过。
+3. 覆盖 dry-run 后真实运行、再次 SIGKILL／恢复中断、普通已拥有中断、无 DB／未归属与多残留；无法区分时保守冲突，但不批量放宽正常恢复用例。任何交换／清理同时满足 F-10。
+4. 不新增媒体版本状态表。若确需改变 ownership 语义或合同允许的持久事实，先交 A 决策，随后 B 重新判断当前 Task；不在下层实现中悄悄改需求。
+
+5. **B 显式测试计划调整（仅不明外部恢复）：** `TestRecoverRestoresForeignDisplacedContent`、`TestForeignInterruptedUpdateRecoveryConflicts`、`TestValidForeignInterruptedUpdateRecoveryConflicts` 与 CLI `update_before_verification_foreign`／`update_before_verification_valid_foreign` 中强制“无 staging 残留／仅一个目标”的断言可改为“保留必要的不明归属证据，连续至少三次运行保守冲突且全部外部字节保留、round 不推进”。理由是原断言强制消费唯一证据，与 AC-3／AC-6 冲突；这不是允许删安全断言。普通已证明更新中断的成功重试／无未知残留、未归属保护、dry-run 零写和完整 T4 均不降低；若方案无需保留 staging，也仍须证明等价的跨进程保护。
+
+### F-13 / P1：提前的暂存替换已修正，最终证明后的发布仍未绑定对象
+
+位置：`internal/reconciler/fs.go:369-395`、`:420-429`。
+
+现有 hook 前替换 staging 的两个 CLI 反例本轮 PASS；该通过事实保留。但 `TestBReviewStagingReplacementAfterFinalProof` 在最后一次 `entryMatches` 后、原 `RENAME_EXCHANGE` 前换入不同的存活外部对象，Update 返回 `ErrTargetChanged` 时目标已经是外部 staging，旧自有目标留在残留。事后校验虽发现错误，`undoExchange` 因目标不是 tmpID 不再恢复旧目标，仍未满足“发布的是本次完整写入对象”的原要求。
+
+1. 将晚于最后证明的反例纳入仓库，区分“hook 前被拒绝”和“实际 syscall 对象安全”；补齐普通文件、符号链接、FIFO 和缺失目标，不跟随、不阻塞、不误发布。
+2. 与 F-10 使用同一对象归属协议修复，不能再把临时名创建成功／最后读一次当作发布时绑定保证；失败后不能把陌生 staging 当目标完成，也不能清理未知对象。
+3. 扩展 CLI 中断覆盖到该发布窗口；若必须改动插桩，仅限明确 testhooks，恢复重启仍使用发布二进制。已通过的 pre-exchange 反例保留为回归，不因新失败删减。
+
+### F-14 / P1：绑定根的目录游标被消耗，后续文件漏检恢复残留（AC-6／AC-7／R-11）
+
+位置：`internal/securepath/securepath_linux.go:381-396`；`internal/reconciler/fs.go:451-456`、`:635-650`。
+
+`BoundDir.Open` 通过 `dup` 返回根目录描述符；`Readdirnames(-1)` 与绑定 fd 共享底层目录 offset。第一个文件的 Recover 消耗根目录流，第二个根文件扫描得到 EOF，将已有残留误判为无残留。同一 prepared root 连续三次 dry-run Recover 的 Go 反例为 `[ErrStagingPresent, nil, nil]`。CLI `root-second-file-recovery` 中 A 无变化先处理、B 留有 SIGKILL 后外部残留，发布二进制第一次恢复即 exit 0、skipped=2、round 1→2；连续重启 round 继续到 4，外部残留一直被隐藏而不是报告冲突。
+
+1. 先提交已绑定根／至少两个根文件的 Go 和 CLI 回归，残留放在非首个文件；测试多次查询、dry-run、重启和锁释放。不能用不调用 PrepareRoots 的 LocalFS 测试替代真实 CLI 装配。
+2. 枚举必须使用独立的目录 open description，且仍从已绑定目录安全打开；不能重新用绝对路径、不能依赖 dup 产生独立游标。避免在共享 fd 上随意 Seek 干扰其他查询。
+3. 恢复扫描须有界读取／及时停止；当前 `Readdirnames(-1)` 每次加载全部本地目录名字，不能以远端 10,000 项上限替代本地残留／未归属条目上限。无需扩展到性能 Slice，只落实 R-11 的内存边界和保守错误。
+4. 复核有无多文件／多 source 的同类共享状态；新发现修正保留在本 Task，不按内部 helper 再拆 Task。
+
+### 修正顺序、验证与交接
+
+1. 先固化 F-10／F-11／F-13／F-14 当前失败，并提交简短的统一对象归属／恢复证据设计；若需要 A 合同决策先停在设计交接，不自行变更 RO、ownership 或测试含义。
+2. 实现目录枚举修正和可跨进程保留的冲突判定，连同统一发布／回滚／清理协议整体验证；不得只修反例中的某一个 hook 时刻。
+3. 开发反馈：`bash scripts/go-local test -count=1 ./internal/reconciler ./internal/storage ./internal/strm ./internal/securepath ./cmd/strmgen`，随后用新二进制顺序执行关键 CLI 反例、`repeat_and_compare`、`dry_run_boundaries`、`fault_recovery`。CLI 每次只传一个 `--scenario`，或者最终用 `--scenario all`；不要把多个驱动同时启动争抢全局锁。
+4. F-12 已补齐的故障矩阵继续保留；下一候选执行本 Task 原完整 T4，选择新目录（例如未占用的 `task-1.2-fix-20261018-04`）。源码／测试／驱动改变后旧 race／构建不计新候选门槛。正式回归必须入库，B artifact overlay 只作复现参考。
+5. 验证后提交真实 Implementation Head 和匹配证据，逐项列命令／源码 SHA／退出码／目标与残留／ownership／round／重试，记录首次失败；交 READY FOR B REVIEW。Task Base／Contract Checkpoint／High／T4 不变，只有 B 可对测试计划作有理由的调整。`afterUpdateExchange` 是观察屏障，不是目录 fsync 持久化证明；新增驱动中“durable exchange”措辞一并纠正。
+
+### Slice 全部 Required Outcomes / Surfaces 复核
+
+| RO | 判断 | 剩余／限制 |
+|---|---|---|
+| RO-1 | 入口／配置／脱敏既有能力保留；未全部满足 | F-11／F-14 仍错误报告完整成功轮 |
+| RO-2 | 合成 API、分页、元数据与稳定 URL 能力保留 | 真实 OpenList／无签名 `/d/` 证据仍 NOT RUN |
+| RO-3 | 镜像／筛选／冲突／路径句柄能力保留 | F-10／F-13 的对象替换保护未闭环 |
+| RO-4 | 未满足 | F-10／F-11／F-13／F-14；固定插件解析仍 NOT RUN |
+| RO-5 | 未满足 | 漏检恢复与跨轮冲突、按名操作错误；既有互斥／dry-run 无写／远端有界遍历保留 |
+
+不新建 Task，不生成 Closure Packet，不交 A 最终审查或宣布 Slice 关闭。Slice 1 保持 ACTIVE；真实 OpenList 与固定插件解析仍是最终验收缺口。Jellyfin／代理、ARM64 实机及性能另报 NOT RUN，不以其缺失扩大本 Task。

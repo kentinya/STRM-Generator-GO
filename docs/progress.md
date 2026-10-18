@@ -2,6 +2,7 @@
 
 ## 当前状态（2026-10-18）
 
+- 最新 B 独立复审（报告检查点 `e474e64`，候选 `d0e2bacfb824b4876c647059e43c2996a9339417`）：Task 1.2 继续 **FIX REQUIRED**，不新建 Task。原双替换／提前暂存替换／首次合法外部恢复通过；F-10 检查后按名清理仍删除不同存活 inode 的外部对象，F-11 第二次发布重启覆盖外部 STRM，F-13 最后证明后的替换仍误发布，新增 F-14 为根目录 dup 共享游标漏检后续文件残留并错误提交 round。聚焦五包、amd64 发布／testhooks 构建、三个既有 CLI 场景顺序执行通过；新反例失败证据在 `artifacts/validation-evidence/task-1.2-b-rereview-20261018-02/`。核对并复用 Developer T4：Python 48、race 163 测试／8 包、隔离 9/9、双架构；B 本轮未重跑完整 quality／race／arm64。详细技术修复清单见 TASK.md；Slice ACTIVE、无 Closure Packet，合同／Roadmap／需求不变。以下较早状态保留为历史。
 - Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
 - Task 1.1 经 B 独立复审 PASS；Task 1.2「已拥有 STRM 内容更新与原子恢复」修正候选 `f4383f2f59adedadc9252e465c64580570a3bbcf` 经本次独立 B 复审仍为 **FIX REQUIRED**。F-10 检查后按名清理仍会删除外部对象；F-11 恢复出的合法外部 STRM 被再次覆盖并提交 round；新增 F-13 暂存对象替换可导致误发布或失败清理误删。Task Base、合同与 T4 不变，继续原地修正。
 - B 用仅加入暂停/显式放行屏障的 Go overlay 确定性复现:F-10 回滚会将第二个外部目标换入 tmp 并删除;F-11 交换校验前 SIGKILL 后,发布二进制重启错误地跳过新目标、提交 round 2,陌生原目标留在隐藏 tmp。F-12 要求补齐目录 fsync、发布/回滚失败与更新路径信号窗口证据。详情和步骤见 TASK.md;原始复现见 `artifacts/validation-evidence/task-1.2-b-review-20261018-03/`,独立已有场景 3/3 与聚焦包/构建 PASS 证据见 `task-1.2-b-review-20261018-02/`。未将受控插桩写成未插桩二进制命中窗口。
