@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS。当前 [Slice 2](../SLICE.md) 已 ACTIVE，Base 为关闭检查点 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET，无活动实施 Task。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
+Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS。当前 [Slice 2](../SLICE.md) 已 ACTIVE，Base 为关闭检查点 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET；Task 2.1 为 FIX REQUIRED，等待同一 Task 内修正及 B 复审。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
 
 `internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属与完整轮次，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突和完整轮提交；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
 

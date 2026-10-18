@@ -7,7 +7,7 @@ Task ID: 2.1
 Parent Slice: 2
 Status: FIX REQUIRED
 Task Base: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
-Contract Checkpoint: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
+Contract Checkpoint: 56167f7884682a0d8d0269440f7357ed19892ca1
 Difficulty: High
 Test Level: T4
 Planner / Reviewer: B
@@ -80,7 +80,7 @@ Planner / Reviewer: B
 | AC-5 有界／隔离 | 内存只随受限目录／路径增长，深度与请求数有限，取消可退出；并发独立确认不共享可变分页游标或陈旧证明。只改变专用远端夹具，不写 STRM／ownership／round／missing_count。 |
 | AC-6 实证／基线 | 固定真实 OpenList＋Local 及实际缓存路径的成功／失败原始证据齐全，空目录形状与源码对照。既有本地 T4 通过，生产 CLI 未开放清理。 |
 
-AC-3／AC-4 的实际 OpenList 条目不能用 httptest／Python 夹具替代；合成 API 仍用于穷举传输、分页与结构错误。所有 AC 仅为本 Task 验收；本地归属、双轮资格及删除尚无本 Task 结论。
+AC-3／AC-4 的实际 OpenList 条目不能用 httptest／Python 夹具替代；合成 API 仍用于穷举传输、分页与结构错误。所有 AC 仅为本 Task 验收；本地归属、三轮资格及删除尚无本 Task 结论。
 
 ## 必要测试
 
@@ -222,4 +222,29 @@ Blocker: B-1; await A decision on the AC-4 / fixed OpenList application-code-500
 Independent Verification: governance PASS; focused ./internal/openlist ./internal/reconciler PASS; fixed real OpenList replay 5/5 scenarios PASS (artifacts/validation-evidence/task-2.1-b-review-20261018/summary.json)
 Slice Required Outcomes all satisfied: NO
 Next: A decides the contract boundary; then Developer addresses B-1 in Task 2.1 and returns for B review
+```
+
+## B Re-evaluation after A Contract Revision
+
+2026-10-18，A 按用户授权提交合同检查点 `56167f7884682a0d8d0269440f7357ed19892ca1`，仅将
+`cleanup.missing_confirmations` 的默认值与最低值从 2 调整为 3；三轮资格只延后清理，未改变本
+Task 的精确远端确认目标、AC-4 或 T4 门槛。Task Base 保持
+`a8c2d62369a21e8d9a0c2cefec2af09927fb3286`，本 Task 继续，不撤回或重规划。
+
+我重新核对了 `internal/openlist/absence.go` 与 `absence_test.go`：B-1 仍未修复。成功读取源根并
+完整刷新目标父目录后，若最终目标 `Get` 因取消、超时、传输失败或其他未分类原因返回 `*APIError`，
+`probeFilteredTarget` 仍返回 `ReasonNone`，可能将请求失败吞成权威不存在。现有取消／超时测试只覆盖
+前置请求；`TestConfirmGenericGetFailureIsAbsenceOnlyAfterListing` 仍明确锁定宽泛接受行为。
+
+另一个 AC-4 冲突仍待 A 裁定：固定真实 OpenList 对真正缺失目标的 `Get` 实测为 HTTP 200、应用码
+500，而当前 AC-4 要求 HTTP／JSON 500 无法确认。提高缺失轮数没有授权改变此语义。Developer 可在同一
+Task 内修复超时／取消／传输等明确失败的吞没，但不得自行把应用码 500 改判为缺失；最终缺失分类及
+真实服务验收须遵循 A 对 AC-4 的裁定，并重跑受影响的完整 T4／真实 OpenList 证据。
+
+```text
+Reviewed Contract Checkpoint: 56167f7884682a0d8d0269440f7357ed19892ca1
+Decision: FIX REQUIRED
+Task: continue Task 2.1; no replanning
+Blockers: B-1; A decision still required for the AC-4 / actual OpenList application-code-500 conflict
+Next: Developer fixes B-1 in this Task without changing the unresolved 500 semantics; A adjudicates AC-4 before final real-service acceptance
 ```
