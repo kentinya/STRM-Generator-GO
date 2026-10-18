@@ -384,6 +384,16 @@ func (d *Dir) Duplicate() (*Dir, error) {
 	return &Dir{file: os.NewFile(uintptr(fd), d.file.Name())}, nil
 }
 
+// ReadDirNames returns the names of all direct children of d. It does not
+// follow symlinks and is used to locate deterministic staging files without
+// relying on a separately opened pathname.
+func (d *Dir) ReadDirNames() ([]string, error) {
+	if d == nil || d.file == nil {
+		return nil, errors.New("directory is closed")
+	}
+	return d.file.Readdirnames(-1)
+}
+
 // Lstat reports one direct child without following a final symlink.
 func (d *Dir) Lstat(name string) (os.FileInfo, error) {
 	if err := validComponent(name); err != nil {

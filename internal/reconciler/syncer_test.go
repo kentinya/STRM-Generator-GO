@@ -15,6 +15,7 @@ import (
 	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/storage"
+	"strm-generator-go/internal/strm"
 )
 
 // fakeLister is a programmable remote tree.
@@ -1011,6 +1012,59 @@ func TestForeignInterruptedUpdateRecoveryConflicts(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(root); len(entries) != 1 || entries[0].Name() != "A.strm" {
 		t.Fatalf("foreign recovery left residue: %v", entries)
+	}
+}
+
+// A valid but foreign version-1 STRM displaced by an interrupted exchange
+// must be restored and reported as a conflict. Content validity, matching the
+// desired URL and path ownership must never be enough to reclaim it.
+func TestValidForeignInterruptedUpdateRecoveryConflicts(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := &fakeLister{
+		dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, shaA)}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	seed := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(lister, store, seed).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	foreign := (&strm.Document{
+		URL:     "https://external.example.invalid/user-owned.mkv",
+		Size:    999,
+		HasSize: true,
+	}).Bytes()
+	interrupted := Options{
+		PublicPrefix: "https://changed.example.invalid",
+		FS: &LocalFS{
+			beforeExchange: func(dir *securepath.Dir, target string) error {
+				return replaceTargetBytes(dir, target, string(foreign))
+			},
+			afterExchange: func(*securepath.Dir, string) error {
+				return errors.New("simulated interruption")
+			},
+		},
+	}
+	if _, err := New(lister, store, interrupted).Run(context.Background(), []Source{sourceFor(root)}); err == nil {
+		t.Fatal("interruption must fail the run")
+	}
+	recovery := Options{PublicPrefix: "https://changed.example.invalid"}
+	report, err := New(lister, store, recovery).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("valid foreign residual must conflict, not silently succeed")
+	}
+	if report.Sources[0].Conflicts != 1 || report.Sources[0].Updated != 0 {
+		t.Fatalf("valid foreign residual was not a conservative conflict: %+v", report.Sources[0])
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 2 {
+		t.Fatalf("valid foreign residual committed a round: epoch=%d", epoch)
+	}
+	if raw := mustRead(t, filepath.Join(root, "A.strm")); raw != string(foreign) {
+		t.Fatalf("valid foreign bytes were not preserved: %q", raw)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 1 || entries[0].Name() != "A.strm" {
+		t.Fatalf("valid foreign recovery left residue: %v", entries)
 	}
 }
 

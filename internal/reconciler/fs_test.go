@@ -477,6 +477,49 @@ func TestUpdateRollbackFailurePreservesForeignResidual(t *testing.T) {
 	}
 }
 
+// F-13: an external writer replacing the staging object just before the
+// exchange must never be published as the target, and its bytes must survive.
+func TestUpdateForeignStagingReplacementIsNotPublished(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	staging := newStagingName("A.strm", old)
+	fs := LocalFS{beforeExchange: func(dir *securepath.Dir, _ string) error {
+		return replaceTargetBytes(dir, staging, "foreign-staging-object")
+	}}
+	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrStagingPresent) {
+		t.Fatalf("update = %v, want ErrStagingPresent", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(old) {
+		t.Fatalf("foreign staging object was published: %q", raw)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != "foreign-staging-object" {
+		t.Fatalf("foreign staging object was deleted: %q", got)
+	}
+}
+
+// F-13: when the target vanishes and the staging object is replaced by an
+// external writer, the failure path must not delete the foreign object.
+func TestUpdateForeignStagingSurvivesMissingTarget(t *testing.T) {
+	root := t.TempDir()
+	old, newer := writeUpdateFixture(t, root)
+	staging := newStagingName("A.strm", old)
+	fs := LocalFS{beforeExchange: func(dir *securepath.Dir, target string) error {
+		if err := replaceTargetBytes(dir, staging, "foreign-staging-object"); err != nil {
+			return err
+		}
+		return dir.Remove(target)
+	}}
+	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrStagingPresent) {
+		t.Fatalf("update = %v, want ErrStagingPresent", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "A.strm")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed target unexpectedly present: %v", err)
+	}
+	if got := residualBytes(t, root, "A.strm"); string(got) != "foreign-staging-object" {
+		t.Fatalf("foreign staging object was deleted: %q", got)
+	}
+}
+
 func TestUpdatePublishExchangeFailurePreservesOldTarget(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
@@ -551,18 +594,19 @@ func TestUpdateInterruptedBeforeVerificationLeavesRecoverableState(t *testing.T)
 }
 
 // A foreign target displaced by an interrupted exchange is restored to the
-// target by recovery and is never deleted.
+// target by recovery, is never deleted, and is reported as a conservative
+// conflict so the normal comparison cannot silently overwrite it.
 func TestRecoverRestoresForeignDisplacedContent(t *testing.T) {
 	root := t.TempDir()
 	_, newer := writeUpdateFixture(t, root)
 	if err := os.WriteFile(filepath.Join(root, "A.strm"), newer, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), []byte("external"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", []byte("previous-owned"))), []byte("external"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {
-		t.Fatalf("recover: %v", err)
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); !errors.Is(err, ErrStagingPresent) {
+		t.Fatalf("recover = %v, want ErrStagingPresent", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
 	if string(raw) != "external" {
@@ -574,7 +618,7 @@ func TestRecoverRestoresForeignDisplacedContent(t *testing.T) {
 func TestRecoverAmbiguousResidualIsConflictAndLeavesEverything(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), []byte("foreign"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old)), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); !errors.Is(err, ErrStagingPresent) {
@@ -592,7 +636,7 @@ func TestRecoverAmbiguousResidualIsConflictAndLeavesEverything(t *testing.T) {
 func TestRecoverRefusesUnownedStagingWithoutDeleting(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), []byte("foreign"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old)), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, false, false); !errors.Is(err, ErrStagingPresent) {
@@ -609,7 +653,7 @@ func TestRecoverRefusesUnownedStagingWithoutDeleting(t *testing.T) {
 func TestRecoverDryRunDetectsWithoutModifying(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	staging := filepath.Join(root, updateStagingName("A.strm"))
+	staging := filepath.Join(root, newStagingName("A.strm", old))
 	if err := os.WriteFile(staging, []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +674,7 @@ func TestRecoverRemovesOwnStagingWhenTargetAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	newer := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
-	if err := os.WriteFile(filepath.Join(root, updateStagingName("A.strm")), newer, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", newer)), newer, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {
