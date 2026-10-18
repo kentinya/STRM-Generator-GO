@@ -1,6 +1,16 @@
 # 进度
 
-## 当前状态（2026-10-19，B 独立审查）
+## 当前状态（2026-10-19，Task 2.2 规划）
+
+Task 2.1 已独立 B **PASS**，完整计划／报告／审查保留于 `c629858ba7559a03c1eba30f8cd91a269f4b2702:TASK.md`，证据索引 `artifacts/validation-evidence/task-2.1-b-simple-get-20261019/INDEX.md`。逐项重评 RO-1..6 后尚不满足 Slice，B 已运行治理并依据真实 config／storage／Reconciler／LocalFS／CLI 及运行器，规划 **Task 2.2：PLANNED／High／T4**；Task Base 固定上述审查提交，Contract Checkpoint 仍为 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea`。
+
+Task 2.2 把显式配置、精确映射／旧库兼容、不同完整轮计数、当前 Get／本地保护删除、移动、dry-run 和正常清理失败／重启恢复作为一个可审查闭环。采用第3轮提交资格、第4次成功同步重核清理；详细简单步骤、AC-1..8、旧测试调整、新增 CLI／真实服务入口和完整 T4 门槛已写 TASK.md。新入口目前尚未实现，本轮没有 Task 2.2 产品实现／测试或 PASS。Slice／Roadmap／稳定需求未改，Slice 2 保持 ACTIVE，不交 Closure Packet 或 A 最终结论。
+
+同步 AGENTS／README／范围／用户旅程／CURRENT／测试矩阵的状态事实，不改变能力合同；SLICE 与 Roadmap 中合同修订时点的 Task 2.1 FIX REQUIRED／待适配记录保留，当前交接以本节及 TASK.md 为准。规划验证索引 `artifacts/validation-evidence/task-2.2-b-plan-20261019/INDEX.md`。/d/、固定插件解析、Jellyfin／代理、ARM64 实机和规模仍 NOT RUN。未修改产品代码、未推送。
+
+Next Action: Developer implements Task 2.2 after governance, then returns for independent B review
+
+## Task 2.1 B 独立审查（历史，2026-10-19）
 
 Task 2.1 **PASS**，审查范围 `a8c2d62369a21e8d9a0c2cefec2af09927fb3286..cec07017113c9b8e2d313cc592cc22d98011b097`，纯报告后继 `8263f5d45325d3d4c5da29d04e8a53c5fa435a27`。B 独立治理、Go 两包 169 测试、Python 81、额外 review-only overlay 2 测试，以及固定隔离 OpenList 8 场景／11 测试通过；缓存 TTL 1 分钟、60.2 秒后普通列表自然更新。核对 12 项候选输入与 4 个二进制哈希，复用匹配的完整 T4：race 244 测试／8 包、双架构与旧 CLI 9/9 等。实际门禁 14 项全 exit 0；完成报告的 13 项是计数笔误，已纠正。
 

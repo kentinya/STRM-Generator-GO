@@ -2,13 +2,13 @@
 
 ## CURRENT
 
-Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS。当前 [Slice 2](../SLICE.md) 已 ACTIVE，Base 为关闭检查点 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET；Task 2.1 为 FIX REQUIRED，等待同一 Task 内修正及 B 复审。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
+Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS。当前 [Slice 2](../SLICE.md) 已 ACTIVE，Base 为关闭检查点 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET；Task 2.1 已独立 B PASS，当前 Task 2.2 为 PLANNED，接通完整 Mirror 清理、移动与正常恢复。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
 
 `internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属与完整轮次，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突和完整轮提交；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
 
 恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。
 
-正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；真实 OpenList／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理、serve／定时、发布镜像未实现。
+正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理、serve／定时、发布镜像未实现。
 
 现有配置拒绝 `cleanup.enabled: true`；SQLite ownership 尚无精确远端媒体路径映射，missing_count 尚未推进。列表只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 现在只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。远端判定尚无计数／删除接入，以下 TARGET 不表示清理闭环已实现。
 

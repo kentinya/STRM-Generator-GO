@@ -1,12 +1,15 @@
-# Task 2.1 — 源根与目标 Get 缺失判定及真实 OpenList 实证
+# Task 2.2 — 显式启用 Mirror 清理、移动收敛与正常失败恢复
 
-遵循[开发流程](docs/development-workflow.md)，合同为已提交的 [Slice 2](SLICE.md)。本 Task 交付一次无持久状态的远端判定，不开放 CLI 清理，不累计缺失次数，不代替完整 Mirror 交付。
+遵循[开发流程](docs/development-workflow.md)，范围 authority 为已提交的 [Slice 2](SLICE.md)。
+Task 2.1 已独立 PASS，完整计划、报告及 B 审查保留于
+`c629858ba7559a03c1eba30f8cd91a269f4b2702:TASK.md`。本 Task 复用其两次 Get 判定和普通列表，
+完成当前 Slice 尚缺的可操作闭环；不能将本文计划当作现有实现或验收结论。
 
 ```text
-Task ID: 2.1
+Task ID: 2.2
 Parent Slice: 2
-Status: PASS
-Task Base: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
+Status: PLANNED
+Task Base: c629858ba7559a03c1eba30f8cd91a269f4b2702
 Contract Checkpoint: 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
 Difficulty: High
 Test Level: T4
@@ -15,212 +18,238 @@ Planner / Reviewer: B
 
 ## Goal
 
-对配置源根内的精确远端路径，提供“源根不可读／本次调用中止”“目标可读”“目标未读到”的当前判定。源根未成功 Get 为目录时保留；源根可读取、目标 Get 未读到即形成缺失观察，不再区分导致未读到的错误原因。所有列表请求均显式 refresh:false，判定器本身不调用列表或逐级祖先 Get。规则依据[需求](docs/requirements.md#简化删除判定2026-10-18-用户最终决定)。
+管理员显式启用清理后，正常 sync 为已拥有的精确远端路径累计不同完整轮的连续缺失证据，
+达到配置阈值后按当前源根／目标 Get 与本地归属边界清理；移动的新路径先生成，旧路径随后退出。
+预览不改变原文件／原数据库／计数／轮次，正常删除、目录同步、DB 或进程中断后可重试收敛。
+本 Task 覆盖 RO-1、RO-2、RO-3 本地部分、RO-4、RO-5、RO-6 预览与接入实证。
 
-对应 RO-3 的远端 Get 判定和 RO-6 的固定真实服务实证，并保护 RO-2 的源根／取消边界。是否计入一次完整轮、观察集合、三轮计数、当前删除重核及本地删除由后续 Reconciler／storage 接入负责，本 Task 只返回一次调用结果。
+## 实际缺口与范围
 
-## B 合同重评与准入决定
+规划前工作区干净，`python3 scripts/check_governance.py` PASS；代码基线为上述真实完整 SHA。
 
-2026-10-18，用户要求 B 同步 Task。B 已核对真实代码及 A 最新合同 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea`，决定**原 Task 2.1 合法原地调整并继续，不撤回或另建任务**。目标仍为远端判定加真实服务实证，所需改动位于既有 API／确认器、测试及隔离运行器，不需要扩大至持久计数／本地删除。Task Base 不变，保留 FIX REQUIRED、High／T4；本次不是产品独立审查 PASS。
+- `internal/config/config.go` 已解析 mirror／cleanup 字段，但未传入 Resolved，仍直接拒绝
+  cleanup.enabled:true，阈值尚未校验；`cmd/strmgen/main.go` 已有 sync／dry-run、全轮互斥、
+  source-v1 身份和摘要。复用入口与身份，不能因启用清理改变 source key 或建立另一把锁。
+- `internal/storage/storage.go` 的 ownership 只有 source_key、relative_path、absolute_path、
+  created_round、missing_count；Lookup／RecordOwnership／NextEpoch／CommitRound 已存在。
+  无精确远端路径、观察集合、分页候选与计数事务；CommitRound 当前仅 upsert epoch。
+- `internal/reconciler/syncer.go` 有 source 隔离、源根门槛、有界 walker、目录同目标冲突、
+  创建／更新／skip 及失败不提交轮次。当前仅创建后登记归属，已有文件更新／skip 不更新映射，
+  也没有观察集合或候选枚举。
+- `openlist.Confirmer` 与 `CheckSourceRoot` 已交付；所有 List 每页 false。不得另写错误文本
+  算法、祖先刷新链、500 例外或缓存证明。确认器是无持久状态的读取能力，不承担计数事务。
+- `internal/reconciler/fs.go` 已有绑定输出根、descriptor-relative 操作、LocalFS／Recover、
+  有界暂存枚举与故障接缝；FileSystem 暂无受保护的删除操作。`securepath` 有相对 Remove／Sync。
+  沿用这些能力，保留正常更新恢复，不直接用拼接绝对路径的 os.Remove 绕过边界。
+- `scripts/run_isolated_sync_integration.py` 已覆盖 9 类 CLI／恢复；真实 OpenList 运行器已有
+  固定 v4.2.7 Local／WebDav 8 场景及工具回归，可增补真实 CLI Mirror 验证，无须新建另一套服务。
 
-前两次 A 决定 a2a3b18（刷新列表证明与最终 500 例外）、82cceae（按需强刷与请求预算）已被用户撤回；本计划全面替换旧强刷执行清单。B 依开发流程显式调整旧测试语义，逐项映射见下节，不通过隐藏 skip 或删除历史失败获得通过。合同指针已同步，Developer 可在常规治理通过后按本计划实施。
+允许修改上述产品接入及相关 Go／Python 测试、测试标签故障钩子、配置示例、README、架构 CURRENT、
+测试矩阵、兼容／环境事实说明和文件登记。原则上不改依赖。SLICE、Roadmap、稳定需求及原方案不变；
+发现无法满足合同的阻断交 A，不自行缩减验收。只操作 artifacts／专用隔离夹具，不接管生产服务。
 
-## 实际缺口与允许范围
+## Developer 分步实施清单
 
-- `internal/openlist/absence.go` 仍依赖 FreshLister／ListFresh、真实驱动与祖先链，且目标 403 为 Unknown，不符合新合同。`probeFilteredTarget` 未在最后请求返回后检查 context；旧 B-1 的整轮取消问题仍需修正。
-- `internal/openlist/openlist.go` 普通 List 使用 refresh:false，但 ListFresh／共享分页实现可每页传 true。Get 将传输、HTTP、应用错误和响应解析失败转为 error；新规则在源根／目标两个位置分别解释，无需辨别目标错误消息。
-- `internal/openlist/absence_test.go` 仍断言每页强刷及目标权限拒绝保留；标签测试 `openlist_integration_test.go` 仍依赖强刷／祖先链及原结果字段，须随接口同步。
-- `scripts/run_openlist_absence_integration.py` 已存在，固定 v4.2.7、源码 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`、镜像 digest `sha256:11b490123d57f88c84ecda46285e1921869cf511da3e5bb4062f183e7e1200b7`。wait_listed、分页／权限／隐藏／虚拟挂载等辅助请求仍有 refresh:true，不能只改 Go 客户端。缓存场景目前 TTL 60 分钟且强制要求刷新后的立即收敛，须重新设计。
-- `internal/reconciler/syncer.go` 已有源根 Get、普通 List、有界 walker、失败不提交完整 round 及多 source 隔离；`internal/config` 仍拒绝 cleanup.enabled:true，继续保持。无当前缺失计数调用点，不添加占位 Store 接口或虚假清理入口。
+### 1. 先接通配置，保留所有写入前校验
 
-允许修改 internal/openlist 的判定／列表接口和相关测试，必要时做 internal/reconciler 的小型适配／回归；允许调整既有专用真实运行器、Python 回归、环境说明与文件登记。原则上不改依赖。所有夹具和运行产物仅位于 artifacts，不接管生产 OpenList、Jellyfin、代理、配套仓库或生产媒体。
+1. 在 Resolved 与 Reconciler Options 中传递实际使用的 mirror、cleanup enabled、阈值。
+   默认 mirror=true、cleanup=false、missing_confirmations=3。显式阈值只接受整数 ≥3，
+   包括清理关闭时的显式非法值也须拒绝；更大值只延后清理。
+2. mirror=false＋cleanup=true 为配置错误，退出 2；在获取会写入的输出／DB 之前拒绝。
+   mirror=false＋cleanup=false 继续正常生成／更新，不新增缺失或删除；清理关闭亦如此。
+3. 保留严格 YAML、路径／输出重叠、DB sidecar、token、安全诊断、互斥与其他配置保护；
+   新错误只反映字段名／source 序号，不能回显秘密或完整私有路径。不加 force／单轮删除选项。
 
-## Developer 实施清单
+### 2. 补齐可靠映射与旧库兼容，再写缺失逻辑
 
-### 1. 以两次 Get 替换强刷链
+1. 写模式在事务中兼容升级 Slice 1 表，保留归属和轮次；旧记录远端映射保持未知，旧 epoch／
+   created_round 不能推导缺失次数。对旧库已有的未被本版本证明的计数不得追认为资格。
+   升级须幂等，失败不留下半升级可写库；未知／损坏 schema 清楚失败，不能重建或认领输出。
+2. 精确远端路径来自本轮已校验 dir＋entry.Name，不能逆推 .strm 扩展名、解析 URL 猜路径或
+   下载媒体。保持 source-v1 身份不变；token／public URL 变化不丢归属，移除或更换 source
+   不跨身份清扫历史记录。
+3. 新建成功登记映射；已有归属在创建恢复、更新成功或比较 skip 后也能补齐／替换精确映射。
+   仍核对相对路径、绝对路径、配置输出和归属是否一致；不合法的行保留并报告，不能授权删除。
+4. 旧库映射未知且远端已缺失的行保留并说明“缺少精确映射”，不靠文件名猜测。正常再观察到后
+   可补齐，再从新的缺失轮起计数。真正未归属文件一直不自动认领、覆盖或删除。
+5. 为观察、缺失和候选提供有索引、固定批量的枚举，建议每批不超过 200 行。不要全库 Scan 到
+   Go slice／map，不为每文件开 goroutine。SQLite 限单连接时关闭当前 rows 后再做写操作，
+   避免边持有游标边等待同一连接；用 keyset／稳定键，删除过程中不以 OFFSET 导致跳行。
 
-1. 复用现有绝对路径、严格后代、逐段名称／长度／深度校验；非法输入、根本身、相邻前缀、穿越等在任何请求前拒绝。不从 STRM 名字或 URL 猜远端路径。
-2. 保留零值不构成缺失、nil 依赖无法判定、有限脱敏原因码及无跨调用状态。可调整现有 AbsenceResult／状态名；明确“未读到”是业务观察，不能沿用声称权威证明真实不存在的注释、字段或日志。同步所有实际调用者及标签测试，移除无用途祖先链／强刷预算字段，不另造状态机。
-3. 有效调用先 Get 配置源根。error、nil／无效结果、非目录均为源根不可读，不请求目标；不再按 Virtual／provider:unknown 否决一个已成功读取的目录，不额外 Get 中间目录。
-4. 源根可读后直接 Get 精确目标；成功读到有效对象为存在／保留，目录或类型冲突也保留。返回 error 或无可用对象则为目标未读到，包含 HTTP 404／403／500、JSON 应用错误、传输／读取失败、单请求超时、畸形／缺失数据等，不检查 Detail／message，也不要求错误必须是 APIError。
-5. 每次请求前及返回后检查调用方 ctx.Err()；整次调用取消／deadline 优先返回中止／Unknown，不返回缺失。区别于父 context 仍有效的 HTTP 客户端单请求超时，后者发生在目标阶段按未读到，发生在源根阶段则源根不可读。使用确定性屏障分别覆盖根与目标阶段，不依赖易抖动睡眠。
-6. 单次合法调用至多两次 Get；确认器不发 List，不为证明不存在追加父目录／真实驱动探测。不跨调用缓存结果，不为全部文件创建 goroutine。后续计数／删除接入只针对正常对账未观察到的已有归属路径调用；已观察或 Get 可读的目标不累积缺失。
+### 3. 在现有 source 对账内记录出现和缺失
 
-### 2. 全部列表关闭强制刷新
+1. 保持源根 Get 为目录后才遍历。根不可读、配置中已移除的 source 不推进其计数／轮次或清理。
+   不因 provider:unknown 或虚拟视图额外否决成功目录，全部 List 仍显式 false。
+2. 以本轮实际观察到的媒体路径／输出目标记录出现，skip 也是出现。正常写模式一旦确认属于
+   该行的源文件再出现，立即保守清零旧缺失，即使之后其他文件失败；不能先等整轮成功才清零。
+   出现不授权覆盖未归属文件；精确映射更新仍等必要本地处理成功。
+3. 已观察到的目标不再调用 Confirmer 增加缺失；仅分批处理本源未观察到且映射可靠的已有归属。
+   复用 Confirmer：Present（含目录类型冲突）保留并清零；Missing 只暂记本轮缺失观察；
+   Unknown／调用方取消不成为一次缺失。根不可读时停止该源新增依据与清理，旧计数保留，
+   已确认出现的保守清零可以保留。类型冲突有明确保留诊断。
+4. 先完整遍历并完成所有必要本地生成／更新，再评估缺失／清理。列表失败／分页不全、同目标
+   冲突、必要本地操作／DB 失败、整轮取消，都不提交本轮新增缺失或启动该源清理。
+   目标 Get 未读到本身按合同不是失败轮；不能重新引入目标权限／HTTP 错误保留特例。
+5. 轮次与新增 missing_count 在同一 SQLite 事务中提交，每源每个不同完整 epoch 对每行最多
+   +1。重复提交同一 epoch 不重复计数，也不能用旧 epoch 覆盖新轮次。计数溢出不能变成
+   负数或绕过阈值。失败／重启遗留的临时观察不能被下一轮当作已观察或已缺失。
+6. 观察和暂记集合也须有界；可复用最小对账字段或隔离临时工作存储，但不能持久化媒体指纹、
+   新建发现／媒体版本状态机。若复用未提交 epoch 作标记，须防止失败后重用该 epoch 时残留
+   标记误判出现。dry-run 的临时工作不写回原库，不迁移旧库，结束后不留下可供下轮消费的依据。
+7. 清理关闭时不增加缺失次数／不删除，已确认出现仍清零，其余旧数保留。重新启用须先完成
+   当前遍历，再按当前相同 Get 重核；不能只读历史计数就删除。不同 source 不共用观察或证据。
 
-1. 普通 List／全部分页固定显式 refresh:false，保留现有 30s 请求超时、8 MiB 响应、200 项分页、10,000 项／2 MiB 名称、total／重复名／结构校验及取消退出。保留实测空目录仅第一页面 content:null、total:0 的精确接受规则；缺字段或 null 且 total>0 等形状仍拒绝。
-2. 删除 ListFresh／FreshLister 等无用强刷接口，或仅在确有内部兼容需要时转为普通 List 且注明旧名废弃；任何可调用路径都不能发送 refresh:true，不保留强刷开关或回退。IsNotFound 错误文本判断不能成为新的 Get 规则分支。
-3. 真实运行器的准备、等待、取证与测试请求也全部 refresh:false；不得为让断言通过在夹具幕后强刷、清缓存或修改生产服务。保留固定镜像／版本核验和自有资源生命周期。
+### 4. 用已提交证据清理，最后才提交本轮新增计数
 
-### 3. 调整真实服务场景与工具回归
+1. 采用便于验证的顺序：保存本轮开始时可消费的已提交资格 → 完整遍历和缺失判定 → 对符合
+   旧资格且本轮未观察到、计数未被清零的行当前重核并清理 → 最后事务提交成功轮和本轮新增计数。默认阈值下第三次完整缺失先形成
+   资格，稳定时第四次成功 sync 完成清理，符合合同“至迟下一次”。不得用尚未提交的本轮把 2 凑成 3。
+2. 每次删除前重核：本源已完成必要处理、cleanup／mirror 开启、持久计数达到阈值、可靠归属与
+   精确映射仍有效，再调用同一 Confirmer 读当前源根和精确目标。Present 保留／清零；
+   根不可读或取消保留且不推进本源新增计数。Missing 后才允许进入本地删除检查。
+3. 本地检查必须经绑定输出根／相对操作：映射和配置边界一致、目标是 regular .strm、
+   无符号链接／特殊文件／目录冲突、没有未解决的更新暂存。复用有界枚举查暂存；无远端 desired
+   时不能拿任意空内容调用 Recover 并删残留。不要求哈希永久匹配来冻结可再生成的已拥有内容。
+4. 删除流程为安全本地检查 → unlink → 父目录 sync → 删除对应 ownership；各步错误传播。
+   增补 FileSystem 的删除／检查能力并复用 LocalFS 故障接缝，不能给调用方一个绕过归属的广域
+   递归清理入口。旧空目录可保留，未知暂存和未归属文件不扫。
+5. 在 unlink 后目录 sync／DB 失败或进程中断时保留可恢复事实；停止本源后续删除，最终不提交
+   失败轮的新增计数。已发生的删除如实报告，不能宣称跨文件回滚。归属回收与已删除行从之后
+   计数更新集合移除，不能最终提交时把已删除 ownership 重新 upsert 回来。
+6. 重启遇到本地目标已缺失但归属还在，仍从当前完整对账、已提交资格和远端重核出发，完成
+   必要目录 sync／记录回收；不能仅凭孤儿行删除后来出现的未知对象。远端若重现按现有生成
+   规则重新生成／清零，正常已归属残留在稳定后收敛，不要求手工改数／删库／盲删文件。
+7. 移动／重命名的新路径必要处理失败不得清理旧路径。A.mkv→A.mp4 映射同一个 A.strm
+   时先按既有 URL 规则更新该目标及精确映射、清零旧证据，不能把它作为旧路径候选删除。
+   同轮 A.mkv 与 A.mp4 冲突仍失败，不任意选择。扫描期间远端变化由后续轮纠正。
 
-1. 复用现有 --test-binary／--output-dir／--scenario 入口及 openlist_integration 标签。仍由 Go 产品判定实现给出结果；Python 只建环境、改变专用文件、采集原始响应与运行测试，不重写业务算法。
-2. Local 驱动覆盖精确名称／特殊字符、存在／未读到、源根不可读与源内父目录删除；分页与空目录改用普通 List。只读身份无需刷新权限即可执行新判定；隐藏项的目标拒绝按未读到，不能继续要求 Unknown。
-3. 实际缓存驱动仍必跑，记录缓存预热、删除／新建、API 原始形状、时间顺序及 Go 判定。缓存还返回对象时预期可读；缓存漏项且 Get 也未读到时预期缺失观察。再出现断言以当次真实 Get 可读为前提，不假设修改后立即可见。采用固定短 TTL、有限等待／确定性阶段或新的隔离服务阶段证明缓存自然更新后的结果；记录实际参数，不能使用强刷／清缓存捷径或把尚未更新写成即时收敛 PASS。
-4. 保留隐藏／嵌套挂载吞错的真实原始反例，按两次 Get 的实际结果验证新规则；源根若成功返回目录，不再因虚拟视图添加保留条件，目标若未读到则为缺失观察。它们属于用户接受的局限，不能称已安全识别或修复。
-5. 覆盖客户端和 Python 辅助的请求轨迹，断言所有 list 的 refresh 字段显式为 false，判定器只有根／目标 Get，无祖先或强刷请求。工具回归继续覆盖证据目录边界、参数、子进程失败、缺环境 BLOCKED、仅停止自有容器、默认场景全覆盖及无意外 skip；调整场景名须同步 SCENARIOS、GO_TESTS、测试与说明，保留旧新映射。
-6. 保持 CLI 生成／更新／dry-run／互斥与旧恢复基线，不开放清理。新候选的源码、测试、运行器和配置变化后重新跑完整 T4 与固定真实服务，不套用旧候选 PASS。
+### 5. 预览和摘要必须与真实操作区分
+
+1. dry-run 沿用只读打开／已有 WAL 私有快照：不创建缺失 DB，不修改原 DB／sidecar、迁移、
+   文件／mtime、计数或轮次；不调用真实删除。旧库可读取归属，未知映射保留／提示。
+2. 预览在当前完整扫描、当前 Get 和本地保护均满足时，仅以**已有已提交阈值**列清理候选。
+   旧数 2 即使本轮会成为第 3 次也不是可删除候选；预览不能为下一轮生成证明。
+3. 摘要区分缺失观察、保留、预览候选和实际删除；真实 deleted 永远只反映已执行 unlink，
+   unlink 后 sync／DB 失败应同时显示已发生删除和该源未完成。失败／忙碌／冲突仍非零。
+   诊断样本沿用每源上限，统计不靠保存所有文件列表；全库规模目标不等于已实测性能。
+
+### 6. 补证据，保持已接受行为
+
+1. 先写确定性存储／对账／本地失败用例，再接 CLI 场景；断言实际文件和 SQL 数据，不能只看摘要。
+   复用现有测试钩子模式：仅 strmgen_testhooks 构建可控暂停／失败，发布构建没有环境开关。
+2. 扩展既有隔离 CLI 驱动的 all：新增 mirror_cleanup、mirror_recovery 两个行为场景；同步
+   SCENARIOS／ALL_SCENARIOS／工具回归。保留旧 9 类，不删除已有失败断言；把旧“true 不支持”
+   的特定断言显式替换为本 Task 的有效配置与非法组合验收，不继续要求所有 true 都拒绝。
+3. 扩展真实 OpenList 运行器的**计划新增** `--sync-binary` 参数：给出时在独立 Harness 内执行
+   发布 CLI 的 Mirror 场景，在 summary 单列结果；缺参数不把 CLI 层算 PASS。保留原 8 个 Get
+   场景及缺环境 BLOCKED／禁止 skip／只停止自有资源的行为。更新参数、失败传播和脱敏测试。
+4. 真实 CLI 至少生成→删除／移动→三次完整缺失保留→下一次当前重核清理；另测源根不可读冻结、
+   目标再出现清零、dry-run 零写。全部针对固定隔离 Local 文件、DB／输出在该证据目录；
+   8 个原场景继续覆盖 WebDav 自然缓存与已接受限制。缓存滞后不得以强刷／清缓存让断言通过。
+5. 增补旧库／新库、正常失败／重启和有界枚举的原始证据；同步 README／CURRENT／测试矩阵，
+   新文件登记 environment-spec。只修正已实现事实，不改稳定需求或宣称播放通过。
 
 ## 验收条件
 
 | ID | 可核对结果 |
 |---|---|
-| AC-1 路径与请求 | 精确名称、中文／空格／#／%／大小写／相似前缀正确；非法路径与深度超限请求前拒绝。合法判定至多根、目标两次 Get，不查询祖先、不调用 List。 |
-| AC-2 源根门槛 | 根 Get 的失败／nil／无效对象／非目录均保留且不查询目标；成功目录（含 Virtual 标记）可继续。源根被删与仅源内父目录被删得到不同结果；根 / 的后代合法。结果无持久写入。 |
-| AC-3 目标规则与重读 | 根可读后，目标 Get 成功或类型冲突保留；未读到按相同缺失观察，覆盖错误码、传输／单请求超时及无效响应，不依赖错误类型或文本。每次调用重读，目标后来可读即存在；真实缓存滞后如实分类，不要求即时可见。 |
-| AC-4 取消与默认值 | 根／目标返回后调用方已取消或 deadline 到期均中止，不返回缺失；目标阶段单请求超时但父 context 有效则未读到。零值、nil confirmer／依赖和非法输入不构成缺失；取消可退出，并发调用不串结果。 |
-| AC-5 列表与隔离 | 全部列表及 Python 准备／取证均显式 refresh:false；多页／空目录成功形状仍正确，total 改变／重复名／不完整响应仍失败，有界限制保留。只改变专用夹具，不写 STRM／ownership／round／missing_count。 |
-| AC-6 实证与基线 | 固定真实 Local＋缓存驱动、源根／父目录删除、只读／隐藏／虚拟视图及自然缓存变化证据齐全；新 T4 与旧 CLI 全套通过，清理仍拒绝。没有把接受的同码歧义或缓存滞后写成权威证明。 |
+| AC-1 配置与默认 | 默认不清理；mirror 默认 true；阈值默认／最低 3，更大阈值延后；true＋false 矛盾、低阈值／非整数等在输出／DB变更前退出2。关闭清理仍生成／更新／skip。 |
+| AC-2 完整轮计数 | 默认阈值下三个不同完整轮前保留，第3次只提交资格，稳定第4次清理；同 epoch 重入不重复加；列表／分页／本地／DB失败、取消和预览不凑数；目标未读到按同一规则计数，源根不可读冻结。 |
+| AC-3 出现、开关与隔离 | skip／Get可读清零，类型冲突同时保留并报告；再出现后即使后续失败旧证明也失效；关闭保留旧数且不新增，再启用先当前对账；多source、源移除／身份改变不借用或转移证据。 |
+| AC-4 安全清理与移动 | 删除逐项满足已提交资格、当前根／目标Get、精确映射、归属、regular STRM和边界；未归属／符号链接／特殊文件／未知暂存／失配记录保留；移动新路径失败不删旧路径，同目标扩展变化更新不自删，冲突失败。 |
+| AC-5 旧库与有界处理 | 升级事务／幂等且保留旧归属，不追认历史轮次／计数；观察可补齐映射，未知历史缺失保留；干净失败处理损坏／丢失库；候选分页不漏／不重复，观察与查询不一次载入全库或逐文件并发。 |
+| AC-6 正常失败恢复 | unlink、目录sync、ownership回收、round事务及取消／SIGKILL前后均确定性覆盖；多文件已删部分如实报告并停止后续，不新增失败轮计数；发布二进制重启重新核实后收敛，无需管理员伪造状态。 |
+| AC-7 预览及可观测性 | 新库／旧库／WAL库／无库 dry-run 原状态零写、不迁移；已有阈值候选与未来缺失资格分开；输出区分保留／缺失／候选／实际删除，诊断有界脱敏。 |
+| AC-8 回归与实证 | 完整新候选 T4、旧 CLI 9类＋新增2类、固定真实OpenList原8场景＋发布CLI闭环、故障恢复和有界处理证据通过；旧协议／增量比较／零写／互斥／正常恢复保持。 |
 
-上述只验收远端判定与列表请求参数，不验收三轮计数、文件归属、本地删除或 Mirror 闭环。取消不提交轮次及旧源根／列表失败规则沿用 Reconciler 回归；未来真正接入计数／删除仍须独立验证。
-
-## B 对旧测试与发现的显式调整
-
-| 旧要求／发现 | 新映射及理由 |
-|---|---|
-| ListFresh 每页 refresh:true、祖先链及虚拟目录保守否决 | A 已撤回；改测确认器只作两次 Get、列表全程 false、路径校验和源根可读门槛。不保留强刷用例为必跑产品行为。 |
-| 目标 HTTP／JSON 404／403／500、传输／超时一律 Unknown | 用户选择未读到计缺失；在根可读且父 context 有效时改为缺失观察。对应源根失败仍保留。真实隐藏与同码反例保留为已接受局限。 |
-| B-1 吞最终 Get 的取消／超时 | 拆分：整调用取消／deadline 仍是待修问题，必须补目标阶段回归；父 context 有效的单请求超时／其他失败已按新合同纳入未读到，不伪称原问题全部修复。 |
-| 最后 Get 成功但与刷新列表矛盾为 Unknown | 不再调用刷新列表；成功读到目标即保留／存在，不产生缺失观察。 |
-| 缓存删除／再出现必须刷新并立即纠正 | 撤回即时刷新前提；验证实际缓存响应及自然更新后的重读，不删除缓存场景，也不跳过失败。 |
-| 只有具备刷新权限才能确认、刷新拒绝必须 Unknown | 新合同不用刷新；改测只读身份可正常 Get／List(false)，目标拒绝与源根拒绝分别按新规则处理。 |
-| 每目录保留内存／分页界限、并发隔离、零值保守、脱敏 | 保留；确认器不再持有目录证明，分页与限额在普通 List 中验证。 |
-
-旧计划／Developer 完成报告／B 独立审查原文保留于 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea:TASK.md`。旧实现为 `2fc3f6f06b6bc02ec9503e373cb031fc438f0346`，历史 B 审查范围 `a8c2d62369a21e8d9a0c2cefec2af09927fb3286..2fc3f6f06b6bc02ec9503e373cb031fc438f0346`、决定 FIX REQUIRED；这些历史结论不改成新合同 PASS。
+AC-2 指定的第四轮顺序是本 Task 在 Slice 允许窗口内的实现选择，无需第三轮立即删除。
+必要安全条件不满足不能作为 P2 延期。Task 实现完成后仍由 B 独立 Review，不自签 A／B PASS。
 
 ## 必要测试
 
 ### 开发／修正反馈
 
-工作目录 /opt/STRM-Generator；先治理，再聚焦新增／受影响行为。用请求轨迹与状态断言，不只比较原因字符串。
+工作目录 `/opt/STRM-Generator`；治理通过后从配置／迁移／轮次、出现重置、删除／恢复聚焦验证。
+命令覆盖受影响包，具体新增用例须按上表映射，而非只比较字段或内部函数名。
 
 ```bash
 python3 scripts/check_governance.py
-bash scripts/go-local test -count=1 ./internal/openlist ./internal/reconciler
-python3 -m unittest discover -s tests -p 'test_*openlist*.py' -v
+bash scripts/go-local test -count=1 ./internal/config ./internal/storage ./internal/reconciler ./cmd/strmgen
+python3 -m unittest discover -s tests -p 'test_*integration*.py' -v
 ```
+
+先对新二进制运行新增 mirror_cleanup、mirror_recovery，再对最终候选运行完整门槛。
+上述场景名与 `--sync-binary` 为本 Task 须实现的测试入口，当前基线尚不存在，不得伪报已执行。
 
 ### 最终检查点门槛
 
-完整 T4 保留。使用全新证据目录，不覆盖历史；对本 Task 的远端只读判定风险运行这些门槛，不表示实现删除。
-
 ```bash
-mkdir -p artifacts/task-2.1/bin artifacts/validation-evidence
-TASK_EVIDENCE="$(mktemp -d artifacts/validation-evidence/task-2.1-simple-get-final-XXXXXX)"
+mkdir -p artifacts/task-2.2/bin artifacts/validation-evidence
+TASK_EVIDENCE="$(mktemp -d artifacts/validation-evidence/task-2.2-final-XXXXXX)"
 python3 scripts/check_governance.py
 bash scripts/go-local mod download
 bash scripts/go-local mod verify
 python3 scripts/quality.py
 CC="$PWD/artifacts/dev-env/cc/bin/cc" CGO_ENABLED=1 bash scripts/go-local test -race -count=1 -json ./...
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 bash scripts/go-local build -trimpath -o artifacts/task-2.1/bin/strmgen-amd64 ./cmd/strmgen
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 bash scripts/go-local build -trimpath -o artifacts/task-2.1/bin/strmgen-arm64 ./cmd/strmgen
-bash scripts/go-local build -tags strmgen_testhooks -trimpath -o artifacts/task-2.1/bin/strmgen-testhooks-amd64 ./cmd/strmgen
-python3 scripts/run_isolated_sync_integration.py --binary artifacts/task-2.1/bin/strmgen-amd64 --fault-binary artifacts/task-2.1/bin/strmgen-testhooks-amd64 --scenario all --output-dir "$TASK_EVIDENCE/cli"
-bash scripts/go-local test -c -tags openlist_integration -o artifacts/task-2.1/bin/openlist-integration.test ./internal/openlist
-python3 scripts/run_openlist_absence_integration.py --test-binary artifacts/task-2.1/bin/openlist-integration.test --output-dir "$TASK_EVIDENCE/real-openlist"
+bash scripts/go-local test -count=1 -json ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 bash scripts/go-local build -trimpath -o artifacts/task-2.2/bin/strmgen-amd64 ./cmd/strmgen
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 bash scripts/go-local build -trimpath -o artifacts/task-2.2/bin/strmgen-arm64 ./cmd/strmgen
+bash scripts/go-local build -tags strmgen_testhooks -trimpath -o artifacts/task-2.2/bin/strmgen-testhooks-amd64 ./cmd/strmgen
+python3 scripts/run_isolated_sync_integration.py --binary artifacts/task-2.2/bin/strmgen-amd64 --fault-binary artifacts/task-2.2/bin/strmgen-testhooks-amd64 --scenario all --output-dir "$TASK_EVIDENCE/cli"
+bash scripts/go-local test -c -tags openlist_integration -o artifacts/task-2.2/bin/openlist-integration.test ./internal/openlist
+python3 scripts/run_openlist_absence_integration.py --test-binary artifacts/task-2.2/bin/openlist-integration.test --sync-binary artifacts/task-2.2/bin/strmgen-amd64 --output-dir "$TASK_EVIDENCE/real-openlist"
 git diff --check
 ```
 
-真实运行入口已存在，但须完成上述新规则改造后才运行，不执行旧强刷场景作为新证据。quality.py 覆盖全部 Python 回归、gofmt、Go vet／test／build；完整门槛覆盖同输入聚焦测试，不机械重复。发布二进制不得带测试环境开关。使用包装运行器保存每条命令 stdout／stderr、退出码、计数和耗时；真实环境缺失非零 BLOCKED，不以默认 Go 全绿替代真实服务。
+quality.py 已覆盖全部 Python、gofmt、vet、test、build；完整门槛覆盖同输入聚焦测试，无须机械重复。
+新行为／故障恢复适用真实服务与 CLI 要求单列；race 显式 CGO，双架构构建不代表 ARM64 实机。
+除单元中的接缝外，保留从真实程序产生正常残留、SIGKILL 后发布二进制重启的证明。不得把
+手工直接写入合格 missing_count 的夹具作为唯一三轮／恢复证据。
 
 ### B 独立验证
 
-审查完整 Task Base..新实现 Head，核对候选源码／二进制／夹具身份及原始证据。至少独立重放：源根 Get 失败不请求目标；Local 父目录删除与源根删除的不同结果；根可读而目标权限／同码失败的新判定；目标阶段取消与单请求超时的区别；多页列表 false 及缓存自然更新重读。核对 Python 准备请求也无 refresh:true。完整 quality／race／双架构／旧 CLI 可在输入一致且证据充分时复用 Developer 新候选原始日志，出现疑点按影响重跑。
+核对完整 Task Base..Head、新候选源码／二进制／夹具身份和原始日志。至少独立重放：
+三个完整轮与重复 epoch／失败／预览不能凑数；再出现后续失败与开关；旧库未知映射；
+移动／同目标扩展名变化；删除后目录 sync／DB 失败再启动及跨文件部分完成；符号链接／
+未知暂存／未归属保护；多source隔离；真实 CLI 的根不可读和清理闭环。新增路径有界通过
+固定批量、跨多批候选和观察集合的测试／测量说明，不冒充十万／百万性能已验收。
 
-PASS 后逐项重评 Slice RO-1..RO-6，不以本 Task 判定能力替代配置入口、完整轮／三次计数、本地归属／删除、移动、迁移／恢复与预览。它们尚未全部交付，不提交 Closure Packet，不宣布 Slice PASS／关闭。
+可在输入完全一致、无疑点时复用 Developer 全套 quality／race／构建／旧 CLI 原始证据；
+不能只凭成功标签放行。原本真实 Get 8 场景已通过，但接入候选需验证新 CLI，不以 Task 2.1
+只读确认器 PASS 替代可写删除。所有 RO 满足后停止创建 Task，执行 Slice Final 并交 Closure
+Packet 给 A；有阻断留在 Task 2.2 FIX REQUIRED，不按字段或新测试另外建 Task。
 
 ### 证据与重跑
 
-索引包含完整源码 SHA、未提交输入摘要、命令／cwd、Go／CC、固定服务源码 SHA／镜像 digest／版本、驱动与缓存 TTL／身份配置、专用文件变化与请求顺序、脱敏 HTTP／应用码及结果、测试数／skip／退出码／耗时。路径用夹具标签；token、Cookie、签名 URL、原始错误正文或宿主私有完整路径不入日志。证据保存在 artifacts/validation-evidence/<new-run-id>/，不覆盖旧 run，不将本机忽略目录说成远端可读证据。
+新证据目录保留到 A 决定：源码完整 SHA／工作区输入摘要、版本、命令／cwd、配置／夹具／
+二进制哈希、逐门禁退出码／计数／耗时、原始日志、首次失败与重跑、每轮文件／SQL 快照及
+请求顺序、旧库身份、故障接缝与发布构建区别、实际删除／部分完成及 AC／RO 映射。配置和
+状态仅使用专用夹具；token、Cookie、签名URL、私有完整路径或原始错误正文不入日志。
 
-旧 Developer `artifacts/validation-evidence/task-2.1-final-ftETbR/`、旧 B `artifacts/validation-evidence/task-2.1-b-review-20261018/` 保留历史；新规则改了源码／测试／运行器，须重跑完整 T4 与固定真实服务。纯文档后继可核对可执行输入一致后复用，但重跑治理／空白检查。合成 Go／Python、真实 Get／缓存、旧 CLI／恢复、编译／race 分开报告；真实 /d/、插件解析、Jellyfin／代理、ARM64 实机与规模仍 NOT RUN。保留首次失败与重跑。
+旧证据不覆盖；新代码／测试／运行器／配置变动后按影响重跑，T4最终候选保留完整门槛。
+纯报告后继可在核对可执行输入完全一致后复用，但重跑治理／空白。NOT RUN／BLOCKED／
+SKIPPED 如实报告，真实环境缺失非零 BLOCKED，不改用合成API冒充。证据仅本机 artifacts，
+不声称远端可读。/d/、固定插件实际解析、Jellyfin／代理、ARM64 实机和规模仍独立 NOT RUN。
 
 ## 非目标
 
-不开放 cleanup.enabled:true；不累计缺失计数、不迁移 SQLite、不删除 STRM／ownership，不增加 Mirror 清理／移动／预览入口。三次阈值、文件归属与本地边界由后续接入落实，本 Task 不修改已有保护。无强刷、祖先权威证明、500 特例、目录证明复用／请求预算配置、远端版本锁、每文件生成前查询、媒体指纹／发现状态机、强制管理员／无嵌套挂载等部署新门槛。serve、发布、播放、规模及权限加固不属本 Task。
+不新增 serve／调度、发布镜像、全驱动兼容、真实播放／插件内部接入、媒体下载／哈希补算、
+数据库丢失后的自动认领、人工强制删除工具、源身份转移、递归清理空目录／未知暂存。
+不引入远端版本锁、每文件生成前Get、祖先强刷、错误码权威证明、刷新预算、媒体指纹表、
+独立发现／恢复状态机、UID／权限加固或抵御任意外部写者的绝对承诺。
 
 ## Developer Completion Report
 
-按 B 调整后的新合同原地修正并交付；旧强刷实现与旧证据仅为历史，不构成本 Task 通过。
-
-- Changed Files / Implemented：
-  - `internal/openlist/absence.go`：`Confirmer` 改为至多两次精确 Get（源根、目标），
-    状态为 present／missing／unknown，原因码有界且不含私密信息；每次请求前后检查调用方
-    context，整次取消／deadline 优先中止，父 context 有效的单请求超时按阶段归入源根不可读
-    或目标未读到。新增导出的 `openlist.CheckSourceRoot` 作为唯一源根门槛。
-  - `internal/openlist/openlist.go`：删除 `ListFresh` 与 refresh 开关、`IsPermissionDenied`／
-    `StatusCode`、`Entry.Virtual` 与 Get 的 provider 否决；`List` 每页显式 `refresh:false`；
-    `IsNotFound` 保持废弃且无调用。
-  - `internal/reconciler/syncer.go`：源轮次改用同一 `CheckSourceRoot` 门槛（失败保留、取消
-    区分），未接入计数或删除。
-  - 测试与运行器：重写 `absence_test.go`（路径与深度、源根全部门槛变体含虚拟视图、目标
-    各类错误／超时／无效响应／名称不符、取消屏障、重读、并发、读取上限与列表轨迹断言）、
-    `openlist_integration_test.go`、`scripts/run_openlist_absence_integration.py` 与
-    `tests/test_run_openlist_absence_integration.py`（场景 `refresh_permission` 改为
-    `read_only_identity`，缓存改短 TTL 自然到期，全部准备／轮询／取证列表显式 `refresh:false`）。
-  - 文档：`docs/development-environment.md`（新场景与实测语义）、`docs/architecture.md`
-    CURRENT、`docs/test-matrix.md` 状态、`docs/compatibility.md` 实证层。未新增文件，
-    `dev/environment-spec.json` 无需变更。
-- Tests and Results / Evidence：最终检查点 14 项门禁全部 exit 0：治理、`mod download`／
-  `verify`、`quality.py`（Python 81 项、gofmt、vet、test、build）、独立 gofmt、race
-  `-race ./...`（244 测试／8 包，0 fail／skip）、`-count=1 ./...`、Linux amd64／arm64 构建、
-  testhooks 构建、隔离 CLI 9/9、集成测试二进制、固定隔离 OpenList v4.2.7 全 8 场景
-  （11 个 Go 集成测试，0 skip）、`git diff --check`。证据索引
-  `artifacts/validation-evidence/task-2.1-simple-get-final-m8SE4t/INDEX.md`（含门禁退出码／
-  耗时、二进制 SHA-256、源码清单摘要与真实服务原始观测）；实现检查点提交后逐字核对文件
-  哈希一致。开发期间首轮真实服务失败（removed_parent、nested_mount_masking 的夹具预期与
-  实测驱动行为不符）保留在早期 probe 目录，按实测探测后修正夹具与断言；详细驱动事实见
-  INDEX.md 观测清单，不是产品缺陷粉饰。
-- Decisions / Risks / Remaining Required Outcomes：真实固定版本实测并作为用户接受局限
-  记录：Local 挂载后备目录被删后其挂载根仍读取为目录（该源继续、目标未读到计缺失）；禁用
-  存储的挂载根不可读（保留）；WebDav 自挂载缓存自然到期后目录可读但文件 Get 始终不可读
-  （受限身份隐藏项同码 403）；嵌套挂载虚拟祖先可读并掩盖父驱动故障。判定器不发列表、不查
-  祖先、不跨调用缓存；`cleanup.enabled: true` 仍在任何写入前被拒绝。本 Task 只交付远端一次
-  判定：缺失计数、完整轮、本地归属／删除、移动、旧库迁移、dry-run 预览与清理恢复未交付，
-  RO-2／RO-3 删除部分／RO-4／RO-5／RO-6 预览仍未满足。真实 `/d/` 播放、固定插件实际解析、
-  Jellyfin／代理、ARM64 实机与规模仍 NOT RUN。未自签 B／A 产品 PASS。
-- Head SHA：实现检查点 `cec07017113c9b8e2d313cc592cc22d98011b097`；门禁运行后再无产品、
-  测试、运行器或文档输入变化，本节仅更新 Task 状态与报告。
-- Evidence Run：`artifacts/validation-evidence/task-2.1-simple-get-final-m8SE4t/`（本机
-  Git 忽略路径，不是远端可读证据）。
+- Changed Files / Implemented：PENDING
+- Tests and Results / Evidence：NOT RUN for Task 2.2
+- Decisions / Risks / Remaining Required Outcomes：PENDING
+- Head SHA：NOT SET
 
 ## B Review Result
 
 ```text
-Reviewed: a8c2d62369a21e8d9a0c2cefec2af09927fb3286..cec07017113c9b8e2d313cc592cc22d98011b097
-Docs-only Handoff: 8263f5d45325d3d4c5da29d04e8a53c5fa435a27 (TASK.md only)
-Decision: PASS
-P0/P1 Blockers: NONE FOUND within Task 2.1
-Contract Adaptation: Task 2.1 accepted under 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
+Reviewed: NOT SET
+Decision: PENDING
 Slice Required Outcomes all satisfied: NO
-Next: B plans the remaining complete Mirror/cleanup/recovery behavior within Slice 2
+Next: Developer implements Task 2.2 after governance, then returns for independent B review
 ```
-
-2026-10-19 B 独立审查完整 Task Base..实现 Head，包含旧实现及其后新合同修正；核对入口
-工作区干净、治理通过及报告后继仅改 TASK.md。没有以旧强刷候选或旧失败记录代替新合同验收。
-
-- **独立验证：** openlist／reconciler 未缓存回归 169 测试／2 包通过；Python 81 项通过；
-  重建集成测试二进制并运行固定 v4.2.7 Local／WebDav 全 8 场景、11 测试，0 fail／skip。
-  缓存 TTL 1 分钟，61 次普通列表轮询、60.2 秒后自然更新。全部准备、取证和分页列表 false。
-  另用仅位于 artifacts 的 Go overlay 独立通过 2 项检查：第一页 200 项后第二页 null／total:0
-  必须拒绝；根请求返回时 deadline 已结束必须中止且不查目标；普通非 APIError 的目标失败
-  在父 context 有效时按未读到处理。未修改产品实现或已提交测试。
-- **证据复用：** Developer 新候选 12 项源码／文档及 4 个二进制 SHA-256 逐项一致，
-  cec0701..8263f5d 仅 TASK.md 改变。复用新候选依赖校验、quality、race（244 测试／8 包，
-  0 fail／skip）、未缓存全包、双架构／testhooks 构建及旧 CLI 9/9 原始证据；实际 gates.tsv
-  为 14 项 exit 0，B 据此纠正上文报告的 13 项笔误。没有因角色不同机械重复完整门槛。
-- **AC-1..AC-6：PASS。** 路径与两次 Get、源根保护、各种目标未读到、无跨调用状态、
-  取消与单请求超时、列表结构／界限和真实服务语义均满足。WebDav 目录缓存自然更新成立，
-  文件 Get 在更新前后仍未读到；没有将它写成文件再出现可读或权威识别成功。隐藏项拒绝、
-  后备目录已删但挂载根可读、虚拟祖先掩盖父驱动故障，按已接受规则分类并保留局限。
-- **RO 全量重评：** RO-1 未满足（清理仍拒绝、开关及阈值未接入）；RO-2 部分满足
-  （根／取消／遍历门槛已有，连续缺失未接入）；RO-3 部分满足（远端规则完成，本地删除
-  未交付）；RO-4 未满足（旧路径退出未交付）；RO-5 未满足（精确映射、旧库迁移和清理
-  恢复未交付）；RO-6 部分满足（固定服务实证完成，清理预览／摘要未交付）。不交 Closure
-  Packet，不改 Slice ACTIVE 或替 A 签最终 PASS。
-
-本机证据索引：`artifacts/validation-evidence/task-2.1-b-simple-get-20261019/INDEX.md`，
-包含精确命令／cwd、退出码／耗时、原始日志、复用哈希、独立 overlay 与 RO 映射；真实服务
-版本及原始响应见子目录 `real-openlist/summary.json`。旧首次失败及 Developer 新候选证据继续
-保留。本轮没有生产服务／媒体操作。真实 /d/、固定插件实际解析、Jellyfin／代理、ARM64 实机
-和规模 NOT RUN。证据仅在本机 Git 忽略目录，不能声称远端可读。
