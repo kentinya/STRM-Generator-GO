@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 3「定时与部署」已 ACTIVE，Task 3.1 已独立 B PASS，Task 3.2 已实现 Linux 双架构镜像与容器验收并交 READY FOR B REVIEW。环境 smoke 不代表 Slice 3 通过；容器门槛须按合同取得独立证据。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 3「定时与部署」已 READY FOR A REVIEW，Task 3.1／3.2 均已独立 B PASS。环境 smoke 不代表 Slice 3 通过；A Closure Review 仍须依据分层证据作最终决定。
 
 ## 安装与检查
 
@@ -46,7 +46,7 @@ export OPENLIST_TOKEN=...   # 必须与配置 openlist.token_env 一致
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
 ```
 
-相对 `sources[].output` 与 `database.path` 都按**启动工作目录**解析，而不是配置文件目录。启动目录、配置文件以及 token 环境变量必须正确；日志不显示 token、完整远端根或数据库／输出的私有完整路径。生产二进制当前支持一次性 `sync`／`sync --dry-run` 与常驻 `serve`。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60，正整数）运行一轮；它与手动 `sync` 共用固定锁，锁忙的 tick 只报告 `busy-skip`，单轮失败后继续下一 tick，SIGINT／SIGTERM 取消当前轮并以非零退出。调度摘要写 stdout，脱敏诊断写 stderr；`cleanup.enabled: true` 的现有 Mirror 语义不因调度改变。发布镜像、Compose 与双架构运行包尚未交付。
+相对 `sources[].output` 与 `database.path` 都按**启动工作目录**解析，而不是配置文件目录。启动目录、配置文件以及 token 环境变量必须正确；日志不显示 token、完整远端根或数据库／输出的私有完整路径。生产二进制当前支持一次性 `sync`／`sync --dry-run` 与常驻 `serve`。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60，正整数）运行一轮；它与手动 `sync` 共用固定锁，锁忙的 tick 只报告 `busy-skip`，单轮失败后继续下一 tick，SIGINT／SIGTERM 取消当前轮并以非零退出。调度摘要写 stdout，脱敏诊断写 stderr；`cleanup.enabled: true` 的现有 Mirror 语义不因调度改变。发布镜像、Compose 与双架构运行包已由 Task 3.2 实现并经 B PASS，A Closure Review 待定。
 
 真实同步须能遍历现有输出祖先，对目标输出位置有创建目录和文件的权限，并能读取已拥有 STRM；数据库父目录需允许创建／读写 SQLite 文件。现有符号链接和非目录路径组件会被拒绝，不能以软链接把数据库、输出根或其父目录映射到其他位置。预览不创建输出或数据库；如果使用已有 WAL 库，程序在数据库父目录建立私有只读快照并正常清理。
 

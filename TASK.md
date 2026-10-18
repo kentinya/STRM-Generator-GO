@@ -7,7 +7,7 @@
 ```text
 Task ID: 3.2
 Parent Slice: 3
-Status: READY FOR B REVIEW
+Status: PASS
 Task Base: 8fc3a3ad8a720e9ca4c832967fdf39874581beff
 Contract Checkpoint: ee5001646d4239755606c28b61f340d795ee7014
 Difficulty: High
@@ -198,14 +198,23 @@ Next: Developer may implement planned Task 3.2 after its planning checkpoint is 
 
 - **Head SHA：** `2131b54bcec1cd43769d239a30456b4a8607f4aa`
 
-- **B Review Result：** PENDING（Developer 不签发独立审查结论）
+- **B Review Result：** PASS（独立 B 审查见下方；Developer 未签发独立审查结论）
 
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Reviewed Range: NOT SET
-Decision: PENDING
-Slice Required Outcomes all satisfied: PENDING
-Next: Developer implements Task 3.2 after planning checkpoint is committed
+Reviewed: 2026-10-19 by B
+Reviewed Range: 8fc3a3ad8a720e9ca4c832967fdf39874581beff..2131b54bcec1cd43769d239a30456b4a8607f4aa
+Decision: PASS
+AC-1..AC-6: PASS
+Independent key replay: PASS; rebuilt amd64 image `strmgen:task-3.2-b-review-2131` passed image/static,
+minimal sync, serve stop/restart, shared-lock busy-skip, Compose lifecycle and arm64 OCI scenarios 6/6.
+Full candidate gates: PASS; governance, mod verify, quality, Go test/race, amd64/arm64/testhooks
+builds, Python 110 tests, Compose checks, container 6/6, serve 6/6, sync 11/11 and diff check.
+Evidence: artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md and
+artifacts/validation-evidence/task-3.2-b-review-20261019/.
+Slice Required Outcomes all satisfied: YES (RO-1..RO-6; Task 3.1 evidence reused where inputs matched)
+NOT RUN: ARM64 real hardware, real OpenList, unsigned `/d/` playback, plugin parsing, Jellyfin/proxy,
+scale and formal publication.
+Next: B submits Slice 3 Closure Packet; A performs final review
 ```

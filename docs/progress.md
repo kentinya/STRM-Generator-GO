@@ -1,9 +1,10 @@
 # 进度
 
-## Task 3.2 实现（2026-10-19，READY FOR B REVIEW）
+## Slice 3 Closure Packet（2026-10-19，READY FOR A REVIEW）
 
-Developer 按已提交 Task 3.2 实现 Linux amd64／arm64 部署运行包，状态置为
-**READY FOR B REVIEW**（尚无 B／A 结论）。交付：仓库根 `Dockerfile`（`golang:1.27.2`
+Task 3.2 已经独立 B **PASS**，Slice 3 现交 `READY FOR A REVIEW`（A 尚未作最终决定）。
+B 审查完整 Task 3.2 范围 `8fc3a3ad8a720e9ca4c832967fdf39874581beff..2131b54bcec1cd43769d239a30456b4a8607f4aa`，
+并复用匹配的 Task 3.1 调度／同步证据。交付：仓库根 `Dockerfile`（`golang:1.27.2`
 与 `alpine:3.20` 均按 digest 固定，构建层在 `$BUILDPLATFORM` 以 `CGO_ENABLED=0`
 交叉编译目标架构，运行层只复制 CA 根、非特权账号文件与静态二进制）、`.dockerignore`、
 `deploy/compose.yaml`（运行时环境注入 token、只读配置、输出／SQLite／固定锁分别挂载、
@@ -11,14 +12,17 @@ Developer 按已提交 Task 3.2 实现 Linux amd64／arm64 部署运行包，状
 `stop_grace_period: 60s`）、`deploy/config.example.yaml`、`deploy/.env.example`、
 `docs/deployment.md`、`scripts/run_container_integration.py` 与对应 Python 测试。
 
-本机已执行：治理、新增容器驱动单元测试 13 项、amd64 `--load` 构建、arm64 OCI 构建、
-隔离容器驱动 6/6（镜像静态检查与非 root 身份、最小 sync 与挂载／token、serve 首轮＋
-正常停止＋重启、双容器同输出同锁竞争 busy-skip、Compose 生命周期、arm64 OCI
-manifest／ELF 核对）。证据索引见本 Task 完成报告；完整 T4 门禁与 B 独立关键复现仍
-待 B 执行。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机、
-规模与正式发布仍 NOT RUN。
+Developer 与 B 本轮均执行了治理、新增容器驱动单元测试 13 项、amd64 `--load` 构建、
+arm64 OCI 构建、Go 290 项普通／race 全量、Python 110 项、隔离容器驱动 6/6（镜像静态检查
+与非 root 身份、最小 sync 与挂载／token、serve 首轮＋正常停止＋重启、双容器同输出同锁
+竞争 busy-skip、Compose 生命周期、arm64 OCI manifest／ELF 核对），以及 serve 6/6、sync
+11/11 回归。Developer 证据索引为 `artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md`；
+B 独立复核为 `artifacts/validation-evidence/task-3.2-b-review-20261019/`。
 
-Next Action: B REVIEWS TASK 3.2
+RO-1..RO-6 均满足，已提交 Slice Closure Packet；真实 OpenList、无签名 `/d/`、固定插件解析、
+Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
+
+Next Action: A REVIEWS SLICE 3 CLOSURE PACKET
 
 ## Task 3.1 B 独立审查（2026-10-19，PASS）
 
