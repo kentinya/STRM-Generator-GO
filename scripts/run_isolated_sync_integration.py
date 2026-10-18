@@ -48,6 +48,8 @@ ALL_SCENARIOS = [
     "source_identity",
     "database_uri",
     "fault_recovery",
+    "mirror_cleanup",
+    "mirror_recovery",
 ]
 
 # Every Harness registers here so a failing scenario cannot leak a locked or
@@ -113,7 +115,8 @@ class Harness:
             self._thread.join(timeout=5)
             self._server = None
 
-    def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4, cleanup=False):
+    def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4, cleanup=False,
+               mirror=None, missing_confirmations=None):
         lines = [
             "openlist:",
             f'  api_url: "{api_url}"',
@@ -126,20 +129,24 @@ class Harness:
             lines.append(f'    output: "{output}"')
         lines.append("sync:")
         lines.append(f"  directory_workers: {workers}")
+        if mirror is not None:
+            lines.append(f"  mirror: {'true' if mirror else 'false'}")
         lines.append("cleanup:")
         lines.append(f"  enabled: {'true' if cleanup else 'false'}")
+        if missing_confirmations is not None:
+            lines.append(f"  missing_confirmations: {missing_confirmations}")
         lines.append("database:")
         lines.append(f'  path: "{db}"')
         path = self.workdir / f"{name}.yaml"
         path.write_text("\n".join(lines) + "\n")
         return path
 
-    def run(self, config, dry_run=False, timeout=60, extra_env=None, capture=True):
+    def run(self, config, dry_run=False, timeout=60, extra_env=None, capture=True, binary=None):
         env = dict(os.environ)
         env["OPENLIST_TOKEN"] = TOKEN
         if extra_env:
             env.update(extra_env)
-        args = [str(self.binary), "sync", "--config", str(config)]
+        args = [str(binary or self.binary), "sync", "--config", str(config)]
         if dry_run:
             args.append("--dry-run")
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
@@ -217,6 +224,16 @@ def read_db(db):
     finally:
         conn.close()
     return {"exists": True, "ownership": ownership, "rounds": rounds, "sidecars": sidecars(db)}
+
+
+def ownership_details(db):
+    """Return rel path -> (missing_count, missing_round, remote_path)."""
+    conn = sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        return {row[0]: (row[1], row[2], row[3]) for row in conn.execute(
+            "SELECT relative_path, missing_count, missing_round, remote_path FROM ownership")}
+    finally:
+        conn.close()
 
 
 def snapshot_tree(root):
@@ -539,9 +556,15 @@ def scenario_ownership_and_paths(h, results):
     trav = h5.run(traversal)
     check(trav.returncode == 2, f"traversal remote must be a usage error: {trav.returncode}")
     cleanup = h5.config("cleanup", api5, [("/Movies", h5.workdir / "out3")],
-                        h5.workdir / "data3" / "strmgen.db", cleanup=True)
+                        h5.workdir / "data3" / "strmgen.db", cleanup=True, mirror=False)
     clean = h5.run(cleanup)
-    check(clean.returncode == 2, f"cleanup.enabled must be rejected: {clean.returncode}")
+    check(clean.returncode == 2, f"cleanup=true with mirror=false must be rejected: {clean.returncode}")
+    low = h5.config("low-threshold", api5, [("/Movies", h5.workdir / "out4")],
+                    h5.workdir / "data4" / "strmgen.db", cleanup=True, missing_confirmations=2)
+    low_result = h5.run(low)
+    check(low_result.returncode == 2, f"below-minimum threshold must be rejected: {low_result.returncode}")
+    check(not (h5.workdir / "out3").exists() and not (h5.workdir / "out4").exists(),
+          "invalid cleanup configuration created output")
     h5.cleanup()
 
     # Every existing output ancestor is checked, and a symlink is rejected
@@ -2228,6 +2251,287 @@ def scenario_fault_recovery(h, results):
     results["fault_recovery"] = observed
 
 
+def scenario_mirror_cleanup(h, results):
+    observed = {}
+
+    def setup(name, cleanup=True, missing_confirmations=None, mirror=None, entries=None):
+        hh = Harness(h.binary, h.workdir / name, fault_binary=h.fault_binary)
+        files = entries or [
+            {"name": "A.mkv", "is_dir": False, "size": 10, "hash_info": {"sha1": "a" * 40}},
+            {"name": "B.mkv", "is_dir": False, "size": 20, "hash_info": {"sha1": "b" * 40}},
+        ]
+        api, dirs = hh.server(directories={"/Movies": list(files)})
+        root = hh.workdir / "out"
+        db = hh.workdir / "data" / "strmgen.db"
+        cfg = hh.config(name, api, [("/Movies", root)], db, cleanup=cleanup,
+                        missing_confirmations=missing_confirmations, mirror=mirror)
+        return hh, api, dirs, root, db, cfg
+
+    def remove_name(dirs, name):
+        dirs["/Movies"] = [entry for entry in dirs["/Movies"] if entry["name"] != name]
+
+    # Main path: three committed complete rounds qualify, a dry-run only previews,
+    # and the next real sync performs the deletion.
+    hh, api, dirs, root, db, cfg = setup("cleanup-main")
+    dry = hh.run(cfg, dry_run=True)
+    check(dry.returncode == 0 and "created=2" in dry.stdout, f"cleanup dry-run: {dry.stdout} {dry.stderr}")
+    check(not root.exists() and not db.exists(), "cleanup dry-run created state")
+    first = hh.run(cfg)
+    check(first.returncode == 0 and "created=2" in first.stdout, f"cleanup seed: {first.stdout} {first.stderr}")
+    remove_name(dirs, "A.mkv")
+    for round_number in range(1, 4):
+        run = hh.run(cfg)
+        check(run.returncode == 0 and "deleted=0" in run.stdout,
+              f"missing round {round_number}: {run.stdout} {run.stderr}")
+        check((root / "A.strm").exists(), f"round {round_number} deleted the target early")
+        details = ownership_details(db)
+        check(details["A.strm"][0] == round_number, f"round {round_number} count: {details}")
+    before_file = (root / "A.strm").read_bytes()
+    before_db = db.read_bytes()
+    before_rounds = read_db(db)["rounds"]
+    preview = hh.run(cfg, dry_run=True)
+    check(preview.returncode == 0 and "candidates=1" in preview.stdout,
+          f"cleanup preview: {preview.stdout} {preview.stderr}")
+    check("deleted=1" not in preview.stdout, "preview claimed a deletion")
+    check((root / "A.strm").read_bytes() == before_file, "preview changed the candidate")
+    check(db.read_bytes() == before_db and read_db(db)["rounds"] == before_rounds,
+          "preview changed the database")
+    fourth = hh.run(cfg)
+    check(fourth.returncode == 0 and "deleted=1" in fourth.stdout,
+          f"qualified delete: {fourth.stdout} {fourth.stderr}")
+    check(not (root / "A.strm").exists(), "qualified target still exists")
+    check((root / "B.strm").exists(), "unrelated target was removed")
+    check("A.strm" not in ownership_details(db), "deleted ownership row is still present")
+    observed["threshold_delete"] = fourth.returncode
+
+    # Move: the new path is created first; the old path independently converges.
+    dirs["/Movies"].append({"name": "C.mkv", "is_dir": False, "size": 30,
+                             "hash_info": {"sha1": "c" * 40}})
+    moved = hh.run(cfg)
+    check(moved.returncode == 0 and "created=1" in moved.stdout, f"move create: {moved.stdout} {moved.stderr}")
+    check((root / "C.strm").exists(), "moved-in path was not created")
+    remove_name(dirs, "B.mkv")
+    for _ in range(3):
+        hh.run(cfg)
+    check((root / "B.strm").exists(), "old path was deleted before qualification")
+    old = hh.run(cfg)
+    check(old.returncode == 0 and "deleted=1" in old.stdout and not (root / "B.strm").exists(),
+          f"old path cleanup: {old.stdout} {old.stderr}")
+    observed["move_old_path_delete"] = old.returncode
+
+    # A same-target extension change is an update, never a self-deletion.
+    remove_name(dirs, "C.mkv")
+    dirs["/Movies"].append({"name": "C.mp4", "is_dir": False, "size": 31,
+                             "hash_info": {"sha1": "c" * 40}})
+    extension = hh.run(cfg)
+    check(extension.returncode == 0 and "updated=1" in extension.stdout and "deleted=0" in extension.stdout,
+          f"same-target extension change: {extension.stdout} {extension.stderr}")
+    check((root / "C.strm").exists(), "same-target extension change deleted the target")
+    details = ownership_details(db)
+    check(details["C.strm"][2] == "/Movies/C.mp4", f"mapping not refreshed: {details}")
+    observed["same_target_extension"] = extension.returncode
+
+    # Reappearance clears old committed evidence.
+    dirs["/Movies"].append({"name": "D.mkv", "is_dir": False, "size": 40,
+                             "hash_info": {"sha1": "d" * 40}})
+    hh.run(cfg)
+    remove_name(dirs, "D.mkv")
+    hh.run(cfg)
+    check(ownership_details(db)["D.strm"][0] == 1, "reappearance fixture did not count")
+    dirs["/Movies"].append({"name": "D.mkv", "is_dir": False, "size": 40,
+                             "hash_info": {"sha1": "d" * 40}})
+    back = hh.run(cfg)
+    check(back.returncode == 0 and "deleted=0" in back.stdout, f"reappearance: {back.stdout} {back.stderr}")
+    check(ownership_details(db)["D.strm"][0] == 0, "reappearance did not clear the count")
+    observed["reappearance"] = back.returncode
+
+    # An unreadable source root keeps the counts and every target.
+    details_before = ownership_details(db)
+    del dirs["/Movies"]
+    frozen = hh.run(cfg)
+    check(frozen.returncode == 1 and "partial=true" in frozen.stdout,
+          f"unreadable root must fail closed: {frozen.stdout} {frozen.stderr}")
+    check(ownership_details(db) == details_before, "unreadable root changed counts")
+    check((root / "C.strm").exists(), "unreadable root deleted a target")
+    observed["root_unreadable_freeze"] = frozen.returncode
+    hh.cleanup()
+
+    # Cleanup disabled never counts or deletes.
+    hh, api, dirs, root, db, cfg = setup("cleanup-disabled", cleanup=False)
+    check(hh.run(cfg).returncode == 0, "disabled cleanup seed failed")
+    remove_name(dirs, "A.mkv")
+    for _ in range(3):
+        check(hh.run(cfg).returncode == 0, "disabled cleanup round failed")
+    details = ownership_details(db)
+    check(details["A.strm"][0] == 0, f"disabled cleanup counted: {details}")
+    check((root / "A.strm").exists(), "disabled cleanup deleted the target")
+    observed["cleanup_disabled"] = details["A.strm"][0]
+    hh.cleanup()
+
+    # A higher threshold only delays deletion.
+    hh, api, dirs, root, db, cfg = setup("cleanup-threshold", cleanup=True, missing_confirmations=4)
+    check(hh.run(cfg).returncode == 0, "threshold seed failed")
+    remove_name(dirs, "A.mkv")
+    for _ in range(4):
+        run = hh.run(cfg)
+        check(run.returncode == 0 and "deleted=0" in run.stdout, f"threshold delay: {run.stdout}")
+        check((root / "A.strm").exists(), "threshold 4 deleted too early")
+    delayed = hh.run(cfg)
+    check(delayed.returncode == 0 and "deleted=1" in delayed.stdout and not (root / "A.strm").exists(),
+          f"threshold 4 convergence: {delayed.stdout} {delayed.stderr}")
+    observed["threshold_four"] = delayed.returncode
+    hh.cleanup()
+
+    # mirror=false still generates and updates but rejects cleanup.
+    hh, api, dirs, root, db, cfg = setup("mirror-off", cleanup=False, mirror=False)
+    mirror_run = hh.run(cfg)
+    check(mirror_run.returncode == 0 and "created=2" in mirror_run.stdout,
+          f"mirror=false generation: {mirror_run.stdout} {mirror_run.stderr}")
+    observed["mirror_off"] = mirror_run.returncode
+    hh.cleanup()
+    results["mirror_cleanup"] = observed
+
+
+def scenario_mirror_recovery(h, results):
+    if h.fault_binary is None:
+        raise Failure("mirror recovery requires --fault-binary (strmgen_testhooks build)")
+    observed = {}
+
+    def qualify(name, files=None):
+        hh = Harness(h.binary, h.workdir / name, fault_binary=h.fault_binary)
+        entries = files or [{"name": "A.mkv", "is_dir": False, "size": 10,
+                             "hash_info": {"sha1": "a" * 40}}]
+        api, dirs = hh.server(directories={"/Movies": list(entries)})
+        root = hh.workdir / "out"
+        db = hh.workdir / "data" / "strmgen.db"
+        cfg = hh.config(name, api, [("/Movies", root)], db, cleanup=True)
+        seed = hh.run(cfg)
+        check(seed.returncode == 0 and f"created={len(entries)}" in seed.stdout,
+              f"{name} seed: {seed.stdout} {seed.stderr}")
+        dirs["/Movies"] = []
+        for _ in range(3):
+            run = hh.run(cfg)
+            check(run.returncode == 0 and "deleted=0" in run.stdout,
+                  f"{name} qualify: {run.stdout} {run.stderr}")
+        details = ownership_details(db)
+        for entry in entries:
+            rel = entry["name"].rsplit(".", 1)[0] + ".strm"
+            check(details[rel][0] == 3, f"{name} count for {rel}: {details}")
+        return hh, dirs, root, db, cfg
+
+    # A directory-sync failure after unlink keeps ownership and the uncommitted
+    # round; the next release-binary run reclaims the absent target.
+    hh, dirs, root, db, cfg = qualify("delete-sync-failure")
+    failed = hh.run(cfg, extra_env={"STRMGEN_TEST_DELETE_AFTER_UNLINK_FAIL_TARGET": "A.strm"},
+                    binary=h.fault_binary)
+    check(failed.returncode == 1 and "deleted=1" in failed.stdout and "partial=true" in failed.stdout,
+          f"delete sync failure: {failed.stdout} {failed.stderr}")
+    check(not (root / "A.strm").exists(), "unlink did not happen before the sync failure")
+    check("A.strm" in ownership_details(db), "failed round dropped ownership")
+    check(read_db(db)["rounds"][0][1] == 4, "failed round advanced the epoch")
+    recovered = hh.run(cfg)
+    check(recovered.returncode == 0 and "reclaimed=1" in recovered.stdout,
+          f"delete sync recovery: {recovered.stdout} {recovered.stderr}")
+    check("A.strm" not in ownership_details(db), "recovery left the ownership row")
+    check(read_db(db)["rounds"][0][1] == 5, "recovery did not commit its round")
+    observed["delete_sync_failure"] = failed.returncode
+    observed["delete_sync_recovery"] = recovered.returncode
+    hh.cleanup()
+
+    # SIGKILL after the unlink but before the directory sync/ownership removal.
+    hh, dirs, root, db, cfg = qualify("delete-sigkill")
+    marker = hh.workdir / "delete.marker"
+    proc = hh.start(cfg, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_DELETE_AFTER_UNLINK_HOLD": "A.strm",
+        "STRMGEN_TEST_DELETE_AFTER_UNLINK_MARKER": str(marker),
+    })
+    check(wait_for_marker(proc, marker), "delete hold never reached the unlink window")
+    check(not (root / "A.strm").exists(), "unlink did not happen before the hold")
+    check("A.strm" in ownership_details(db), "hold window lost ownership")
+    check(read_db(db)["rounds"][0][1] == 4, "hold window committed a round")
+    proc.kill()
+    proc.communicate(timeout=10)
+    check(proc.returncode == -signal.SIGKILL, f"expected SIGKILL, got {proc.returncode}")
+    recovered = hh.run(cfg)
+    check(recovered.returncode == 0 and "reclaimed=1" in recovered.stdout,
+          f"SIGKILL delete recovery: {recovered.stdout} {recovered.stderr}")
+    check("A.strm" not in ownership_details(db), "SIGKILL recovery left the ownership row")
+    observed["delete_sigkill"] = proc.returncode
+    observed["delete_sigkill_recovery"] = recovered.returncode
+    hh.cleanup()
+
+    # SIGTERM at the pre-unlink gate must not unlink anything.
+    hh, dirs, root, db, cfg = qualify("delete-cancellation")
+    gate = hh.workdir / "gate"
+    marker = hh.workdir / "before-unlink.marker"
+    proc = hh.start(cfg, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_DELETE_BEFORE_UNLINK_GATE": str(gate),
+        "STRMGEN_TEST_DELETE_BEFORE_UNLINK_MARKER": str(marker),
+    })
+    check(wait_for_marker(proc, marker), "pre-unlink gate never recorded")
+    proc.send_signal(signal.SIGTERM)
+    gate.write_text("continue")
+    proc.communicate(timeout=30)
+    check(proc.returncode != 0, "cancelled cleanup exited zero")
+    check((root / "A.strm").exists(), "cancelled cleanup unlinked the target")
+    check("A.strm" in ownership_details(db), "cancelled cleanup dropped ownership")
+    check(read_db(db)["rounds"][0][1] == 4, "cancelled cleanup committed a round")
+    recovered = hh.run(cfg)
+    check(recovered.returncode == 0 and "deleted=1" in recovered.stdout,
+          f"cancellation recovery: {recovered.stdout} {recovered.stderr}")
+    observed["delete_cancellation"] = proc.returncode
+    observed["delete_cancellation_recovery"] = recovered.returncode
+    hh.cleanup()
+
+    # A database failure while reclaiming ownership keeps the recoverable row.
+    hh, dirs, root, db, cfg = qualify("delete-ownership-failure")
+    connection = sqlite3.connect(str(db))
+    connection.execute("CREATE TRIGGER block_ownership_delete BEFORE DELETE ON ownership "
+                       "BEGIN SELECT RAISE(ABORT, 'blocked'); END;")
+    connection.commit()
+    connection.close()
+    failed = hh.run(cfg)
+    check(failed.returncode == 1 and "deleted=1" in failed.stdout,
+          f"ownership failure: {failed.stdout} {failed.stderr}")
+    check(not (root / "A.strm").exists(), "unlink did not happen before the ownership failure")
+    check("A.strm" in ownership_details(db), "ownership failure dropped the row")
+    connection = sqlite3.connect(str(db))
+    connection.execute("DROP TRIGGER block_ownership_delete")
+    connection.commit()
+    connection.close()
+    recovered = hh.run(cfg)
+    check(recovered.returncode == 0 and "reclaimed=1" in recovered.stdout,
+          f"ownership failure recovery: {recovered.stdout} {recovered.stderr}")
+    check("A.strm" not in ownership_details(db), "ownership failure recovery left the row")
+    observed["delete_ownership_failure"] = failed.returncode
+    observed["delete_ownership_recovery"] = recovered.returncode
+    hh.cleanup()
+
+    # Cross-file partial completion: the first target is fully removed, the
+    # second unlink is not durably synced, the round stops and reports both.
+    hh, dirs, root, db, cfg = qualify("delete-partial", files=[
+        {"name": "A.mkv", "is_dir": False, "size": 10, "hash_info": {"sha1": "a" * 40}},
+        {"name": "B.mkv", "is_dir": False, "size": 20, "hash_info": {"sha1": "b" * 40}},
+    ])
+    failed = hh.run(cfg, extra_env={"STRMGEN_TEST_DELETE_AFTER_UNLINK_FAIL_TARGET": "B.strm"},
+                    binary=h.fault_binary)
+    check(failed.returncode == 1 and "deleted=2" in failed.stdout and "partial=true" in failed.stdout,
+          f"cross-file partial: {failed.stdout} {failed.stderr}")
+    check(not (root / "A.strm").exists() and not (root / "B.strm").exists(),
+          "cross-file partial did not report the actual unlinks")
+    details = ownership_details(db)
+    check("A.strm" not in details and "B.strm" in details and details["B.strm"][0] == 3,
+          f"cross-file partial ownership: {details}")
+    recovered = hh.run(cfg)
+    check(recovered.returncode == 0 and "reclaimed=1" in recovered.stdout,
+          f"cross-file recovery: {recovered.stdout} {recovered.stderr}")
+    check("B.strm" not in ownership_details(db), "cross-file recovery left a row")
+    observed["cross_file_partial"] = failed.returncode
+    observed["cross_file_recovery"] = recovered.returncode
+    hh.cleanup()
+    results["mirror_recovery"] = observed
+
+
 SCENARIOS = {
     "first_generation": scenario_first_generation,
     "repeat_and_compare": scenario_repeat_and_compare,
@@ -2238,6 +2542,8 @@ SCENARIOS = {
     "source_identity": scenario_source_identity,
     "database_uri": scenario_database_uri,
     "fault_recovery": scenario_fault_recovery,
+    "mirror_cleanup": scenario_mirror_cleanup,
+    "mirror_recovery": scenario_mirror_recovery,
 }
 
 

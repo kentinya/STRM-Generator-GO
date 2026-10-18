@@ -2,7 +2,7 @@
 
 `cmd/strmgen` 装配 CLI 与同步入口。`internal/openlist` 负责 API；`pathmap` 负责路径与稳定 URL（纯函数）；`strm` 负责版本 1 协议解析、序列化与比较（纯函数）；`storage` 负责 SQLite 最小归属／轮次；`reconciler` 负责目录对账、有界遍历、跨进程互斥与原子发布；Linux 专用 `securepath` 通过目录句柄执行边界受限的路径操作。
 
-Slice 1 已 PASS / CLOSED，已接受首次生成、最小归属登记、重复跳过、URL／SHA-1／Size 比较与已拥有文件原子更新、同哈希 Size 异常记录、正常中断恢复、dry-run 和跨进程互斥。Task 1.1／1.2 均有独立 B PASS，完整关闭合同见 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 [Slice 2](../SLICE.md) 已 ACTIVE，目标为安全目录镜像与清理恢复，尚无活动实施 Task。Mirror 删除／移动旧路径清理、serve／定时、发布镜像仍未实现，真实外部联调与性能仍 NOT RUN。依赖从接口注入；协议／路径纯函数不执行网络或数据库操作。
+Slice 1 已 PASS / CLOSED，已接受首次生成、最小归属登记、重复跳过、URL／SHA-1／Size 比较与已拥有文件原子更新、同哈希 Size 异常记录、正常中断恢复、dry-run 和跨进程互斥。Task 1.1／1.2 均有独立 B PASS，完整关闭合同见 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 [Slice 2](../SLICE.md) 已 ACTIVE，目标为安全目录镜像与清理恢复；Task 2.1 独立 B PASS，Task 2.2 实现候选已交付并等待独立 B 审查。显式清理（完整轮缺失确认、精确映射、源根／目标 Get 重核、绑定目录内删除、dry-run 预览与正常失败恢复）已接入；serve／定时、发布镜像仍未实现，真实外部联调与性能仍 NOT RUN。依赖从接口注入；协议／路径纯函数不执行网络或数据库操作。
 
 `internal/reconciler` 的发布／归属／staging 写入／交换前后屏障在发布二进制中均为空实现；只有显式 `-tags strmgen_testhooks` 的测试二进制会读取环境变量注入受控故障。发布二进制写入完整暂存，不含 hook 环境开关；隔离驱动使用发布二进制实际重启验证恢复。
 

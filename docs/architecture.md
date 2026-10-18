@@ -2,15 +2,15 @@
 
 ## CURRENT
 
-Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS。当前 [Slice 2](../SLICE.md) 已 ACTIVE，Base 为关闭检查点 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET；Task 2.1 已独立 B PASS，当前 Task 2.2 为 PLANNED，接通完整 Mirror 清理、移动与正常恢复。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
+Slice 1 已 PASS / CLOSED，A 审查范围为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`；Task 1.1／1.2 均有独立 B PASS。当前 [Slice 2](../SLICE.md) 已 ACTIVE，Base 为关闭检查点 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET；Task 2.1 已独立 B PASS，Task 2.2 实现候选已交付、等待独立 B 审查。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
 
-`internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属与完整轮次，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突和完整轮提交；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
+`internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属、精确远端／本地路径映射、完整轮次与连续缺失次数，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突、观察清零、源根／目标 Get 缺失确认、已提交阈值消费和绑定目录句柄内的安全删除；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`，删除使用相对 unlink 加父目录 sync。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
 
 恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。
 
-正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理、serve／定时、发布镜像未实现。
+正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理已由 Task 2.2 实现候选接通（待独立 B 审查）；serve／定时、发布镜像未实现。
 
-现有配置拒绝 `cleanup.enabled: true`；SQLite ownership 尚无精确远端媒体路径映射，missing_count 尚未推进。列表只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 现在只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。远端判定尚无计数／删除接入，以下 TARGET 不表示清理闭环已实现。
+现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时、发布镜像仍未实现，以下 TARGET 不表示独立审查或 Slice 验收。
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
@@ -51,7 +51,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 
 远端删除判定按用户最终简化规则：配置源根 Get 未成功读取为目录时保留且不增加计数；源根可读取时，对正常对账未观察到的已有归属路径调用 Get，未读到即作缺失观察，不再按 HTTP／应用错误、权限、驱动、缓存或单请求失败原因细分。目标 Get 成功则保留／清零，类型冲突保留。整轮取消仍中止提交；列表失败／分页不全和必要本地处理失败仍不能成为完整轮。精确规则见[需求](requirements.md#简化删除判定2026-10-18-用户最终决定)。
 
-所有列表请求统一 refresh:false，包含扫描、分页、辅助确认和 dry-run；强刷 `ListFresh`、祖先刷新链、目录证明复用与确认预算／冷却能力均已撤下并从代码移除。缺失计数使用不同完整轮；删除前消费已提交的至少三次证据，按相同源根／目标 Get 规则重核，并检查可靠归属、精确映射、输出边界及 regular STRM。稳定且本地条件有效时至迟在阈值满足后的下一次成功同步收敛。用户接受源根可读而目标异常未读到也会计数，不宣称权威辨别了真实不存在。远端判定已按本规则实现并有隔离真实服务证据；计数／删除／恢复接入仍未交付。
+所有列表请求统一 refresh:false，包含扫描、分页、辅助确认和 dry-run；强刷 `ListFresh`、祖先刷新链、目录证明复用与确认预算／冷却能力均已撤下并从代码移除。缺失计数使用不同完整轮；删除前消费已提交的至少三次证据，按相同源根／目标 Get 规则重核，并检查可靠归属、精确映射、输出边界及 regular STRM。稳定且本地条件有效时至迟在阈值满足后的下一次成功同步收敛。用户接受源根可读而目标异常未读到也会计数，不宣称权威辨别了真实不存在。远端判定已按本规则实现并有隔离真实服务证据；计数／删除／恢复接入已由 Task 2.2 实现候选交付，待独立 B 审查，尚不表示验收通过。
 
 文件 rename 和数据库 commit 不构成同一事务。清理本地失败停止该源后续删除，不保留失败轮新增证明，报告已完成项；后续重启按当前源根／Get 规则与可靠本地事实安全收敛。保持 SW-1..SW-6、未归属保护、符号链接与类型冲突检查，不新增媒体版本／发现状态机。
 

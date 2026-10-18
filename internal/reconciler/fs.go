@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -32,6 +33,20 @@ var ErrTargetChanged = errors.New("target changed before update")
 // not delete or claim the residual.
 var ErrStagingPresent = errors.New("unresolved update staging present")
 
+// ErrNotDeletable reports that an exact owned target is not a plain regular
+// file (for example a symlink, directory or special file) or that the local
+// mapping does not identify it. The caller must preserve the path.
+var ErrNotDeletable = errors.New("owned target is not a deletable regular file")
+
+// DeleteOutcome reports what one DeleteOwned call did. Removed records an
+// unlink performed by this call; AlreadyAbsent records a target and parent
+// that were already gone. The summary may only count Removed as an actual
+// deletion.
+type DeleteOutcome struct {
+	Removed       bool
+	AlreadyAbsent bool
+}
+
 // FileSystem is the set of local file operations the syncer needs. It is an
 // interface so tests can inject failures without weakening the real
 // implementation's safety checks.
@@ -46,6 +61,20 @@ type FileSystem interface {
 	// provably the content this run would write; any other residual is restored
 	// to the target or left untouched and reported conservatively.
 	Recover(root, relFile string, desired []byte, owned, dryRun bool) error
+	// InspectDeletable validates the local conditions for deleting one owned
+	// target without changing anything: the parent must resolve inside the
+	// bound root, the target must be a regular file or already absent, and no
+	// unresolved update staging may remain. A missing parent counts as already
+	// absent. It never follows a symlink.
+	InspectDeletable(ctx context.Context, root, relFile string) error
+	// DeleteOwned removes one owned regular target after the caller verified
+	// the remote and ownership evidence. It returns ErrNotDeletable for a
+	// symlink, directory or special target and ErrStagingPresent when a staging
+	// residual must not be guessed at. An already absent target is flushed and
+	// reported as AlreadyAbsent. On a directory-sync failure after the unlink,
+	// Removed is true and the error is returned so the caller stops cleanup
+	// without claiming durable removal.
+	DeleteOwned(ctx context.Context, root, relFile string) (DeleteOutcome, error)
 }
 
 // LocalFS implements FileSystem using descriptor-relative operations. The
@@ -64,6 +93,8 @@ type LocalFS struct {
 	exchange       func(*securepath.Dir, string, string) error
 	remove         func(*securepath.Dir, string) error
 	syncDir        func(*securepath.Dir) error
+	checkDelete    func(context.Context, *securepath.Dir, string) error
+	afterDelete    func(context.Context, *securepath.Dir, string) error
 }
 
 type localRoots struct {
@@ -667,6 +698,107 @@ func (fs LocalFS) syncDirectory(dir *securepath.Dir) error {
 		return fs.syncDir(dir)
 	}
 	return dir.Sync()
+}
+
+// InspectDeletable validates the local deletion conditions for one owned
+// target without changing anything.
+func (fs LocalFS) InspectDeletable(ctx context.Context, root, relFile string) error {
+	if err := validateRelativePath(relFile, false); err != nil {
+		return ErrNotDeletable
+	}
+	dir, base, err := fs.openParent(root, relFile, false)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// The parent directory itself is gone; the target cannot exist and
+			// ownership may be reclaimed without touching anything.
+			return nil
+		}
+		return err
+	}
+	defer dir.Close()
+	staging, err := findStagingFiles(dir, base)
+	if err != nil {
+		return err
+	}
+	if len(staging) > 0 {
+		return ErrStagingPresent
+	}
+	info, err := dir.Lstat(base)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return ErrNotDeletable
+	}
+	return nil
+}
+
+// DeleteOwned removes one owned regular target. The caller must have validated
+// the remote evidence, ownership, boundary and threshold before calling; this
+// method only repeats the local type/staging checks and never recurses.
+func (fs LocalFS) DeleteOwned(ctx context.Context, root, relFile string) (DeleteOutcome, error) {
+	if err := validateRelativePath(relFile, false); err != nil {
+		return DeleteOutcome{}, ErrNotDeletable
+	}
+	dir, base, err := fs.openParent(root, relFile, false)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return DeleteOutcome{AlreadyAbsent: true}, nil
+		}
+		return DeleteOutcome{}, err
+	}
+	defer dir.Close()
+	staging, err := findStagingFiles(dir, base)
+	if err != nil {
+		return DeleteOutcome{}, err
+	}
+	if len(staging) > 0 {
+		return DeleteOutcome{}, ErrStagingPresent
+	}
+	info, err := dir.Lstat(base)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := fs.syncDirectory(dir); err != nil {
+			return DeleteOutcome{AlreadyAbsent: true}, err
+		}
+		return DeleteOutcome{AlreadyAbsent: true}, nil
+	}
+	if err != nil {
+		return DeleteOutcome{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return DeleteOutcome{}, ErrNotDeletable
+	}
+	beforeHook := fs.checkDelete
+	if beforeHook == nil {
+		beforeHook = beforeDeleteUnlink
+	}
+	if err := beforeHook(ctx, dir, base); err != nil {
+		return DeleteOutcome{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return DeleteOutcome{}, err
+	}
+	if err := fs.removeFile(dir, base); err != nil {
+		return DeleteOutcome{}, err
+	}
+	result := DeleteOutcome{Removed: true}
+	afterHook := fs.afterDelete
+	if afterHook == nil {
+		afterHook = afterDeleteUnlink
+	}
+	if err := afterHook(ctx, dir, base); err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if err := fs.syncDirectory(dir); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 // updateStagingSuffix terminates every deterministic update staging name.

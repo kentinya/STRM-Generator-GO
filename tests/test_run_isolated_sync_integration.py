@@ -131,6 +131,35 @@ class DriverUnitTests(unittest.TestCase):
         self.assertIn("STRMGEN_TEST_UPDATE_HOLD", source)
         self.assertIn("update-interruption recovery requires --fault-binary", source)
 
+    def test_mirror_scenarios_are_registered(self):
+        self.assertIn("mirror_cleanup", driver.ALL_SCENARIOS)
+        self.assertIn("mirror_recovery", driver.ALL_SCENARIOS)
+        self.assertIn("mirror_cleanup", driver.SCENARIOS)
+        self.assertIn("mirror_recovery", driver.SCENARIOS)
+
+    def test_release_delete_hooks_are_inert(self):
+        source = (driver.ROOT / "internal/reconciler/fs_delete_hook_default.go").read_text()
+        self.assertIn("//go:build !strmgen_testhooks", source)
+        self.assertNotIn("os.Getenv", source)
+        self.assertNotIn("syscall", source)
+
+    def test_integration_delete_hooks_are_build_tagged(self):
+        source = (driver.ROOT / "internal/reconciler/fs_delete_hook_integration.go").read_text()
+        self.assertIn("//go:build strmgen_testhooks", source)
+        for name in ("STRMGEN_TEST_DELETE_AFTER_UNLINK_FAIL_TARGET",
+                     "STRMGEN_TEST_DELETE_AFTER_UNLINK_HOLD",
+                     "STRMGEN_TEST_DELETE_BEFORE_UNLINK_GATE",
+                     "SIGSTOP"):
+            self.assertIn(name, source)
+
+    def test_delete_windows_are_deterministic(self):
+        source = (driver.ROOT / "scripts/run_isolated_sync_integration.py").read_text()
+        for name in ("STRMGEN_TEST_DELETE_AFTER_UNLINK_FAIL_TARGET",
+                     "STRMGEN_TEST_DELETE_AFTER_UNLINK_HOLD",
+                     "STRMGEN_TEST_DELETE_BEFORE_UNLINK_GATE",
+                     "block_ownership_delete", "cross_file_partial"):
+            self.assertIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

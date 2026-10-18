@@ -74,6 +74,16 @@ class ArgumentTests(unittest.TestCase):
                            "--output-dir", str(Path(tmp) / "run"),
                            "--scenario", "not_a_scenario"])
 
+    def test_rejects_missing_sync_binary(self):
+        with tempfile.TemporaryDirectory(dir=runner.EVIDENCE_ROOT) as tmp:
+            binary = Path(tmp) / "openlist.test"
+            binary.write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(binary, 0o755)
+            with self.assertRaises(SystemExit):
+                self._run(["--test-binary", str(binary),
+                           "--sync-binary", str(Path(tmp) / "missing-strmgen"),
+                           "--output-dir", str(Path(tmp) / "run")])
+
 
 class PreflightTests(unittest.TestCase):
     def test_missing_docker_is_blocked_not_skipped(self):
@@ -306,6 +316,20 @@ class SimplifiedGetContractTests(unittest.TestCase):
     def test_special_names_survive_as_exact_names(self):
         self.assertIn("中文 名字.mkv", self.source)
         self.assertIn("#hash% &", self.source)
+
+    def test_cli_mirror_layer_is_not_assumed_passed(self):
+        # The release-CLI Mirror layer must be separately gated by
+        # --sync-binary and can never borrow the Task 2.1 confirmation pass.
+        self.assertIn("cli_mirror", self.source)
+        self.assertIn("NOT RUN", self.source)
+        self.assertIn("--sync-binary not provided", self.source)
+        self.assertIn("def run_cli_mirror(", self.source)
+        self.assertIn("candidates=1", self.source)
+        self.assertIn("root_unreadable_exit", self.source)
+        # The CLI journey must poll the cached listing and never force refresh.
+        cli_body = self.source.split("def run_cli_mirror(", 1)[1].split("\ndef main(", 1)[0]
+        self.assertIn("wait_listed_exact(", cli_body)
+        self.assertNotIn('"refresh"', cli_body)
 
 
 class HarnessContractTests(unittest.TestCase):

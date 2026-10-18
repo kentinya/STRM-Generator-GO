@@ -169,6 +169,5 @@ TTL 自然到期后仍不能被读取。运行器准备、轮询与取证请求�
 场景同时保留“根可读 → 缺失观察”和“根不可读 → 保留”两种真实结果。`nested_mount_masking`
 与 `hidden_entries` 记录的是用户明确接受的局限，不写成已安全辨别或已修复。
 
-本 Task 不改变生产 CLI：`cleanup.enabled: true` 仍在任何输出／数据库变更前被拒绝，
-`sync`／`sync --dry-run` 行为与 Slice 1 回归一致。`/d/` 播放、固定插件解析、
+Task 2.2 实现候选已接入生产 CLI：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。`/d/` 播放、固定插件解析、
 Jellyfin／代理、ARM64 实机与规模仍为 NOT RUN。

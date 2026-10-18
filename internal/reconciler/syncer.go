@@ -24,10 +24,28 @@ type Lister interface {
 	List(ctx context.Context, remotePath string) ([]openlist.Entry, error)
 }
 
-// OwnershipStore is the durable ownership/round backend.
+// Confirmer reads the current remote facts for one exact owned target under a
+// configured source root. The syncer reuses openlist.Confirmer so the counting
+// and the deletion rules can never drift apart.
+type Confirmer interface {
+	Confirm(ctx context.Context, sourceRoot, targetPath string) openlist.AbsenceResult
+}
+
+// OwnershipStore is the durable ownership/round backend plus the bounded
+// round workspace used for observations and pending missing paths.
 type OwnershipStore interface {
 	Lookup(sourceKey, relativePath string) (storage.Ownership, bool, error)
 	RecordOwnership(ctx context.Context, o storage.Ownership, epoch int64) error
+	ClearMissing(ctx context.Context, sourceKey, relativePath string) error
+	RemoveOwnership(ctx context.Context, sourceKey, relativePath string) error
+	ListOwnershipAfter(ctx context.Context, sourceKey, after string, limit int) ([]storage.Ownership, error)
+	ListEligibleAfter(ctx context.Context, sourceKey, after string, threshold, limit int) ([]storage.Ownership, error)
+	CountUnmappedMissing(ctx context.Context, sourceKey string) (int64, error)
+	PreciseMappingAvailable() bool
+	ResetRound(ctx context.Context, sourceKey string) error
+	MarkObserved(ctx context.Context, sourceKey, relativePath string) error
+	IsObserved(ctx context.Context, sourceKey, relativePath string) (bool, error)
+	AddPendingMissing(ctx context.Context, sourceKey string, relativePaths []string) error
 	NextEpoch(sourceKey string) (int64, error)
 	CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time) error
 }
@@ -47,6 +65,15 @@ type Options struct {
 	Workers      int
 	FS           FileSystem
 	Now          func() time.Time
+	// CleanupEnabled admits missing observations and deletion. It is false by
+	// default; configuration rejects mirror=false together with cleanup.
+	CleanupEnabled bool
+	// MissingConfirmations is the minimum committed consecutive complete-round
+	// missing count before a target is eligible. The configuration enforces a
+	// minimum of 3.
+	MissingConfirmations int
+	// Confirmer overrides the default openlist.Confirmer built over the lister.
+	Confirmer Confirmer
 }
 
 // SourceResult summarizes one source round.
@@ -63,9 +90,26 @@ type SourceResult struct {
 	Diagnostics        []string
 	DiagnosticsOmitted int
 	Err                error
+	// ConfirmedMissing counts the missing observations staged for this round.
+	// They only reach the durable counts when the round commits.
+	ConfirmedMissing int
+	// Deleted counts unlinks actually performed by this round.
+	Deleted int
+	// Reclaimed counts owned rows whose target was already gone locally and
+	// whose directory entry was flushed before ownership was dropped.
+	Reclaimed int
+	// Retained counts rows preserved for a local safety reason (mapping,
+	// type, staging, type conflict or an unmappable legacy record).
+	Retained int
+	// Candidates counts dry-run cleanup candidates that satisfied the current
+	// committed threshold, the current remote rule and the local checks.
+	Candidates int
 }
 
 const maxDiagnosticSamples = 100
+
+// pendingBatchSize bounds every ownership enumeration and staged insert batch.
+const pendingBatchSize = 200
 
 func (r *SourceResult) addDiagnostic(message string) {
 	if len(r.Diagnostics) < maxDiagnosticSamples {
@@ -84,9 +128,10 @@ type Report struct {
 
 // Syncer executes a bounded single round per source.
 type Syncer struct {
-	lister Lister
-	store  OwnershipStore
-	opts   Options
+	lister    Lister
+	store     OwnershipStore
+	opts      Options
+	confirmer Confirmer
 }
 
 // New builds a Syncer.
@@ -100,7 +145,11 @@ func New(lister Lister, store OwnershipStore, opts Options) *Syncer {
 	if opts.Workers < 1 {
 		opts.Workers = config.DefaultDirectoryWorkers
 	}
-	return &Syncer{lister: lister, store: store, opts: opts}
+	confirmer := opts.Confirmer
+	if confirmer == nil && lister != nil {
+		confirmer = openlist.NewConfirmer(lister)
+	}
+	return &Syncer{lister: lister, store: store, opts: opts, confirmer: confirmer}
 }
 
 // Run synchronizes every source. It returns a report even when a source
@@ -170,12 +219,34 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		return res
 	}
 
+	var epoch int64
+	if s.store != nil && !s.opts.DryRun {
+		var err error
+		epoch, err = s.store.NextEpoch(src.Key)
+		if err != nil {
+			res.Err = err
+			res.Partial = true
+			res.Errors++
+			res.addDiagnostic("round lookup failed; source round not committed")
+			return res
+		}
+		// Discard any observation or staged missing path from an earlier
+		// interrupted attempt so it can never feed this round.
+		if err := s.store.ResetRound(ctx, src.Key); err != nil {
+			res.Err = err
+			res.Partial = true
+			res.Errors++
+			res.addDiagnostic("round workspace reset failed; source round not committed")
+			return res
+		}
+	}
+
 	traversal := &directoryWalker{
 		workers: s.opts.Workers,
 		lister:  s.lister,
 		root:    src.Remote,
-		onDir: func(remoteDir, relDir string, entries []openlist.Entry) {
-			s.handleDirectory(ctx, src, remoteDir, relDir, entries, &res)
+		onDir: func(remoteDir, relDir string, entries []openlist.Entry) error {
+			return s.handleDirectory(ctx, src, remoteDir, relDir, entries, epoch, &res)
 		},
 	}
 	if err := traversal.run(ctx); err != nil {
@@ -190,23 +261,34 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		res.addDiagnostic("round not committed because of conflicts or errors")
 		return res
 	}
-	if s.opts.DryRun {
-		return res
-	}
-	if err := ctx.Err(); err != nil {
-		res.Err = err
+	if ctx.Err() != nil {
+		res.Err = ctx.Err()
 		res.Partial = true
 		res.Errors++
 		res.addDiagnostic("sync cancelled; no round committed")
 		return res
 	}
-	if s.store != nil {
-		epoch, err := s.store.NextEpoch(src.Key)
-		if err != nil {
+	if s.opts.DryRun {
+		if s.opts.CleanupEnabled {
+			if err := s.previewCleanup(ctx, src, &res); err != nil {
+				res.Err = err
+				res.Partial = true
+				res.Errors++
+				res.addDiagnostic("cleanup preview stopped; no round committed")
+			}
+		}
+		return res
+	}
+	if s.opts.CleanupEnabled && s.store != nil {
+		if err := s.confirmAndCleanup(ctx, src, &res); err != nil {
 			res.Err = err
 			res.Partial = true
+			res.Errors++
+			res.addDiagnostic("cleanup stopped; source round not committed")
 			return res
 		}
+	}
+	if s.store != nil {
 		if err := s.store.CommitRound(ctx, src.Key, epoch, s.opts.Now()); err != nil {
 			res.Err = err
 			res.Partial = true
@@ -218,10 +300,27 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 	return res
 }
 
+// noteObserved records one observed target. Marking the private observation is
+// always safe; clearing the durable count is a conservative write that happens
+// even when a later step of the round fails.
+func (s *Syncer) noteObserved(ctx context.Context, src Source, rel string) error {
+	if s.store == nil {
+		return nil
+	}
+	if err := s.store.MarkObserved(ctx, src.Key, rel); err != nil {
+		return err
+	}
+	if s.opts.DryRun {
+		return nil
+	}
+	return s.store.ClearMissing(ctx, src.Key, rel)
+}
+
 // handleDirectory filters, detects same-target conflicts within one directory,
-// then processes each surviving file. Conflict detection is bounded to a
-// single directory listing and never selects one input arbitrarily.
-func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir string, entries []openlist.Entry, res *SourceResult) {
+// records every observed target, then processes each surviving file.
+// Conflict detection is bounded to a single directory listing and never
+// selects one input arbitrarily. A dependency error aborts the round.
+func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir string, entries []openlist.Entry, epoch int64, res *SourceResult) error {
 	type candidate struct {
 		entry openlist.Entry
 		rel   string
@@ -241,6 +340,9 @@ func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir st
 			res.addDiagnostic("invalid file name skipped")
 			continue
 		}
+		if err := s.noteObserved(ctx, src, rel); err != nil {
+			return err
+		}
 		byRel[rel] = append(byRel[rel], entry.Name)
 		candidates = append(candidates, candidate{entry: entry, rel: rel})
 	}
@@ -258,23 +360,26 @@ func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir st
 		if conflicted[c.rel] {
 			continue
 		}
-		s.handleFile(ctx, src, dir, relDir, c.entry, res)
+		if err := s.handleFile(ctx, src, dir, relDir, c.entry, epoch, res); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string, entry openlist.Entry, res *SourceResult) {
+func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string, entry openlist.Entry, epoch int64, res *SourceResult) error {
 	rel, err := pathmap.LocalRelative(relDir, entry.Name)
 	if err != nil {
 		res.Errors++
 		res.addDiagnostic("invalid file name skipped")
-		return
+		return nil
 	}
 	remotePath := config.JoinRemote(dir, entry.Name)
 	url, err := pathmap.StableURL(s.opts.PublicPrefix, remotePath)
 	if err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("cannot build URL for %s", rel))
-		return
+		return nil
 	}
 	desired := &strm.Document{URL: url}
 	if entry.HasSHA {
@@ -286,7 +391,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if err := desired.Validate(); err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("invalid metadata for %s", rel))
-		return
+		return nil
 	}
 	if entry.Anomaly != "" {
 		res.addDiagnostic(fmt.Sprintf("%s: %s", rel, entry.Anomaly))
@@ -297,9 +402,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if s.store != nil {
 		o, ok, err := s.store.Lookup(src.Key, rel)
 		if err != nil {
-			res.Errors++
-			res.addDiagnostic(fmt.Sprintf("ownership lookup failed for %s", rel))
-			return
+			return err
 		}
 		owned = ok && o.AbsolutePath == targetAbs
 	}
@@ -309,12 +412,12 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("cannot stat %s", rel))
-		return
+		return nil
 	}
 	if exists && info.Mode()&os.ModeSymlink != 0 {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("refusing symlink target %s", rel))
-		return
+		return nil
 	}
 
 	// Reconcile any deterministic staging file left by an interrupted atomic
@@ -323,13 +426,25 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if recErr := s.opts.FS.Recover(src.Output, rel, desired.Bytes(), owned, s.opts.DryRun); recErr != nil {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("unresolved interrupted update for %s", rel))
-		return
+		return nil
 	}
 
 	if exists && !owned {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("existing file not owned by this source: %s", rel))
-		return
+		return nil
+	}
+
+	refreshOwnership := func() error {
+		if s.store == nil || s.opts.DryRun {
+			return nil
+		}
+		return s.store.RecordOwnership(ctx, storage.Ownership{
+			SourceKey:    src.Key,
+			RelativePath: rel,
+			AbsolutePath: targetAbs,
+			RemotePath:   remotePath,
+		}, epoch)
 	}
 
 	if exists && owned {
@@ -337,19 +452,19 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		if err != nil {
 			res.Conflicts++
 			res.addDiagnostic(fmt.Sprintf("cannot read owned file %s", rel))
-			return
+			return nil
 		}
 		existing, perr := strm.Parse(raw)
 		if perr != nil {
 			res.Conflicts++
 			res.addDiagnostic(fmt.Sprintf("owned file is not a valid STRM: %s", rel))
-			return
+			return nil
 		}
 		result, cerr := strm.Compare(existing, desired)
 		if cerr != nil {
 			res.Conflicts++
 			res.addDiagnostic(fmt.Sprintf("owned file is not comparable: %s", rel))
-			return
+			return nil
 		}
 		switch result.Decision {
 		case strm.Unchanged:
@@ -357,7 +472,11 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			if result.Anomaly != "" {
 				res.addDiagnostic(fmt.Sprintf("%s: %s", rel, result.Anomaly))
 			}
-			return
+			if err := refreshOwnership(); err != nil {
+				res.Errors++
+				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
+			}
+			return nil
 		default:
 			// A trusted owned target requires new content. In dry-run this is a
 			// preview; otherwise the target is atomically replaced while
@@ -365,15 +484,19 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			if s.opts.DryRun {
 				res.Updated++
 				res.addDiagnostic(fmt.Sprintf("would update %s", rel))
-				return
+				return nil
 			}
 			if err := s.opts.FS.Update(src.Output, rel, raw, desired.Bytes()); err != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("update failed for %s", rel))
-				return
+				return nil
 			}
 			res.Updated++
-			return
+			if err := refreshOwnership(); err != nil {
+				res.Errors++
+				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
+			}
+			return nil
 		}
 	}
 
@@ -381,36 +504,26 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if s.opts.DryRun {
 		res.Created++
 		res.addDiagnostic(fmt.Sprintf("would create %s", rel))
-		return
+		return nil
 	}
 	if err := s.opts.FS.EnsureDir(src.Output, parentDir(rel)); err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("cannot create directory for %s", rel))
-		return
+		return nil
 	}
 	if err := s.opts.FS.Publish(src.Output, rel, desired.Bytes()); err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("publish failed for %s", rel))
-		return
+		return nil
 	}
 	res.Created++
 	if s.store != nil {
-		epoch, err := s.store.NextEpoch(src.Key)
-		if err != nil {
-			res.Errors++
-			res.addDiagnostic(fmt.Sprintf("round lookup failed after publishing %s", rel))
-			return
-		}
-		if err := s.store.RecordOwnership(ctx, storage.Ownership{
-			SourceKey:    src.Key,
-			RelativePath: rel,
-			AbsolutePath: targetAbs,
-		}, epoch); err != nil {
+		if err := refreshOwnership(); err != nil {
 			// The file stays on disk but is not owned; a later run must treat
 			// it as an unowned conflict.
 			res.Errors++
 			res.addDiagnostic(fmt.Sprintf("published but ownership not recorded: %s", rel))
-			return
+			return nil
 		}
 		// afterOwnershipRecord is inert in release builds. The optional
 		// strmgen_testhooks build can stop deterministically at exactly this
@@ -418,6 +531,323 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		// verification without a timing race.
 		afterOwnershipRecord(rel)
 	}
+	return nil
+}
+
+// expectedTarget returns the local absolute path the configured source root
+// implies for one relative path, and validates the relative path shape.
+func expectedTarget(output, rel string) (string, bool) {
+	if !validOwnedRelative(rel) {
+		return "", false
+	}
+	return filepath.Join(output, filepath.FromSlash(rel)), true
+}
+
+// validOwnedRelative accepts only the generated STRM shape: clean forward-slash
+// relative path segments with a .strm suffix.
+func validOwnedRelative(rel string) bool {
+	if rel == "" || len(rel) > pathmap.MaxRelativePathBytes || !strings.HasSuffix(rel, ".strm") {
+		return false
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "\\\x00") {
+			return false
+		}
+	}
+	return true
+}
+
+var errRootUnavailable = errors.New("source root became unreadable during confirmation")
+
+// confirmAndCleanup stages missing observations for every unobserved owned
+// target and then deletes rows whose already-committed evidence reaches the
+// configured threshold. The durable counts only change in CommitRound.
+func (s *Syncer) confirmAndCleanup(ctx context.Context, src Source, res *SourceResult) error {
+	if s.store == nil {
+		return nil
+	}
+	if !s.store.PreciseMappingAvailable() {
+		res.addDiagnostic("legacy ownership lacks an exact remote mapping; cleanup preserved")
+		if count, err := s.store.CountUnmappedMissing(ctx, src.Key); err == nil {
+			res.Retained += int(count)
+		}
+		return nil
+	}
+	if err := s.confirmMissing(ctx, src, res); err != nil {
+		return err
+	}
+	return s.cleanupCandidates(ctx, src, res)
+}
+
+// confirmMissing reads the current remote facts for every unobserved owned
+// target. Present targets are cleared conservatively; missing targets are
+// staged for this round only; an unreadable root or caller cancellation stops
+// the source without staging anything further.
+func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResult) error {
+	if s.confirmer == nil {
+		return errors.New("no remote confirmer is configured")
+	}
+	var pending []string
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if err := s.store.AddPendingMissing(ctx, src.Key, pending); err != nil {
+			return err
+		}
+		pending = pending[:0]
+		return nil
+	}
+	after := ""
+	for {
+		batch, err := s.store.ListOwnershipAfter(ctx, src.Key, after, pendingBatchSize)
+		if err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, row := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			after = row.RelativePath
+			expected, ok := expectedTarget(src.Output, row.RelativePath)
+			if !ok || row.AbsolutePath != expected {
+				res.Retained++
+				res.addDiagnostic("ownership record is outside the configured output boundary; preserved")
+				continue
+			}
+			if row.RemotePath == "" {
+				res.Retained++
+				res.addDiagnostic("ownership record lacks an exact remote mapping; preserved")
+				continue
+			}
+			observed, err := s.store.IsObserved(ctx, src.Key, row.RelativePath)
+			if err != nil {
+				return err
+			}
+			if observed {
+				continue
+			}
+			result := s.confirmer.Confirm(ctx, src.Remote, row.RemotePath)
+			switch result.Status {
+			case openlist.AbsencePresent:
+				if err := s.store.ClearMissing(ctx, src.Key, row.RelativePath); err != nil {
+					return err
+				}
+				if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
+					return err
+				}
+				if result.Reason == openlist.ReasonTargetTypeConflict {
+					res.Retained++
+					res.addDiagnostic(fmt.Sprintf("target type conflict preserved: %s", row.RelativePath))
+				}
+			case openlist.AbsenceMissing:
+				pending = append(pending, row.RelativePath)
+				res.ConfirmedMissing++
+				if len(pending) >= pendingBatchSize {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+			default:
+				switch result.Reason {
+				case openlist.ReasonCancelled:
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					return errors.New("confirmation cancelled")
+				case openlist.ReasonRootUnavailable:
+					return errRootUnavailable
+				default:
+					res.Retained++
+					res.addDiagnostic(fmt.Sprintf("unconfirmed ownership preserved: %s", row.RelativePath))
+				}
+			}
+		}
+	}
+	return flush()
+}
+
+// cleanupCandidates consumes the already-committed evidence. Before every
+// unlink it re-reads the current source root and exact target, verifies the
+// ownership boundary and local type, then removes the target and its ownership
+// row. Any local failure stops the remaining cleanup; already deleted targets
+// are reported and the round is not committed.
+func (s *Syncer) cleanupCandidates(ctx context.Context, src Source, res *SourceResult) error {
+	after := ""
+	for {
+		batch, err := s.store.ListEligibleAfter(ctx, src.Key, after, s.opts.MissingConfirmations, pendingBatchSize)
+		if err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, row := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			after = row.RelativePath
+			if err := s.deleteCandidate(ctx, src, row, res); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ownership, res *SourceResult) error {
+	expected, ok := expectedTarget(src.Output, row.RelativePath)
+	if !ok || row.AbsolutePath != expected {
+		res.Retained++
+		res.addDiagnostic("cleanup candidate is outside the configured output boundary; preserved")
+		return nil
+	}
+	observed, err := s.store.IsObserved(ctx, src.Key, row.RelativePath)
+	if err != nil {
+		return err
+	}
+	if observed {
+		return nil
+	}
+	result := s.confirmer.Confirm(ctx, src.Remote, row.RemotePath)
+	switch result.Status {
+	case openlist.AbsencePresent:
+		if err := s.store.ClearMissing(ctx, src.Key, row.RelativePath); err != nil {
+			return err
+		}
+		if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
+			return err
+		}
+		if result.Reason == openlist.ReasonTargetTypeConflict {
+			res.Retained++
+			res.addDiagnostic(fmt.Sprintf("target type conflict preserved: %s", row.RelativePath))
+		}
+		return nil
+	case openlist.AbsenceMissing:
+	default:
+		switch result.Reason {
+		case openlist.ReasonCancelled:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return errors.New("confirmation cancelled")
+		case openlist.ReasonRootUnavailable:
+			return errRootUnavailable
+		default:
+			res.Retained++
+			res.addDiagnostic(fmt.Sprintf("cleanup candidate could not be reconfirmed; preserved: %s", row.RelativePath))
+			return nil
+		}
+	}
+	if err := s.opts.FS.InspectDeletable(ctx, src.Output, row.RelativePath); err != nil {
+		if errors.Is(err, ErrStagingPresent) || errors.Is(err, ErrNotDeletable) {
+			res.Retained++
+			res.addDiagnostic(fmt.Sprintf("local target is not safely deletable; preserved: %s", row.RelativePath))
+			return nil
+		}
+		return err
+	}
+	outcome, err := s.opts.FS.DeleteOwned(ctx, src.Output, row.RelativePath)
+	if outcome.Removed {
+		res.Deleted++
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.store.RemoveOwnership(ctx, src.Key, row.RelativePath); err != nil {
+		return err
+	}
+	if outcome.AlreadyAbsent {
+		res.Reclaimed++
+	} else {
+		res.addDiagnostic(fmt.Sprintf("deleted %s", row.RelativePath))
+	}
+	return nil
+}
+
+// previewCleanup lists the current committed candidates without changing any
+// state. A candidate is reported only when the current source root, exact
+// target, ownership boundary and local type checks all still hold.
+func (s *Syncer) previewCleanup(ctx context.Context, src Source, res *SourceResult) error {
+	if s.store == nil {
+		return nil
+	}
+	if !s.store.PreciseMappingAvailable() {
+		res.addDiagnostic("legacy ownership lacks an exact remote mapping; no cleanup candidate previewed")
+		if count, err := s.store.CountUnmappedMissing(ctx, src.Key); err == nil {
+			res.Retained += int(count)
+		}
+		return nil
+	}
+	if s.confirmer == nil {
+		return errors.New("no remote confirmer is configured")
+	}
+	after := ""
+	for {
+		batch, err := s.store.ListEligibleAfter(ctx, src.Key, after, s.opts.MissingConfirmations, pendingBatchSize)
+		if err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, row := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			after = row.RelativePath
+			expected, ok := expectedTarget(src.Output, row.RelativePath)
+			if !ok || row.AbsolutePath != expected {
+				res.Retained++
+				res.addDiagnostic("cleanup candidate is outside the configured output boundary; preserved")
+				continue
+			}
+			observed, err := s.store.IsObserved(ctx, src.Key, row.RelativePath)
+			if err != nil {
+				return err
+			}
+			if observed {
+				continue
+			}
+			result := s.confirmer.Confirm(ctx, src.Remote, row.RemotePath)
+			switch result.Status {
+			case openlist.AbsencePresent:
+				if result.Reason == openlist.ReasonTargetTypeConflict {
+					res.addDiagnostic(fmt.Sprintf("target type conflict preserved: %s", row.RelativePath))
+				}
+				continue
+			case openlist.AbsenceMissing:
+			default:
+				switch result.Reason {
+				case openlist.ReasonCancelled:
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					return errors.New("confirmation cancelled")
+				case openlist.ReasonRootUnavailable:
+					return errRootUnavailable
+				default:
+					res.Retained++
+					res.addDiagnostic(fmt.Sprintf("preview candidate could not be reconfirmed; preserved: %s", row.RelativePath))
+					continue
+				}
+			}
+			if err := s.opts.FS.InspectDeletable(ctx, src.Output, row.RelativePath); err != nil {
+				if errors.Is(err, ErrStagingPresent) || errors.Is(err, ErrNotDeletable) {
+					res.Retained++
+					res.addDiagnostic(fmt.Sprintf("local target is not safely deletable; preserved: %s", row.RelativePath))
+					continue
+				}
+				return err
+			}
+			res.Candidates++
+			res.addDiagnostic(fmt.Sprintf("would delete %s", row.RelativePath))
+		}
+	}
+	return nil
 }
 
 func parentDir(rel string) string {
@@ -451,7 +881,7 @@ type directoryWalker struct {
 	workers int
 	lister  Lister
 	root    string
-	onDir   func(remoteDir, relDir string, entries []openlist.Entry)
+	onDir   func(remoteDir, relDir string, entries []openlist.Entry) error
 }
 
 // maxPendingDirs caps queued-but-not-yet-listed directories.
@@ -513,7 +943,13 @@ func (w *directoryWalker) run(ctx context.Context) error {
 			if stopped {
 				continue
 			}
-			w.onDir(r.dir, r.relDir, r.entries)
+			if err := w.onDir(r.dir, r.relDir, r.entries); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				stopped = true
+				continue
+			}
 			for _, entry := range r.entries {
 				if !entry.IsDir {
 					continue
@@ -546,7 +982,7 @@ func (w *directoryWalker) run(ctx context.Context) error {
 				remote := config.JoinRemote(r.dir, entry.Name)
 				if len(remote) > pathmap.MaxRelativePathBytes {
 					if firstErr == nil {
-						firstErr = errors.New("remote directory path exceeds limit")
+						firstErr = errors.New("remote directory path exceeds length limit")
 					}
 					stopped = true
 					break

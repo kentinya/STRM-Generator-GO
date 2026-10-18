@@ -32,6 +32,7 @@ import re
 import secrets
 import shutil
 import socket
+import sqlite3
 import string
 import subprocess
 import sys
@@ -756,11 +757,160 @@ def run_go(go_test_binary, env_descriptor, workdir, names_regex, log_path):
     return {"ran": ran, "passed": passed, "elapsed_s": round(elapsed, 2)}
 
 
+def wait_listed_exact(service, path, *, present=(), absent=(), timeout=120):
+    """Poll a cached listing until the expected names appear/disappear.
+
+    Every poll uses the shared list_once helper, which sends an explicit
+    refresh:false. A forced refresh or cache flush is never used.
+    """
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        status, payload = service.list_once(path)
+        if status == 200 and isinstance(payload, dict) and payload.get("code") == 200:
+            data = payload.get("data") or {}
+            names = sorted(entry["name"] for entry in (data.get("content") or []))
+            last = names
+            if all(name in names for name in present) and all(name not in names for name in absent):
+                return names
+        time.sleep(0.5)
+    raise Failure(f"{path} never reflected the backing-store change (last={last})")
+
+
+def run_cli_mirror(sync_binary, workdir):
+    """Run the release CLI's Mirror journey inside one dedicated service.
+
+    This layer is separate from the Task 2.1 confirmation observations: it
+    proves the real list/get service plus the published binary can generate,
+    retain three complete missing rounds, preview without side effects and
+    only then delete. It returns facts for the summary and never reuses a
+    production mount or token.
+    """
+    workdir.mkdir(parents=True, exist_ok=True)
+    log_lines = []
+    facts = {}
+    wide_total = 250
+    with Harness(workdir) as harness:
+        service = harness.service
+        freeze_tree = service.media_dir / "CliFreeze"
+        write_file(freeze_tree, "One.mkv", b"z" * 32)
+        freeze_id = service.add_local_storage("/clifreeze", "/media/CliFreeze")
+        service.wait_listed("/clifreeze", ["One.mkv"])
+
+        root = workdir / "out"
+        db = workdir / "state" / "strmgen.db"
+        env = os.environ.copy()
+        env["STRMGEN_OPENLIST_TOKEN"] = service.api.token
+
+        def write_config(name, remote, output, database, cleanup=True):
+            path = workdir / f"{name}.yaml"
+            path.write_text(
+                "openlist:\n"
+                f'  api_url: "{service.api.base}"\n'
+                '  public_url: "https://openlist.example.invalid"\n'
+                '  token_env: "STRMGEN_OPENLIST_TOKEN"\n'
+                "sources:\n"
+                f'  - remote: "{remote}"\n'
+                f'    output: "{output}"\n'
+                "sync:\n  directory_workers: 4\n"
+                "cleanup:\n"
+                f"  enabled: {'true' if cleanup else 'false'}\n"
+                "database:\n"
+                f'  path: "{database}"\n')
+            return path
+
+        def run_cli(config, *extra):
+            argv = [str(sync_binary), "sync", "--config", str(config), *extra]
+            result = subprocess.run(argv, cwd=workdir, env=env, text=True,
+                                    capture_output=True, timeout=DEFAULT_TIMEOUT)
+            log_lines.append("$ " + " ".join(argv))
+            log_lines.append(result.stdout)
+            log_lines.append(result.stderr)
+            return result
+
+        def ownership():
+            connection = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+            try:
+                return {row[0]: row[1] for row in
+                        connection.execute("SELECT relative_path, missing_count FROM ownership")}
+            finally:
+                connection.close()
+
+        config = write_config("cli-mirror", "/lib/Wide", root, db)
+        first = run_cli(config)
+        if first.returncode != 0 or f"created={wide_total}" not in first.stdout:
+            raise Failure(f"real CLI generation failed: {first.returncode} {first.stdout} {first.stderr}")
+        facts["generated"] = wide_total
+
+        removed = "E0000.mkv"
+        (harness.tree / "Wide" / removed).unlink()
+        wait_listed_exact(service, "/lib/Wide", absent=[removed])
+        for round_number in range(1, 4):
+            run = run_cli(config)
+            if run.returncode != 0 or "deleted=0" not in run.stdout:
+                raise Failure(f"real CLI missing round {round_number}: {run.stdout} {run.stderr}")
+            if not (root / "E0000.strm").exists():
+                raise Failure(f"real CLI round {round_number} deleted the target early")
+            if ownership()["E0000.strm"] != round_number:
+                raise Failure(f"real CLI round {round_number} count: {ownership()}")
+        before_file = (root / "E0000.strm").read_bytes()
+        before_db = db.read_bytes()
+        prior_round = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True).execute(
+            "SELECT epoch FROM rounds").fetchone()[0]
+        preview = run_cli(config, "--dry-run")
+        if preview.returncode != 0 or "candidates=1" not in preview.stdout:
+            raise Failure(f"real CLI dry-run preview: {preview.stdout} {preview.stderr}")
+        if (root / "E0000.strm").read_bytes() != before_file or db.read_bytes() != before_db:
+            raise Failure("real CLI dry-run changed the candidate or database")
+        fourth = run_cli(config)
+        if fourth.returncode != 0 or "deleted=1" not in fourth.stdout:
+            raise Failure(f"real CLI qualified delete: {fourth.stdout} {fourth.stderr}")
+        if (root / "E0000.strm").exists() or "E0000.strm" in ownership():
+            raise Failure("real CLI did not remove the qualified target")
+        facts["qualified_delete"] = fourth.returncode
+        facts["preview_round"] = prior_round
+
+        # Reappearance after a committed missing round clears the old evidence.
+        returned = "E0001.mkv"
+        (harness.tree / "Wide" / returned).unlink()
+        wait_listed_exact(service, "/lib/Wide", absent=[returned])
+        run_cli(config)
+        if ownership()["E0001.strm"] != 1:
+            raise Failure("real CLI reappearance fixture did not count")
+        write_file(harness.tree, f"Wide/{returned}", b"w" * 64)
+        wait_listed_exact(service, "/lib/Wide", present=[returned])
+        back = run_cli(config)
+        if back.returncode != 0 or ownership()["E0001.strm"] != 0:
+            raise Failure(f"real CLI reappearance did not clear: {back.stdout} {back.stderr}")
+        facts["reappearance"] = back.returncode
+
+        # A disabled storage makes the configured source root unreadable; the
+        # CLI must preserve the STRM and counts.
+        freeze_out = workdir / "freeze-out"
+        freeze_db = workdir / "state" / "freeze.db"
+        freeze_config = write_config("cli-freeze", "/clifreeze", freeze_out, freeze_db)
+        seed = run_cli(freeze_config)
+        if seed.returncode != 0 or "created=1" not in seed.stdout:
+            raise Failure(f"real CLI freeze seed: {seed.stdout} {seed.stderr}")
+        service.disable_storage(freeze_id)
+        frozen = run_cli(freeze_config)
+        if frozen.returncode != 1 or "partial=true" not in frozen.stdout:
+            raise Failure(f"real CLI unreadable root must fail closed: {frozen.stdout} {frozen.stderr}")
+        if not (freeze_out / "One.strm").exists():
+            raise Failure("real CLI unreadable root removed the target")
+        service.enable_storage(freeze_id)
+        facts["root_unreadable_exit"] = frozen.returncode
+        (workdir / "cli-mirror.log").write_text("\n".join(log_lines))
+    return facts
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--test-binary", required=True,
                         help="Go test binary built with -tags openlist_integration")
+    parser.add_argument("--sync-binary",
+                        help="optional release strmgen binary for the real Mirror CLI scenario")
     parser.add_argument("--output-dir", required=True,
                         help="new empty directory under artifacts/validation-evidence")
     parser.add_argument("--scenario", default="all",
@@ -770,6 +920,11 @@ def main(argv=None):
     binary = Path(args.test_binary).resolve()
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise SystemExit(f"test binary is not executable: {binary}")
+    sync_binary = None
+    if args.sync_binary:
+        sync_binary = Path(args.sync_binary).resolve()
+        if not sync_binary.is_file() or not os.access(sync_binary, os.X_OK):
+            raise SystemExit(f"sync binary is not executable: {sync_binary}")
     output_dir = validate_output_dir(Path(args.output_dir))
     selected = list(SCENARIOS) if args.scenario == "all" else \
         [name.strip() for name in args.scenario.split(",") if name.strip()]
@@ -780,8 +935,11 @@ def main(argv=None):
     summary = {
         "test_binary": str(binary),
         "test_binary_sha256": sha256_of(binary),
+        "sync_binary": str(sync_binary) if sync_binary is not None else None,
+        "sync_binary_sha256": sha256_of(sync_binary) if sync_binary is not None else None,
         "scenarios": {},
         "observations": {},
+        "cli_mirror": {"status": "NOT RUN", "detail": "--sync-binary not provided"},
         "failures": [],
         "blocked": None,
     }
@@ -830,8 +988,30 @@ def main(argv=None):
         finally:
             cleanup_all()
 
+    # The release-CLI Mirror layer is independent of the Go confirmation
+    # observations above. Without --sync-binary it stays NOT RUN; it is never
+    # reported as a pass through the Task 2.1 evidence.
+    if summary["blocked"] is None and sync_binary is not None:
+        try:
+            cli_facts = run_cli_mirror(sync_binary, output_dir / "run" / "cli-mirror")
+            summary["cli_mirror"] = {"status": "PASS", **cli_facts}
+            log(f"PASS cli_mirror generated={cli_facts.get('generated')}")
+        except Blocked as error:
+            summary["cli_mirror"] = {"status": "BLOCKED", "detail": str(error)}
+            log(f"BLOCKED cli_mirror: {error}")
+            status = 3
+        except (Failure, subprocess.SubprocessError, OSError) as error:
+            summary["cli_mirror"] = {"status": "FAIL", "detail": str(error)}
+            summary["failures"].append(["cli_mirror", str(error)])
+            log(f"FAIL cli_mirror: {error}")
+            if status == 0:
+                status = 1
+        finally:
+            cleanup_all()
+
     (output_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     log(json.dumps({"scenarios": {k: v["status"] for k, v in summary["scenarios"].items()},
+                    "cli_mirror": summary["cli_mirror"]["status"],
                     "failures": summary["failures"], "blocked": summary["blocked"]},
                    ensure_ascii=False))
     return status

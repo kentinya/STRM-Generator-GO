@@ -82,13 +82,16 @@ type ResolvedSource struct {
 
 // Resolved is the validated configuration used by the syncer.
 type Resolved struct {
-	APIURL           string
-	PublicPrefix     string
-	TokenEnv         string
-	DirectoryWorkers int
-	DatabasePath     string
-	Sources          []ResolvedSource
-	baseDir          string
+	APIURL               string
+	PublicPrefix         string
+	TokenEnv             string
+	DirectoryWorkers     int
+	DatabasePath         string
+	Mirror               bool
+	CleanupEnabled       bool
+	MissingConfirmations int
+	Sources              []ResolvedSource
+	baseDir              string
 }
 
 // Load reads, strictly decodes and validates a YAML file.
@@ -154,8 +157,8 @@ func SafeDiagnostic(err error) string {
 func safeFieldFromError(message string) string {
 	for _, field := range []string{
 		"openlist.api_url", "openlist.public_url", "openlist.token_env",
-		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged",
-		"cleanup.enabled", "database.path",
+		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged", "sync.mirror",
+		"cleanup.enabled", "cleanup.missing_confirmations", "database.path",
 	} {
 		if strings.HasPrefix(message, field+":") || strings.HasPrefix(message, field+" ") {
 			return field
@@ -204,8 +207,23 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if len(cfg.Sources) == 0 {
 		return nil, errors.New("at least one source is required")
 	}
-	if cfg.Cleanup.Enabled != nil && *cfg.Cleanup.Enabled {
-		return nil, errors.New("cleanup.enabled is not supported by this task; set cleanup.enabled: false")
+	mirror := true
+	if cfg.Sync.Mirror != nil {
+		mirror = *cfg.Sync.Mirror
+	}
+	cleanupEnabled := cfg.Cleanup.Enabled != nil && *cfg.Cleanup.Enabled
+	if cleanupEnabled && !mirror {
+		// mirror=false means "generate/update only"; enabling cleanup would
+		// contradict the operator's explicit instruction. Reject before any
+		// output or database is touched.
+		return nil, errors.New("cleanup.enabled: cannot be enabled while sync.mirror is false")
+	}
+	missingConfirmations := 3
+	if cfg.Cleanup.MissingConfirmations != nil {
+		if *cfg.Cleanup.MissingConfirmations < 3 {
+			return nil, errors.New("cleanup.missing_confirmations must be an integer of at least 3")
+		}
+		missingConfirmations = *cfg.Cleanup.MissingConfirmations
 	}
 	if cfg.Sync.AtomicWrite != nil && !*cfg.Sync.AtomicWrite {
 		return nil, errors.New("sync.atomic_write cannot be disabled")
@@ -227,11 +245,14 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	}
 
 	resolved := &Resolved{
-		APIURL:           apiURL,
-		PublicPrefix:     publicPrefix,
-		TokenEnv:         cfg.OpenList.TokenEnv,
-		DirectoryWorkers: workers,
-		baseDir:          baseDir,
+		APIURL:               apiURL,
+		PublicPrefix:         publicPrefix,
+		TokenEnv:             cfg.OpenList.TokenEnv,
+		DirectoryWorkers:     workers,
+		Mirror:               mirror,
+		CleanupEnabled:       cleanupEnabled,
+		MissingConfirmations: missingConfirmations,
+		baseDir:              baseDir,
 	}
 
 	seenOutputs := map[string]int{}

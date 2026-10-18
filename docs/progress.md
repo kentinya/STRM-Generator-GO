@@ -1,6 +1,16 @@
 # 进度
 
-## 当前状态（2026-10-19，Task 2.2 规划）
+## 当前状态（2026-10-19，Task 2.2 实现候选）
+
+Task 2.1 已独立 B **PASS**，完整计划／报告／审查保留于 `c629858ba7559a03c1eba30f8cd91a269f4b2702:TASK.md`。Developer 已按 Task 2.2 交付实现候选：显式 `cleanup.enabled`／mirror 矛盾与最低阈值校验、写模式事务升级 Slice 1 SQLite、精确远端映射与 `missing_round` 资格标记、不同完整轮缺失计数、源根／目标 Get 重核、已提交阈值消费与绑定目录内删除、移动旧路径收敛、dry-run 只预览、以及删除／sync／DB／SIGKILL 后的重启收敛。产品候选实现检查点 SHA 见 TASK.md 完成报告；Task 状态置为 READY FOR B REVIEW，不自行判 PASS。
+
+本轮证据目录 `artifacts/validation-evidence/task-2.2-final-7TWPAV/`（本机 Git 忽略路径）：治理、`mod download`／`verify`、quality（Python 全量、gofmt、vet、test、build）、race（CGO＋固定 cc）、`-count=1` 全量测试、Linux amd64／arm64 与 testhooks 构建、隔离 CLI 11/11（含新增 `mirror_cleanup`／`mirror_recovery`）、集成测试二进制、固定隔离 OpenList v4.2.7 原 8 场景（11 Go 集成测试，0 skip）及新增发布 CLI Mirror 闭环、`git diff --check` 均 exit 0。真实服务层首次运行在 CLI Mirror 路径断言上使用错误本地路径而 FAIL（产品已删除但驱动期望 `Wide/E0000.strm`）；修正驱动断言后同服务版本重跑全部通过，首次失败与重跑同时保留、不粉饰。
+
+真实 OpenList CLI 闭环覆盖生成 250 个 STRM、删除后三个不同完整轮保留、dry-run 候选零写、下一轮当前重核删除、再出现清零、禁用存储使源根不可读时保留；缓存列表轮询全部 `refresh:false`。未完成：Slice 全部 RO 由 B 独立重评，无 Closure Packet 或 A 最终 PASS；`/d/` 播放、固定插件实际解析、Jellyfin／代理、ARM64 实机及规模仍 NOT RUN。未推送。
+
+Next Action: B INDEPENDENTLY REVIEWS TASK 2.2
+
+## Task 2.2 规划与合同状态（历史，2026-10-19）
 
 Task 2.1 已独立 B **PASS**，完整计划／报告／审查保留于 `c629858ba7559a03c1eba30f8cd91a269f4b2702:TASK.md`，证据索引 `artifacts/validation-evidence/task-2.1-b-simple-get-20261019/INDEX.md`。逐项重评 RO-1..6 后尚不满足 Slice，B 已运行治理并依据真实 config／storage／Reconciler／LocalFS／CLI 及运行器，规划 **Task 2.2：PLANNED／High／T4**；Task Base 固定上述审查提交，Contract Checkpoint 仍为 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea`。
 

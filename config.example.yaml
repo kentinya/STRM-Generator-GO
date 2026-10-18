@@ -1,5 +1,6 @@
 # 目标配置合同。所有相对文件路径以启动工作目录为基准。
-# Task 1.1 只支持 sync 与 sync --dry-run；serve、定时与清理尚未实现。
+# Task 2.2 支持 sync 与 sync --dry-run，以及显式 cleanup.enabled: true 的
+# 完整轮缺失确认与安全删除；serve、定时与 Mirror 之外的调度仍未实现。
 openlist:
   api_url: "http://127.0.0.1:15244"
   public_url: "https://openlist.example.invalid"
@@ -14,9 +15,11 @@ sync:
   directory_workers: 4
   atomic_write: true
   skip_unchanged: true
+  # mirror=false 只生成／更新；它不允许同时开启 cleanup。
   mirror: true
 
-# 本 Task 不删除；enabled: true 会在任何同步写入前被明确拒绝。
+# 清理默认关闭。只有显式 enabled: true 且 mirror 开启时才按已提交的完整轮
+# 缺失证据删除；阈值最低 3，更大的值只会延后清理。
 cleanup:
   enabled: false
   missing_confirmations: 3

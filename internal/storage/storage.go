@@ -1,7 +1,15 @@
-// Package storage persists the minimal durable facts: file ownership, path
-// mapping, and the last complete successful reconciliation round. It never
-// stores media fingerprints (those live in the STRM files) and never advances
-// missing-count evidence in this task.
+// Package storage persists the minimal durable facts: file ownership, precise
+// remote/local path mapping, the last complete successful reconciliation
+// round, and the consecutive missing count. It never stores media fingerprints
+// (those live in the STRM files).
+//
+// The write schema is upgraded transactionally and idempotently from the
+// Slice 1 shape. Legacy rows keep their ownership and rounds, receive an
+// unknown remote mapping and a missing_round marker of 0 so a historical count
+// can never be used as deletion evidence. Round observations and pending
+// missing paths live in a private in-memory scratch database bound to the
+// Store; they are never written to the configured database and cannot leak
+// into a later round.
 package storage
 
 import (
@@ -25,13 +33,26 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// schemaVersion is the durable write schema this build understands.
+const schemaVersion = 2
+
+// maxInt64 is the SQLite integer ceiling. A missing count never overflows into
+// a negative value or wraps around the confirmation threshold.
+const maxInt64 = int64(9223372036854775807)
+
+// scratchPageLimit caps the private in-memory round workspace (4 KiB pages).
+// A pathological round fails explicitly instead of growing without bound.
+const scratchPageLimit = 32768
+
 const schema = `
 CREATE TABLE IF NOT EXISTS ownership (
 	source_key     TEXT    NOT NULL,
 	relative_path  TEXT    NOT NULL,
 	absolute_path  TEXT    NOT NULL,
+	remote_path    TEXT    NOT NULL DEFAULT '',
 	created_round  INTEGER NOT NULL,
 	missing_count  INTEGER NOT NULL DEFAULT 0,
+	missing_round  INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (source_key, relative_path)
 );
 CREATE TABLE IF NOT EXISTS rounds (
@@ -39,13 +60,20 @@ CREATE TABLE IF NOT EXISTS rounds (
 	epoch        INTEGER NOT NULL,
 	committed_at TEXT    NOT NULL
 );
+CREATE INDEX IF NOT EXISTS ownership_missing_idx
+	ON ownership (source_key, missing_count, missing_round);
 `
 
-// Ownership is one trustworthy owned STRM mapping.
+// Ownership is one trustworthy owned STRM mapping. RemotePath is empty for a
+// legacy row whose exact remote media path is not known; such a row is
+// preserved but never eligible for cleanup.
 type Ownership struct {
 	SourceKey    string
 	RelativePath string
 	AbsolutePath string
+	RemotePath   string
+	MissingCount int64
+	MissingRound int64
 }
 
 // Store wraps a SQLite database holding ownership and round facts.
@@ -56,6 +84,8 @@ type Store struct {
 	tempDir  *securepath.Dir // private WAL snapshot directory under the pinned DB parent
 	tempName string
 	tempBase *securepath.Dir
+	legacy   bool // ownership lacks the precise-mapping columns (old read-only DB)
+	scratch  *sql.DB
 }
 
 // Open opens or creates the ownership database for writing. Parent traversal,
@@ -94,19 +124,26 @@ func Open(path string) (*Store, error) {
 		dir.Close()
 		return nil, errors.New("open database")
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := upgradeSchema(db); err != nil {
 		db.Close()
 		dir.Close()
 		return nil, errors.New("initialize database schema")
 	}
-	return &Store{db: db, dir: dir}, nil
+	scratch, err := openScratch()
+	if err != nil {
+		db.Close()
+		dir.Close()
+		return nil, errors.New("initialize round workspace")
+	}
+	return &Store{db: db, dir: dir, scratch: scratch}, nil
 }
 
 // OpenReadOnly opens an existing database without modifying it or creating
 // journal/WAL/SHM files. For a WAL-mode database, which cannot be read
 // read-only without shared-memory sidecars, it reads a private snapshot copy
 // so the original file and its sidecars stay untouched. It returns
-// ErrNoDatabase when the configured file is absent.
+// ErrNoDatabase when the configured file is absent. It never migrates the
+// schema: a Slice 1 database is readable with an unknown precise mapping.
 func OpenReadOnly(path string, forbiddenOutputRoots ...string) (*Store, error) {
 	dir, base, err := openDatabaseParent(path, false)
 	if errors.Is(err, os.ErrNotExist) {
@@ -148,7 +185,19 @@ func OpenReadOnly(path string, forbiddenOutputRoots ...string) (*Store, error) {
 		dir.Close()
 		return nil, errors.New("database is not safely readable")
 	}
-	return &Store{db: db, readOnly: true, dir: dir}, nil
+	legacy, err := detectSchema(db)
+	if err != nil {
+		db.Close()
+		dir.Close()
+		return nil, errors.New("database schema is not safely readable")
+	}
+	scratch, err := openScratch()
+	if err != nil {
+		db.Close()
+		dir.Close()
+		return nil, errors.New("initialize round workspace")
+	}
+	return &Store{db: db, readOnly: true, dir: dir, legacy: legacy, scratch: scratch}, nil
 }
 
 func openDatabaseParent(path string, create bool) (*securepath.Dir, string, error) {
@@ -191,6 +240,189 @@ func openSQL(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// openScratch builds the private per-process round workspace. It is a memory
+// database: dry-run and failed rounds leave no file behind and no marker can
+// be consumed by a later process.
+func openScratch() (*sql.DB, error) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`
+CREATE TABLE observed (
+	source_key    TEXT NOT NULL,
+	relative_path TEXT NOT NULL,
+	PRIMARY KEY (source_key, relative_path)
+);
+CREATE TABLE missing (
+	source_key    TEXT NOT NULL,
+	relative_path TEXT NOT NULL,
+	PRIMARY KEY (source_key, relative_path)
+);
+PRAGMA max_page_count = ` + fmt.Sprint(scratchPageLimit)); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// upgradeSchema validates and transactionally upgrades a writable database to
+// the current schema. Slice 1 rows keep ownership, rounds and counts; the new
+// columns default to an unknown remote mapping and a zero missing round so a
+// legacy count can never qualify a deletion. A failed upgrade rolls back and
+// leaves the previous database untouched.
+func upgradeSchema(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var version int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version > schemaVersion {
+		return errors.New("database schema is newer than this build")
+	}
+	tables, err := tableNames(tx)
+	if err != nil {
+		return err
+	}
+	if len(tables) == 0 {
+		if version != 0 {
+			return errors.New("database schema version is unsupported")
+		}
+		if _, err := tx.Exec(schema); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	for name := range tables {
+		if name != "ownership" && name != "rounds" {
+			return errors.New("database contains an unknown table")
+		}
+	}
+	if !tables["ownership"] || !tables["rounds"] {
+		return errors.New("database schema is incomplete")
+	}
+	columns, err := columnNames(tx, "ownership")
+	if err != nil {
+		return err
+	}
+	for _, required := range []string{"source_key", "relative_path", "absolute_path", "created_round", "missing_count"} {
+		if !columns[required] {
+			return errors.New("ownership table is missing a required column")
+		}
+	}
+	roundColumns, err := columnNames(tx, "rounds")
+	if err != nil {
+		return err
+	}
+	for _, required := range []string{"source_key", "epoch", "committed_at"} {
+		if !roundColumns[required] {
+			return errors.New("rounds table is missing a required column")
+		}
+	}
+	if !columns["remote_path"] {
+		if _, err := tx.Exec(`ALTER TABLE ownership ADD COLUMN remote_path TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !columns["missing_round"] {
+		if _, err := tx.Exec(`ALTER TABLE ownership ADD COLUMN missing_round INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS ownership_missing_idx
+		ON ownership (source_key, missing_count, missing_round)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// detectSchema inspects a read-only database without modifying it and reports
+// whether the precise-mapping columns are absent (a legacy Slice 1 database).
+func detectSchema(db *sql.DB) (legacy bool, err error) {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return false, err
+	}
+	if version > schemaVersion {
+		return false, errors.New("database schema is newer than this build")
+	}
+	tables, err := tableNames(db)
+	if err != nil {
+		return false, err
+	}
+	if len(tables) == 0 {
+		return false, errors.New("database schema is missing")
+	}
+	for name := range tables {
+		if name != "ownership" && name != "rounds" {
+			return false, errors.New("database contains an unknown table")
+		}
+	}
+	if !tables["ownership"] || !tables["rounds"] {
+		return false, errors.New("database schema is incomplete")
+	}
+	columns, err := columnNames(db, "ownership")
+	if err != nil {
+		return false, err
+	}
+	for _, required := range []string{"source_key", "relative_path", "absolute_path", "created_round", "missing_count"} {
+		if !columns[required] {
+			return false, errors.New("ownership table is missing a required column")
+		}
+	}
+	return !columns["remote_path"] || !columns["missing_round"], nil
+}
+
+type queryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func tableNames(q queryer) (map[string]bool, error) {
+	rows, err := q.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tables := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables[name] = true
+	}
+	return tables, rows.Err()
+}
+
+func columnNames(q queryer, table string) (map[string]bool, error) {
+	rows, err := q.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
 }
 
 // isWALMode reads the SQLite header from an opened no-follow file descriptor.
@@ -280,7 +512,19 @@ func openWALSnapshot(sourceDir *securepath.Dir, base, parentPath string, forbidd
 		cleanup()
 		return nil, errors.New("open database snapshot")
 	}
-	return &Store{db: db, readOnly: true, tempDir: tempDir, tempName: tempName, tempBase: tempBase}, nil
+	legacy, err := detectSchema(db)
+	if err != nil {
+		db.Close()
+		cleanup()
+		return nil, errors.New("database schema is not safely readable")
+	}
+	scratch, err := openScratch()
+	if err != nil {
+		db.Close()
+		cleanup()
+		return nil, errors.New("initialize round workspace")
+	}
+	return &Store{db: db, readOnly: true, tempDir: tempDir, tempName: tempName, tempBase: tempBase, legacy: legacy, scratch: scratch}, nil
 }
 
 func createSnapshotDirectory(parent *securepath.Dir, parentPath string, forbiddenOutputRoots []string) (string, *securepath.Dir, error) {
@@ -349,14 +593,26 @@ var ErrNoDatabase = errors.New("database does not exist")
 // ReadOnly reports whether the store refuses writes.
 func (s *Store) ReadOnly() bool { return s.readOnly }
 
-// Close releases the database handle, path pin and any private WAL snapshot.
+// PreciseMappingAvailable reports whether the store carries the exact remote
+// media path needed for a cleanup confirmation. A legacy read-only database
+// reports false; rows are preserved but never eligible.
+func (s *Store) PreciseMappingAvailable() bool { return s != nil && !s.legacy }
+
+// Close releases the database handle, path pin, private scratch workspace and
+// any private WAL snapshot.
 func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
 	var first error
+	if s.scratch != nil {
+		if err := s.scratch.Close(); err != nil {
+			first = err
+		}
+		s.scratch = nil
+	}
 	if s.db != nil {
-		if err := s.db.Close(); err != nil {
+		if err := s.db.Close(); err != nil && first == nil {
 			first = err
 		}
 		s.db = nil
@@ -378,13 +634,20 @@ func (s *Store) Close() error {
 
 // Lookup returns the ownership record for a relative path when present.
 func (s *Store) Lookup(sourceKey, relativePath string) (Ownership, bool, error) {
-	var o Ownership
-	o.SourceKey = sourceKey
-	o.RelativePath = relativePath
-	err := s.db.QueryRow(
-		`SELECT absolute_path FROM ownership WHERE source_key = ? AND relative_path = ?`,
-		sourceKey, relativePath,
-	).Scan(&o.AbsolutePath)
+	o := Ownership{SourceKey: sourceKey, RelativePath: relativePath}
+	var err error
+	if s.legacy {
+		err = s.db.QueryRow(
+			`SELECT absolute_path FROM ownership WHERE source_key = ? AND relative_path = ?`,
+			sourceKey, relativePath,
+		).Scan(&o.AbsolutePath)
+	} else {
+		err = s.db.QueryRow(
+			`SELECT absolute_path, remote_path, missing_count, missing_round
+			 FROM ownership WHERE source_key = ? AND relative_path = ?`,
+			sourceKey, relativePath,
+		).Scan(&o.AbsolutePath, &o.RemotePath, &o.MissingCount, &o.MissingRound)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return Ownership{}, false, nil
 	}
@@ -394,19 +657,215 @@ func (s *Store) Lookup(sourceKey, relativePath string) (Ownership, bool, error) 
 	return o, true, nil
 }
 
-// RecordOwnership registers a file that was successfully published. It must
-// only be called after the target is visible on disk.
+// RecordOwnership registers a file that was successfully published or
+// reconfirmed. It must only be called after the target is visible on disk. The
+// mapping is refreshed and any previous missing evidence is cleared: an
+// observed file is present, not missing.
 func (s *Store) RecordOwnership(ctx context.Context, o Ownership, epoch int64) error {
 	if s.readOnly {
 		return errors.New("store is read-only")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO ownership (source_key, relative_path, absolute_path, created_round, missing_count)
-		 VALUES (?, ?, ?, ?, 0)
-		 ON CONFLICT(source_key, relative_path) DO UPDATE SET absolute_path = excluded.absolute_path`,
-		o.SourceKey, o.RelativePath, o.AbsolutePath, epoch,
+		`INSERT INTO ownership (source_key, relative_path, absolute_path, remote_path, created_round, missing_count, missing_round)
+		 VALUES (?, ?, ?, ?, ?, 0, 0)
+		 ON CONFLICT(source_key, relative_path) DO UPDATE SET
+			absolute_path = excluded.absolute_path,
+			remote_path = CASE WHEN excluded.remote_path = '' THEN ownership.remote_path ELSE excluded.remote_path END,
+			missing_count = 0,
+			missing_round = 0`,
+		o.SourceKey, o.RelativePath, o.AbsolutePath, o.RemotePath, epoch,
 	)
 	return err
+}
+
+// ClearMissing conservatively clears any committed missing evidence for one
+// target. It is safe for a row that does not exist and is called as soon as a
+// source file is observed, even if later processing fails.
+func (s *Store) ClearMissing(ctx context.Context, sourceKey, relativePath string) error {
+	if s.readOnly {
+		return errors.New("store is read-only")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE ownership SET missing_count = 0, missing_round = 0
+		 WHERE source_key = ? AND relative_path = ?`,
+		sourceKey, relativePath,
+	)
+	return err
+}
+
+// RemoveOwnership drops one ownership row after its target was safely removed.
+func (s *Store) RemoveOwnership(ctx context.Context, sourceKey, relativePath string) error {
+	if s.readOnly {
+		return errors.New("store is read-only")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM ownership WHERE source_key = ? AND relative_path = ?`,
+		sourceKey, relativePath,
+	)
+	return err
+}
+
+// ListOwnershipAfter returns one bounded batch of ownership rows for a source,
+// ordered by relative path. Keyset pagination never uses OFFSET, so rows
+// removed during iteration cannot shift later batches or be skipped.
+func (s *Store) ListOwnershipAfter(ctx context.Context, sourceKey, after string, limit int) ([]Ownership, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if s.legacy {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT relative_path, absolute_path, remote_path, missing_count, missing_round
+		 FROM ownership WHERE source_key = ? AND relative_path > ?
+		 ORDER BY relative_path LIMIT ?`,
+		sourceKey, after, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Ownership
+	for rows.Next() {
+		o := Ownership{SourceKey: sourceKey}
+		if err := rows.Scan(&o.RelativePath, &o.AbsolutePath, &o.RemotePath, &o.MissingCount, &o.MissingRound); err != nil {
+			return nil, err
+		}
+		result = append(result, o)
+	}
+	return result, rows.Err()
+}
+
+// ListEligibleAfter returns one bounded batch of ownership rows whose committed
+// evidence already reaches the threshold. Only rows with a proven missing
+// round and an exact remote mapping qualify.
+func (s *Store) ListEligibleAfter(ctx context.Context, sourceKey, after string, threshold int, limit int) ([]Ownership, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if s.legacy {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT relative_path, absolute_path, remote_path, missing_count, missing_round
+		 FROM ownership
+		 WHERE source_key = ? AND relative_path > ? AND missing_count >= ? AND missing_round > 0 AND remote_path != ''
+		 ORDER BY relative_path LIMIT ?`,
+		sourceKey, after, threshold, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Ownership
+	for rows.Next() {
+		o := Ownership{SourceKey: sourceKey}
+		if err := rows.Scan(&o.RelativePath, &o.AbsolutePath, &o.RemotePath, &o.MissingCount, &o.MissingRound); err != nil {
+			return nil, err
+		}
+		result = append(result, o)
+	}
+	return result, rows.Err()
+}
+
+// CountUnmappedMissing reports how many rows hold a committed missing count but
+// lack the precise remote mapping needed for a confirmation. They are reported
+// and preserved, never guessed or deleted.
+func (s *Store) CountUnmappedMissing(ctx context.Context, sourceKey string) (int64, error) {
+	if s.legacy {
+		return 0, nil
+	}
+	var count int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM ownership
+		 WHERE source_key = ? AND missing_count > 0 AND (remote_path = '' OR missing_round = 0)`,
+		sourceKey,
+	).Scan(&count)
+	return count, err
+}
+
+// ResetRound discards every observation and pending missing path for one
+// source before a new round starts, so a failed or interrupted round can never
+// feed the next one.
+func (s *Store) ResetRound(ctx context.Context, sourceKey string) error {
+	if s.scratch == nil {
+		return nil
+	}
+	if _, err := s.scratch.ExecContext(ctx, `DELETE FROM observed WHERE source_key = ?`, sourceKey); err != nil {
+		return err
+	}
+	if _, err := s.scratch.ExecContext(ctx, `DELETE FROM missing WHERE source_key = ?`, sourceKey); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarkObserved records that one exact target was observed in the current round
+// (a listing hit, skip, update or a successful Get). The marker lives only in
+// the private scratch workspace.
+func (s *Store) MarkObserved(ctx context.Context, sourceKey, relativePath string) error {
+	if s.scratch == nil {
+		return nil
+	}
+	_, err := s.scratch.ExecContext(ctx,
+		`INSERT OR IGNORE INTO observed (source_key, relative_path) VALUES (?, ?)`,
+		sourceKey, relativePath)
+	return err
+}
+
+// IsObserved reports whether the current round already observed one target.
+func (s *Store) IsObserved(ctx context.Context, sourceKey, relativePath string) (bool, error) {
+	if s.scratch == nil {
+		return false, nil
+	}
+	var one int
+	err := s.scratch.QueryRowContext(ctx,
+		`SELECT 1 FROM observed WHERE source_key = ? AND relative_path = ?`,
+		sourceKey, relativePath).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// AddPendingMissing stages one bounded batch of missing observations for the
+// current round. Nothing reaches the ownership counts until CommitRound.
+func (s *Store) AddPendingMissing(ctx context.Context, sourceKey string, relativePaths []string) error {
+	if s.scratch == nil || len(relativePaths) == 0 {
+		return nil
+	}
+	tx, err := s.scratch.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	statement, err := tx.PrepareContext(ctx,
+		`INSERT OR IGNORE INTO missing (source_key, relative_path) VALUES (?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	for _, rel := range relativePaths {
+		if _, err := statement.ExecContext(ctx, sourceKey, rel); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// PendingMissing reports the number of missing observations staged for a
+// source in the current round.
+func (s *Store) PendingMissing(ctx context.Context, sourceKey string) (int64, error) {
+	if s.scratch == nil {
+		return 0, nil
+	}
+	var count int64
+	err := s.scratch.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM missing WHERE source_key = ?`, sourceKey).Scan(&count)
+	return count, err
 }
 
 // NextEpoch returns the next round number for a source.
@@ -422,15 +881,82 @@ func (s *Store) NextEpoch(sourceKey string) (int64, error) {
 	return epoch.Int64 + 1, nil
 }
 
-// CommitRound records a complete successful reconciliation round.
+// CommitRound records a complete successful reconciliation round and applies
+// the staged missing observations in the same transaction. Every target gains
+// at most one count per distinct complete epoch; a repeated commit of the same
+// epoch is a no-op and an older epoch can never overwrite a newer round.
 func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time) error {
 	if s.readOnly {
 		return errors.New("store is read-only")
 	}
-	_, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	after := ""
+	for {
+		paths, err := s.pendingBatch(ctx, sourceKey, after, 200)
+		if err != nil {
+			return err
+		}
+		if len(paths) == 0 {
+			break
+		}
+		for _, rel := range paths {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE ownership
+				 SET missing_count = CASE WHEN missing_count < ? THEN missing_count + 1 ELSE ? END,
+				     missing_round = ?
+				 WHERE source_key = ? AND relative_path = ? AND missing_round < ?`,
+				maxInt64, maxInt64, epoch, sourceKey, rel, epoch,
+			); err != nil {
+				return err
+			}
+		}
+		after = paths[len(paths)-1]
+	}
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO rounds (source_key, epoch, committed_at) VALUES (?, ?, ?)
-		 ON CONFLICT(source_key) DO UPDATE SET epoch = excluded.epoch, committed_at = excluded.committed_at`,
+		 ON CONFLICT(source_key) DO UPDATE SET
+			epoch = excluded.epoch,
+			committed_at = excluded.committed_at
+		 WHERE excluded.epoch > rounds.epoch`,
 		sourceKey, epoch, at.UTC().Format(time.RFC3339),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if s.scratch != nil {
+		if _, err := s.scratch.ExecContext(ctx, `DELETE FROM missing WHERE source_key = ?`, sourceKey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) pendingBatch(ctx context.Context, sourceKey, after string, limit int) ([]string, error) {
+	if s.scratch == nil {
+		return nil, nil
+	}
+	rows, err := s.scratch.QueryContext(ctx,
+		`SELECT relative_path FROM missing WHERE source_key = ? AND relative_path > ?
+		 ORDER BY relative_path LIMIT ?`,
+		sourceKey, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var rel string
+		if err := rows.Scan(&rel); err != nil {
+			return nil, err
+		}
+		paths = append(paths, rel)
+	}
+	return paths, rows.Err()
 }

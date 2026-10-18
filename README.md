@@ -2,7 +2,7 @@
 
 OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。开发依据为原样保留的 [V4.3 方案](<STRM Generator Go.md>)。
 
-**Slice 1「安全的单轮生成闭环」已 PASS / CLOSED；Slice 2「安全目录镜像与清理恢复」已 ACTIVE。** A 审查 Slice 1 的 Base `f90f9560e55b07fd2d6a20e8bac43741c39176c4` 至实现 Head `248a609eb70dbb8591091463ed51c5146d7c378a`，接受配置、单轮生成／更新／跳过、最小归属、正常中断恢复、dry-run 与互斥的本地闭环；Task 1.1／1.2 均有独立 B PASS，完整关闭记录保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 [合同](SLICE.md) 以该关闭检查点为 Base，交付三轮缺失、源根／目标 Get 重核与本地安全清理；Task 2.1 的源根／目标 Get 判定及固定隔离 OpenList 实证已获独立 B PASS（审查检查点 `c629858ba7559a03c1eba30f8cd91a269f4b2702`）；当前 [Task 2.2](TASK.md) 为 PLANNED，计划接通完整 Mirror 清理、移动及正常恢复。清理仍未开放，Slice 尚未完成验收。
+**Slice 1「安全的单轮生成闭环」已 PASS / CLOSED；Slice 2「安全目录镜像与清理恢复」已 ACTIVE。** A 审查 Slice 1 的 Base `f90f9560e55b07fd2d6a20e8bac43741c39176c4` 至实现 Head `248a609eb70dbb8591091463ed51c5146d7c378a`，接受配置、单轮生成／更新／跳过、最小归属、正常中断恢复、dry-run 与互斥的本地闭环；Task 1.1／1.2 均有独立 B PASS，完整关闭记录保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 [合同](SLICE.md) 以该关闭检查点为 Base，交付三轮缺失、源根／目标 Get 重核与本地安全清理；Task 2.1 的源根／目标 Get 判定及固定隔离 OpenList 实证已获独立 B PASS（审查检查点 `c629858ba7559a03c1eba30f8cd91a269f4b2702`）。Task 2.2「显式启用 Mirror 清理、移动收敛与正常失败恢复」的实现候选已交付，等待独立 B 审查；Slice 尚未完成验收。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
 
@@ -20,7 +20,7 @@ python3 -m unittest discover -s tests -v
 
 无 HEAD 时使用 `--bootstrap`；建立首个提交后使用常规治理检查。`smoke` 只验证编译器、标准库、Linux amd64／arm64 交叉编译，不生成产品二进制。module 暂为本地名 `strm-generator-go`，发布仓库确定后显式修改；没有配置配套项目为本仓库远程。
 
-用户最终选择的清理规则：源根未成功读取为目录时保留且不增加缺失次数；源根可读时，对需判断缺失的已拥有路径 Get 未读到即计缺失，不再区分同样响应背后的原因。默认三次完整轮及删除前同规则重核，保留归属／输出边界检查；所有列表 refresh:false。此前刷新列表证明及请求预算方案已撤回，远端判定已按新合同实现，计数和本地删除尚未接入，详见[需求](docs/requirements.md#简化删除判定2026-10-18-用户最终决定)。
+用户最终选择的清理规则：源根未成功读取为目录时保留且不增加缺失次数；源根可读时，对需判断缺失的已拥有路径 Get 未读到即计缺失，不再区分同样响应背后的原因。默认三次完整轮及删除前同规则重核，保留归属／输出边界检查；所有列表 refresh:false。此前刷新列表证明及请求预算方案已撤回，详见[需求](docs/requirements.md#简化删除判定2026-10-18-用户最终决定)。
 
 ## 构建与运行
 
@@ -32,7 +32,7 @@ export OPENLIST_TOKEN=...   # 来自 openlist.token_env 指定变量
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
 ```
 
-成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1。当前支持 `sync` 与 `sync --dry-run`，按 URL／SHA-1／Size 规则更新已拥有文件；`serve` 与清理尚未实现，`cleanup.enabled: true` 会被明确拒绝。真实服务兼容、播放、性能和正式发布尚未验收。
+成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1。当前支持 `sync` 与 `sync --dry-run`，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除；`serve`／定时仍未实现。真实服务兼容、播放、性能和正式发布尚未验收。
 
 隔离 CLI 验收（自建动态端口假服务；故障二进制仅供测试）：
 
@@ -61,7 +61,8 @@ python3 scripts/mock_openlist.py
 - 单轮锁使用固定运行时位置 `/tmp/strmgen-locks/sync.lock`，目录需由当前有效 UID 所有且不可被组／其他用户写入。所有受支持 CLI 同步共享该 `flock`；环境变量、TMPDIR、数据库或源配置不能另选锁空间。锁文件会保留以避免 inode 替换；进程正常退出、SIGTERM 或 SIGKILL 后内核释放锁，不要在运行时手动删除锁文件。
 - SQLite 是文件归属的证据。数据库丢失后，已有 STRM 不会自动认领；同步会把没有数据库归属记录的目标作为冲突保留。数据库损坏／不可用会在媒体输出前失败。恢复时优先还原可信备份；若无法还原，先由管理员独立核验 STRM 与业务归属，不能用扫描结果自动重建所有权。
 - 人工维护建议先停止生成器并备份 DB、输出及残留；普通重试或已拥有 STRM 的可识别内容变化，不一律要求换新输出／新状态。真正未归属文件和无法安全解释的冲突先保留排查；不盲删暂存或伪造归属，数据库丢失后仍没有自动再认领功能。不要在生产路径试验恢复。
-- 发布或归属记录中断可能留下已发布但未登记的 STRM；再次运行会将其视为未归属冲突，不覆盖、不登记、不删除。失败前已成功发布并登记的文件可以保留；失败源不会提交完整轮次。当前不实现 Mirror 删除，未知文件不得作为“清理残留”盲目删除。
+- 发布或归属记录中断可能留下已发布但未登记的 STRM；再次运行会将其视为未归属冲突，不覆盖、不登记、不删除。失败前已成功发布并登记的文件可以保留；失败源不会提交完整轮次。
+- 清理默认关闭；`cleanup.enabled: true` 且 `sync.mirror: true` 时，源根可读取的完整成功轮对未观察到的已拥有精确路径用 Get 判定，连续三次不同完整轮达到阈值后才具备删除资格，删除前按相同源根／目标 Get 规则重核。只删除可靠归属、精确映射、输出边界内且仍为 regular STRM 的自身目标；目录、符号链接、特殊文件、未知暂存与失配记录保留。dry-run 只列符合已提交阈值的候选，不写文件、库、计数或轮次。清理本地失败会停止该源后续删除并保留已发生操作的报告；重启后按当前源根／Get 重核与可靠本地事实收敛。
 - 已拥有更新使用确定性 `.update.tmp` 暂存；正常中断留下的唯一可识别暂存可在真实同步中恢复，再按当前远端信息比较。dry-run 只报告残留冲突；无归属、多个残留或无法解释的路径／类型冲突仍保留。
 - 正常失败会尽力移除同目录 `.strmgen-*.tmp`；SIGKILL、系统崩溃或突然断电可能遗留该临时文件。dry-run 读取 WAL 数据库时会在数据库父目录创建并正常清理私有 `.strmgen-ro-*` 快照目录，异常中断也可能残留。SQLite 的 `-wal`／`-shm`／`-journal` 文件由 SQLite 管理；确认相关进程退出前不得手工删除。对遗留项目先核实进程、目录和文件归属，不对未知文件做批量清理。
 

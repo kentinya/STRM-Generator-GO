@@ -46,6 +46,9 @@ func TestLoadValid(t *testing.T) {
 	if r.DirectoryWorkers != DefaultDirectoryWorkers {
 		t.Fatalf("default workers: %d", r.DirectoryWorkers)
 	}
+	if !r.Mirror || r.CleanupEnabled || r.MissingConfirmations != 3 {
+		t.Fatalf("defaults: mirror=%v cleanup=%v confirmations=%d", r.Mirror, r.CleanupEnabled, r.MissingConfirmations)
+	}
 }
 
 func TestUnknownFieldRejected(t *testing.T) {
@@ -55,10 +58,54 @@ func TestUnknownFieldRejected(t *testing.T) {
 	}
 }
 
-func TestCleanupEnabledRejected(t *testing.T) {
-	path := write(t, strings.Replace(validBase, "enabled: false", "enabled: true", 1))
-	if _, err := Load(path); err == nil {
-		t.Fatal("cleanup.enabled=true must be rejected")
+func TestCleanupAndMirrorConfiguration(t *testing.T) {
+	withCleanup := func(extra string) string {
+		return strings.Replace(validBase, "  enabled: false", "  enabled: true"+extra, 1)
+	}
+	r, err := Load(write(t, withCleanup("")))
+	if err != nil {
+		t.Fatalf("explicit cleanup must load: %v", err)
+	}
+	if !r.CleanupEnabled || r.MissingConfirmations != 3 {
+		t.Fatalf("cleanup resolved state: enabled=%v confirmations=%d", r.CleanupEnabled, r.MissingConfirmations)
+	}
+
+	for _, value := range []string{"2", "0", "-1"} {
+		body := withCleanup("\n  missing_confirmations: " + value)
+		if _, err := Load(write(t, body)); err == nil {
+			t.Fatalf("missing_confirmations=%s must be rejected", value)
+		}
+	}
+	body := withCleanup("\n  missing_confirmations: 4")
+	r, err = Load(write(t, body))
+	if err != nil {
+		t.Fatalf("higher threshold must load: %v", err)
+	}
+	if r.MissingConfirmations != 4 {
+		t.Fatalf("threshold = %d, want 4", r.MissingConfirmations)
+	}
+
+	lowThresholdDisabled := strings.Replace(validBase, "  enabled: false", "  enabled: false\n  missing_confirmations: 2", 1)
+	if _, err := Load(write(t, lowThresholdDisabled)); err == nil {
+		t.Fatal("a below-minimum threshold must be rejected even when cleanup is disabled")
+	}
+
+	mirrorOff := validBase + "sync:\n  mirror: false\n"
+	r, err = Load(write(t, mirrorOff))
+	if err != nil {
+		t.Fatalf("mirror=false without cleanup must load: %v", err)
+	}
+	if r.Mirror {
+		t.Fatal("mirror=false was not resolved")
+	}
+
+	contradiction := withCleanup("") + "sync:\n  mirror: false\n"
+	_, err = Load(write(t, contradiction))
+	if err == nil {
+		t.Fatal("cleanup=true with mirror=false must be rejected")
+	}
+	if diag := SafeDiagnostic(err); !strings.Contains(diag, "cleanup.enabled") {
+		t.Fatalf("contradiction diagnostic = %q", diag)
 	}
 }
 

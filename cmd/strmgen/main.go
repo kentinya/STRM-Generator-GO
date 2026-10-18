@@ -149,10 +149,12 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		ownership = store
 	}
 	syncer := reconciler.New(client, ownership, reconciler.Options{
-		DryRun:       *dryRun,
-		PublicPrefix: resolved.PublicPrefix,
-		Workers:      resolved.DirectoryWorkers,
-		FS:           filesystem,
+		DryRun:               *dryRun,
+		PublicPrefix:         resolved.PublicPrefix,
+		Workers:              resolved.DirectoryWorkers,
+		FS:                   filesystem,
+		CleanupEnabled:       resolved.CleanupEnabled,
+		MissingConfirmations: resolved.MissingConfirmations,
 	})
 
 	report, runErr := syncer.Run(ctx, sources)
@@ -194,8 +196,9 @@ func printReport(stdout, stderr io.Writer, report *reconciler.Report, dryRun boo
 	}
 	fmt.Fprintf(stdout, "mode: %s\n", mode)
 	for _, src := range report.Sources {
-		fmt.Fprintf(stdout, "source %d: created=%d updated=%d skipped=%d conflicts=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d\n",
-			src.SourceIndex, src.Created, src.Updated, src.Skipped, src.Conflicts, src.Filtered, src.Errors, src.Partial, src.DiagnosticsOmitted)
+		fmt.Fprintf(stdout, "source %d: created=%d updated=%d skipped=%d conflicts=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d deleted=%d missing=%d reclaimed=%d retained=%d candidates=%d\n",
+			src.SourceIndex, src.Created, src.Updated, src.Skipped, src.Conflicts, src.Filtered, src.Errors, src.Partial, src.DiagnosticsOmitted,
+			src.Deleted, src.ConfirmedMissing, src.Reclaimed, src.Retained, src.Candidates)
 		diagnostics := append([]string(nil), src.Diagnostics...)
 		sort.Strings(diagnostics)
 		for _, d := range diagnostics {
