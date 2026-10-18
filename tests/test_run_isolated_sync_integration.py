@@ -99,6 +99,27 @@ class DriverUnitTests(unittest.TestCase):
         self.assertIn("STRMGEN_TEST_OWNERSHIP_HOLD", source)
         self.assertNotIn("ownership_proc.send_signal(signal.SIGSTOP)", source)
 
+    def test_release_update_hooks_are_inert(self):
+        for name in ("fs_update_hook_default.go", "fs_update_after_hook_default.go"):
+            source = (driver.ROOT / "internal/reconciler" / name).read_text()
+            self.assertIn("//go:build !strmgen_testhooks", source)
+            self.assertNotIn("os.Getenv", source)
+            self.assertNotIn("syscall", source)
+
+    def test_integration_update_hooks_are_build_tagged(self):
+        exchange = (driver.ROOT / "internal/reconciler/fs_update_hook_integration.go").read_text()
+        self.assertIn("//go:build strmgen_testhooks", exchange)
+        self.assertIn("STRMGEN_TEST_UPDATE_BEFORE_EXCHANGE_TARGET", exchange)
+        after = (driver.ROOT / "internal/reconciler/fs_update_after_hook_integration.go").read_text()
+        self.assertIn("//go:build strmgen_testhooks", after)
+        self.assertIn("STRMGEN_TEST_UPDATE_HOLD", after)
+        self.assertIn("SIGSTOP", after)
+
+    def test_update_interruption_recovery_is_deterministic(self):
+        source = (driver.ROOT / "scripts/run_isolated_sync_integration.py").read_text()
+        self.assertIn("STRMGEN_TEST_UPDATE_HOLD", source)
+        self.assertIn("update-interruption recovery requires --fault-binary", source)
+
 
 if __name__ == "__main__":
     unittest.main()

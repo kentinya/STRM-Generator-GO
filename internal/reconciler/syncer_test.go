@@ -240,32 +240,168 @@ func TestSameTargetConflictAcrossPages(t *testing.T) {
 	}
 }
 
-func TestNeedsUpdateIsNotSilentlySkipped(t *testing.T) {
+func TestURLChangeUpdatesOwnedFileAndCommits(t *testing.T) {
 	root := t.TempDir()
 	store := newStore(t)
 	opts := Options{PublicPrefix: "https://openlist.example.invalid"}
-	s := New(standardTree(), store, opts)
-	if _, err := s.Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+	if _, err := New(standardTree(), store, opts).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
 		t.Fatal(err)
 	}
-	// Change the URL for Sample.mkv by using a different public prefix.
-	changed := standardTree()
-	changed.dirs["/Movies"][1] = media("Sample.mkv", 10737418240, shaB) // hash changed
-	s2 := New(changed, store, opts)
-	report, err := s2.Run(context.Background(), []Source{sourceFor(root)})
-	if err == nil {
-		t.Fatal("needs-update must produce a non-zero result")
+	beforeBytes, _ := os.ReadFile(filepath.Join(root, "Sample.strm"))
+	beforeTimes := statTimes(t, root)
+	time.Sleep(2 * time.Millisecond)
+	// Change the public prefix so every URL changes; SHA-1 and Size are unchanged.
+	updated, err := New(standardTree(), store, Options{PublicPrefix: "https://other.example.invalid"}).Run(
+		context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("update run: %v", err)
 	}
-	if report.Sources[0].NeedsUpdate != 1 {
-		t.Fatalf("expected needs_update: %+v", report.Sources[0])
+	res := updated.Sources[0]
+	if res.Updated != 4 || res.Created != 0 || res.Skipped != 0 || res.Errors != 0 || res.Conflicts != 0 || res.Partial {
+		t.Fatalf("unexpected update result: %+v", res)
+	}
+	afterBytes, _ := os.ReadFile(filepath.Join(root, "Sample.strm"))
+	if string(afterBytes) == string(beforeBytes) {
+		t.Fatal("URL change must rewrite the file")
+	}
+	if !strings.Contains(string(afterBytes), "https://other.example.invalid/d/Movies/Sample.mkv") {
+		t.Fatalf("updated URL missing: %q", afterBytes)
+	}
+	if !strings.Contains(string(afterBytes), shaA) {
+		t.Fatalf("unchanged metadata must be preserved: %q", afterBytes)
+	}
+	if _, ok, err := store.Lookup("/Movies", "Sample.strm"); err != nil || !ok {
+		t.Fatalf("ownership lost after update: ok=%t err=%v", ok, err)
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 3 {
+		t.Fatalf("update round not committed: epoch=%d", epoch)
+	}
+	afterTimes := statTimes(t, root)
+	if afterTimes["Sample.strm"].Equal(beforeTimes["Sample.strm"]) {
+		t.Fatal("mtime must change on a real update")
+	}
+}
+
+func TestSHAChangeUpdatesOnlyAffectedFile(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	opts := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(standardTree(), store, opts).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatal(err)
+	}
+	changed := standardTree()
+	changed.dirs["/Movies"][1] = media("Sample.mkv", 10737418240, shaB)
+	report, err := New(changed, store, opts).Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("sha-change run: %v", err)
+	}
+	if report.Sources[0].Updated != 1 || report.Sources[0].Skipped != 3 {
+		t.Fatalf("unexpected result: %+v", report.Sources[0])
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "Sample.strm"))
-	if !strings.Contains(string(raw), shaA) {
-		t.Fatalf("old file must be preserved: %q", raw)
+	if !strings.Contains(string(raw), shaB) || strings.Contains(string(raw), shaA) {
+		t.Fatalf("file was not updated to the new hash: %q", raw)
 	}
-	// Round must not advance on a needs-update result.
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 3 {
+		t.Fatalf("update round not committed: epoch=%d", epoch)
+	}
+}
+
+func TestIncomparableSizeChangeUpdates(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	opts := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(standardTree(), store, opts).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatal(err)
+	}
+	changed := standardTree()
+	changed.dirs["/Movies"][2] = media("NoHash.mp4", 4096, "") // NoHash had no hash and size 2048
+	report, err := New(changed, store, opts).Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("size-change run: %v", err)
+	}
+	if report.Sources[0].Updated != 1 {
+		t.Fatalf("expected one update from incomparable size change: %+v", report.Sources[0])
+	}
+	raw, _ := os.ReadFile(filepath.Join(root, "NoHash.strm"))
+	if !strings.Contains(string(raw), "# strm-probe-size:4096") {
+		t.Fatalf("size was not updated: %q", raw)
+	}
+}
+
+func TestUpdateFailurePreservesTargetAndRound(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	opts := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(standardTree(), store, opts).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(root, "Sample.strm"))
+	failing := Options{PublicPrefix: "https://other.example.invalid", FS: &failingUpdateFS{failOn: "Sample.strm"}}
+	report, err := New(standardTree(), store, failing).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("update failure must produce a non-zero result")
+	}
+	res := report.Sources[0]
+	if res.Errors != 1 || res.Updated != 3 || !res.Partial {
+		t.Fatalf("unexpected failure result: %+v", res)
+	}
+	after, _ := os.ReadFile(filepath.Join(root, "Sample.strm"))
+	if string(after) != string(before) {
+		t.Fatalf("failed update must preserve the old target: %q", after)
+	}
 	if epoch, _ := store.NextEpoch("/Movies"); epoch != 2 {
-		t.Fatalf("round advanced despite pending update: %d", epoch)
+		t.Fatalf("partial update committed a round: epoch=%d", epoch)
+	}
+}
+
+func TestTargetReplacedBeforeExchangeIsPreserved(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	opts := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(standardTree(), store, opts).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatal(err)
+	}
+	racing := Options{PublicPrefix: "https://other.example.invalid", FS: &replacingUpdateFS{}}
+	report, err := New(standardTree(), store, racing).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("external replacement must fail the update")
+	}
+	if report.Sources[0].Errors != 4 || report.Sources[0].Updated != 0 || !report.Sources[0].Partial {
+		t.Fatalf("unexpected race result: %+v", report.Sources[0])
+	}
+	for _, rel := range []string{"Sample.strm", "NoHash.strm", "科幻/A #100%.strm", "科幻/InvalidHash.strm"} {
+		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil || string(raw) != "external" {
+			t.Fatalf("external bytes not preserved at %s: %q err=%v", rel, raw, err)
+		}
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 2 {
+		t.Fatalf("race committed a round: epoch=%d", epoch)
+	}
+}
+
+func TestDryRunReportsUpdateWithoutWriting(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	opts := Options{PublicPrefix: "https://openlist.example.invalid"}
+	if _, err := New(standardTree(), store, opts).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotFiles(t, root)
+	dry := Options{DryRun: true, PublicPrefix: "https://other.example.invalid", FS: &LocalFS{}}
+	report, err := New(standardTree(), store, dry).Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("dry-run update: %v", err)
+	}
+	if report.Sources[0].Updated != 4 || report.Sources[0].Created != 0 {
+		t.Fatalf("dry-run should preview 4 updates: %+v", report.Sources[0])
+	}
+	if after := snapshotFiles(t, root); !mapsEqual(before, after) {
+		t.Fatal("dry-run changed output files")
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 2 {
+		t.Fatalf("dry-run advanced the round: epoch=%d", epoch)
 	}
 }
 
@@ -676,6 +812,31 @@ func (f *failingFS) Publish(root, rel string, data []byte) error {
 	return f.LocalFS.Publish(root, rel, data)
 }
 
+// failingUpdateFS injects an update failure for one relative path.
+type failingUpdateFS struct {
+	LocalFS
+	failOn string
+}
+
+func (f *failingUpdateFS) Update(root, rel string, expected, data []byte) error {
+	if strings.HasSuffix(rel, f.failOn) {
+		return errors.New("injected update failure")
+	}
+	return f.LocalFS.Update(root, rel, expected, data)
+}
+
+// replacingUpdateFS replaces the owned target with external bytes after the
+// content was read, immediately before the atomic exchange.
+type replacingUpdateFS struct{ LocalFS }
+
+func (f *replacingUpdateFS) Update(root, rel string, expected, data []byte) error {
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.WriteFile(path, []byte("external"), 0o644); err != nil {
+		return err
+	}
+	return f.LocalFS.Update(root, rel, expected, data)
+}
+
 // failingOwnershipStore injects an ownership-recording failure.
 type failingOwnershipStore struct{ *storage.Store }
 
@@ -718,4 +879,35 @@ func statTimes(t *testing.T, root string) map[string]time.Time {
 		return nil
 	})
 	return out
+}
+
+// snapshotFiles records the exact bytes of every file under root.
+func snapshotFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		rel, _ := filepath.Rel(root, path)
+		out[filepath.ToSlash(rel)] = string(raw)
+		return nil
+	})
+	return out
+}
+
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if b[key] != value {
+			return false
+		}
+	}
+	return true
 }

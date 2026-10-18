@@ -215,9 +215,6 @@ const (
 	Update
 	// Conflict means the existing file is not a trustworthy owned STRM.
 	Conflict
-	// NeedsUpdate means an update is required but this task does not perform
-	// content replacement; the caller must fail without touching the file.
-	NeedsUpdate
 )
 
 // CompareResult carries the decision plus an optional anomaly note.

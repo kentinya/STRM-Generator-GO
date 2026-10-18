@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -17,6 +18,11 @@ import (
 	"strm-generator-go/internal/strm"
 )
 
+// ErrTargetChanged reports that an owned target no longer holds the content
+// observed before an update. The external bytes are preserved and the update
+// is refused rather than overwriting them.
+var ErrTargetChanged = errors.New("target changed before update")
+
 // FileSystem is the set of local file operations the syncer needs. It is an
 // interface so tests can inject failures without weakening the real
 // implementation's safety checks.
@@ -25,6 +31,7 @@ type FileSystem interface {
 	ReadFile(root, relFile string) ([]byte, error)
 	Lstat(root, relFile string) (os.FileInfo, error)
 	Publish(root, relFile string, data []byte) error
+	Update(root, relFile string, expected, data []byte) error
 }
 
 // LocalFS implements FileSystem using descriptor-relative operations. The
@@ -32,8 +39,12 @@ type FileSystem interface {
 // pathname swap after configuration validation cannot redirect an operation
 // outside the directory that was opened for that operation.
 type LocalFS struct {
-	roots      *localRoots
-	beforeLink func(*securepath.Dir, string) error
+	roots          *localRoots
+	beforeLink     func(*securepath.Dir, string) error
+	beforeExchange func(*securepath.Dir, string) error
+	afterUpdate    func(*securepath.Dir, string) error
+	syncTemp       func(*os.File) error
+	closeTemp      func(*os.File) error
 }
 
 type localRoots struct {
@@ -240,6 +251,141 @@ func (fs LocalFS) Publish(root, relFile string, data []byte) error {
 		return err
 	}
 	return dir.Sync()
+}
+
+// Update atomically replaces an already-owned STRM with new bytes. It never
+// unlinks the previous target: it writes a same-directory temporary file,
+// exchanges the two names, and only then removes the old content. The
+// swapped-out entry must byte-for-byte match the owned content observed
+// before the update; otherwise an external actor changed the target and the
+// exchange is undone so their bytes are preserved.
+func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
+	if len(data) > strm.MaxSize {
+		return errors.New("updated STRM exceeds protocol size limit")
+	}
+	dir, base, err := fs.openParent(root, relFile, false)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+
+	// Re-confirm the target is still an owned regular file immediately before
+	// publishing. A symlink, special file or missing target is a conflict.
+	info, err := dir.Lstat(base)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrTargetChanged
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return ErrTargetChanged
+	}
+
+	tmpName, tmp, err := createTempFile(dir)
+	if err != nil {
+		return err
+	}
+	// removeTemp is cleared only if an undo failure leaves foreign bytes at
+	// tmpName, which must be preserved rather than deleted.
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			_ = dir.Remove(tmpName)
+		}
+	}()
+	if err := writeAll(tmp, data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := fs.syncTempFile(tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := fs.closeTempFile(tmp); err != nil {
+		return err
+	}
+
+	if fs.beforeExchange != nil {
+		if err := fs.beforeExchange(dir, base); err != nil {
+			return err
+		}
+	} else if err := beforeUpdateExchange(dir, base); err != nil {
+		return err
+	}
+
+	if err := dir.Exchange(tmpName, base); err != nil {
+		return err
+	}
+	// The previous target now lives at tmpName. It must equal the owned content
+	// read before the update; otherwise the target was replaced externally and
+	// the exchange must be undone.
+	if err := verifyExchanged(dir, tmpName, expected); err != nil {
+		if undoErr := dir.Exchange(tmpName, base); undoErr != nil {
+			// tmpName now holds the foreign bytes; do not delete them.
+			removeTemp = false
+			return errors.New("target changed and could not be restored")
+		}
+		return ErrTargetChanged
+	}
+	// Success: drop the old owned content and flush the directory metadata.
+	if err := dir.Remove(tmpName); err != nil {
+		return err
+	}
+	if fs.afterUpdate != nil {
+		if err := fs.afterUpdate(dir, base); err != nil {
+			return err
+		}
+	} else if err := afterUpdatePublish(dir, base); err != nil {
+		return err
+	}
+	return dir.Sync()
+}
+
+// verifyExchanged reads a swapped-out entry without following symlinks and
+// compares it to the expected owned bytes.
+func verifyExchanged(dir *securepath.Dir, name string, expected []byte) error {
+	f, err := dir.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("swapped target is not a regular file")
+	}
+	if info.Size() > strm.MaxSize {
+		return errors.New("swapped target exceeds protocol size limit")
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, strm.MaxSize+1))
+	if err != nil {
+		return err
+	}
+	if len(raw) > strm.MaxSize {
+		return errors.New("swapped target exceeds protocol size limit")
+	}
+	if !bytes.Equal(raw, expected) {
+		return ErrTargetChanged
+	}
+	return nil
+}
+
+// syncTempFile flushes a temporary file before publication. Tests can inject
+// a failure here to prove the old target survives a failed durability step.
+func (fs LocalFS) syncTempFile(f *os.File) error {
+	if fs.syncTemp != nil {
+		return fs.syncTemp(f)
+	}
+	return f.Sync()
+}
+
+// closeTempFile closes a temporary file before publication. Tests can inject a
+// failure here to prove a close error aborts without touching the target.
+func (fs LocalFS) closeTempFile(f *os.File) error {
+	if fs.closeTemp != nil {
+		return fs.closeTemp(f)
+	}
+	return f.Close()
 }
 
 func createTempFile(dir *securepath.Dir) (string, *os.File, error) {

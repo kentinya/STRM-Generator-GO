@@ -194,8 +194,8 @@ func printReport(stdout, stderr io.Writer, report *reconciler.Report, dryRun boo
 	}
 	fmt.Fprintf(stdout, "mode: %s\n", mode)
 	for _, src := range report.Sources {
-		fmt.Fprintf(stdout, "source %d: created=%d skipped=%d conflicts=%d needs_update=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d\n",
-			src.SourceIndex, src.Created, src.Skipped, src.Conflicts, src.NeedsUpdate, src.Filtered, src.Errors, src.Partial, src.DiagnosticsOmitted)
+		fmt.Fprintf(stdout, "source %d: created=%d updated=%d skipped=%d conflicts=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d\n",
+			src.SourceIndex, src.Created, src.Updated, src.Skipped, src.Conflicts, src.Filtered, src.Errors, src.Partial, src.DiagnosticsOmitted)
 		diagnostics := append([]string(nil), src.Diagnostics...)
 		sort.Strings(diagnostics)
 		for _, d := range diagnostics {

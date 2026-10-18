@@ -431,6 +431,20 @@ func (d *Dir) Link(oldName, newName string) error {
 	return unix.Linkat(int(d.file.Fd()), oldName, int(d.file.Fd()), newName, 0)
 }
 
+// Exchange atomically swaps two existing direct children of d. Both names
+// must refer to entries in the same directory. It is used to publish a new
+// file without ever unlinking the previous target, so a concurrent actor that
+// swapped the target can be detected after the exchange and undone.
+func (d *Dir) Exchange(oldName, newName string) error {
+	if err := validComponent(oldName); err != nil {
+		return err
+	}
+	if err := validComponent(newName); err != nil {
+		return err
+	}
+	return unix.Renameat2(int(d.file.Fd()), oldName, int(d.file.Fd()), newName, unix.RENAME_EXCHANGE)
+}
+
 // Remove removes one direct child without following symlinks.
 func (d *Dir) Remove(name string) error {
 	if err := validComponent(name); err != nil {

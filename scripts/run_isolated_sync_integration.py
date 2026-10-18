@@ -307,29 +307,54 @@ def scenario_repeat_and_compare(h, results):
     check("size differs" in anomaly.stderr, f"expected size anomaly: {anomaly.stderr}")
     check(snapshot(root)["Sample.strm"] == before["Sample.strm"], "size anomaly rewrote the file")
 
-    # Different SHA-1 -> needs update, old file preserved, non-zero exit.
+    # Different SHA-1 -> atomic update, ownership retained, round advances.
     sample["hash_info"] = {"sha1": "cccccccccccccccccccccccccccccccccccccccc"}
     epoch_before_change = read_db(db)["rounds"][0][1]
     changed = h.run(cfg)
-    check(changed.returncode == 1, f"hash change must exit 1: {changed.returncode}")
-    check("needs_update=1" in changed.stdout, f"needs_update summary: {changed.stdout}")
-    check(snapshot(root)["Sample.strm"] == before["Sample.strm"], "old file was not preserved")
-    check(read_db(db)["rounds"][0][1] == epoch_before_change, "round advanced despite a pending update")
+    check(changed.returncode == 0, f"hash change must update and succeed: {changed.returncode} {changed.stderr}")
+    check("updated=1" in changed.stdout and "skipped=3" in changed.stdout,
+          f"hash change summary: {changed.stdout}")
+    sample_after = snapshot(root)["Sample.strm"]
+    check(sample_after != before["Sample.strm"], "hash change did not rewrite the file")
+    check("cccccccccccccccccccccccccccccccccccccccc" in (root / "Sample.strm").read_text(),
+          "updated file lacks the new hash")
+    check(read_db(db)["rounds"][0][1] == epoch_before_change + 1, "update did not commit a round")
+    check(len(read_db(db)["ownership"]) == 4, "update lost ownership rows")
+    # A repeat of the updated state is a no-op.
+    settled = snapshot(root)
+    settled_run = h.run(cfg)
+    check(settled_run.returncode == 0 and "skipped=4" in settled_run.stdout,
+          f"post-update repeat summary: {settled_run.stdout}")
+    check(snapshot(root) == settled, "post-update repeat changed bytes or mtime")
 
-    # URL change -> update required for every file.
+    # URL change -> every owned file is updated atomically and the round advances.
+    url_before = snapshot(root)
+    url_epoch = read_db(db)["rounds"][0][1]
     cfg_url = h.config("repeat-url", api, [("/Movies", root)], db, public="https://other.example.invalid")
     url_change = h.run(cfg_url)
-    check(url_change.returncode == 1, f"url change must exit 1: {url_change.returncode}")
-    check("needs_update=4" in url_change.stdout, f"url change summary: {url_change.stdout}")
+    check(url_change.returncode == 0, f"url change must update and succeed: {url_change.returncode} {url_change.stderr}")
+    check("updated=4" in url_change.stdout, f"url change summary: {url_change.stdout}")
+    check(snapshot(root) != url_before, "url change did not rewrite files")
+    check("https://other.example.invalid/d/Movies/Sample.mkv" in (root / "Sample.strm").read_text(),
+          "url change did not persist the new URL")
+    check(read_db(db)["rounds"][0][1] == url_epoch + 1, "url change did not commit a round")
 
-    # SHA-1 incomparable, Size differs -> update required.
+    # SHA-1 incomparable, Size differs -> update required; same Size skips.
     nohash = next(entry for entry in dirs["/Movies"] if entry["name"] == "NoHash.mp4")
-    nohash["size"] = nohash["size"] + 5
-    incomparable = h.run(cfg)
-    check(incomparable.returncode == 1, f"incomparable size change must exit 1: {incomparable.returncode}")
-    # Sample.mkv was already changed above, so both files require an update.
-    check("needs_update=2" in incomparable.stdout, f"incomparable summary: {incomparable.stdout}")
-    results["repeat_and_compare"] = {"anomaly": anomaly.stderr.strip().splitlines()[-1:]}
+    nohash_size_before = nohash["size"]
+    nohash["size"] = nohash_size_before + 5
+    incomparable_epoch = read_db(db)["rounds"][0][1]
+    incomparable = h.run(cfg_url)
+    check(incomparable.returncode == 0, f"incomparable size change must update: {incomparable.returncode} {incomparable.stderr}")
+    check("updated=1" in incomparable.stdout, f"incomparable summary: {incomparable.stdout}")
+    check(f"# strm-probe-size:{nohash_size_before + 5}" in (root / "NoHash.strm").read_text(),
+          "incomparable size change was not applied")
+    check(read_db(db)["rounds"][0][1] == incomparable_epoch + 1,
+          "incomparable size update did not commit a round")
+    results["repeat_and_compare"] = {"anomaly": anomaly.stderr.strip().splitlines()[-1:],
+                                    "hash_update_exit": changed.returncode,
+                                    "url_update_exit": url_change.returncode,
+                                    "incomparable_update_exit": incomparable.returncode}
 
 
 def scenario_ownership_and_paths(h, results):
@@ -1015,6 +1040,32 @@ def scenario_dry_run_boundaries(h, results):
     check((root3 / "Sample.strm").read_bytes() == b"pre-existing-unowned\n", "dry-run changed a file")
     observed["conflict"] = conflict.returncode
     h3.cleanup()
+
+    # Dry-run previews real updates with no filesystem or database side effect,
+    # and the following real run applies them.
+    h4 = Harness(h.binary, h.workdir / "dryupdate")
+    api4, dirs4 = h4.server()
+    root4 = h4.workdir / "out"
+    db4 = h4.workdir / "data" / "strmgen.db"
+    cfg4 = h4.config("dryupdate", api4, [("/Movies", root4)], db4)
+    check(h4.run(cfg4).returncode == 0, "dry-run update seed failed")
+    before4 = snapshot(root4)
+    before_bytes4 = db4.read_bytes()
+    cfg4b = h4.config("dryupdate-b", api4, [("/Movies", root4)], db4,
+                      public="https://changed.example.invalid")
+    dry_update = h4.run(cfg4b, dry_run=True)
+    check(dry_update.returncode == 0 and "updated=4" in dry_update.stdout,
+          f"dry-run should preview 4 updates: {dry_update.returncode} {dry_update.stdout}")
+    check(snapshot(root4) == before4, "dry-run update changed output files")
+    check(db4.read_bytes() == before_bytes4, "dry-run update changed database bytes")
+    check(read_db(db4)["rounds"][0][1] == 1, "dry-run update advanced the round")
+    real_update = h4.run(cfg4b)
+    check(real_update.returncode == 0 and "updated=4" in real_update.stdout,
+          f"real update after dry-run failed: {real_update.returncode} {real_update.stdout}")
+    check(snapshot(root4) != before4 and read_db(db4)["rounds"][0][1] == 2,
+          "real update did not apply after dry-run")
+    observed["update_preview"] = dry_update.returncode
+    h4.cleanup()
     results["dry_run_boundaries"] = observed
 
 
@@ -1062,15 +1113,19 @@ def scenario_source_identity(h, results):
     check(len(state_after_rotate["rounds"]) == 2, "credential rotation created another round identity")
 
     # public_url is intentionally excluded from identity; URL comparison still
-    # reports a required update without touching the previous STRM.
+    # performs a real atomic update without changing the source identity.
     public_cfg = h.config("changed-public-url", api, [("/Movies", out1)], db,
                           public="https://changed.example.invalid")
     public_before = snapshot(out1)
     public_change = h.run(public_cfg)
-    check(public_change.returncode == 1 and "needs_update=2" in public_change.stdout,
-          f"public URL change did not use STRM comparison: {public_change.returncode} {public_change.stdout}")
-    check(snapshot(out1) == public_before, "public URL change replaced an existing owned file")
-    check(len(read_db(db)["rounds"]) == 2, "pending public URL update committed a round")
+    check(public_change.returncode == 0 and "updated=2" in public_change.stdout,
+          f"public URL change did not update via STRM comparison: {public_change.returncode} {public_change.stdout}")
+    check(snapshot(out1) != public_before, "public URL change did not rewrite files")
+    check("https://changed.example.invalid/d/Movies/A.mkv" in (out1 / "A.strm").read_text(),
+          "public URL change did not persist the new URL")
+    check({row[0] for row in read_db(db)["ownership"]} == source_keys,
+          "public URL update changed source identity")
+    check(len(read_db(db)["rounds"]) == 2, "public URL update created another round identity")
 
     # Changing the API source creates a new identity and must not borrow old
     # ownership to update or commit against existing files.
@@ -1619,6 +1674,156 @@ def scenario_fault_recovery(h, results):
     observed["ownership_interruption_recovery"] = ownership_retry.returncode
     observed["unreferenced_temp_files_after_sigkill"] = len(leftover_temps)
     h11.cleanup()
+
+    # Update temporary-write failure on an existing owned target: the old
+    # target must survive byte-for-byte, ownership and round must not advance,
+    # no temporary file may remain, and a retry must complete the update. The
+    # same API server and identity are reused; only public_url (excluded from
+    # identity) changes so a real update is required.
+    h12 = Harness(h.binary, h.workdir / "update-write-failure")
+    update_barrier = threading.Event()
+    update_entered = threading.Event()
+    update_hold = {"on": False}
+    update_dirs = {"/Movies": [{"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]}
+
+    def hold_update_write(endpoint, path, request):
+        if update_hold["on"] and endpoint.endswith("/list") and path == "/Movies" and not update_entered.is_set():
+            update_entered.set()
+            update_barrier.wait(timeout=20)
+
+    api12, _ = h12.server(directories=update_dirs, hooks={"before": hold_update_write})
+    root12 = h12.workdir / "out"
+    db12 = h12.workdir / "data" / "strmgen.db"
+    cfg12 = h12.config("update-write", api12, [("/Movies", root12)], db12)
+    check(h12.run(cfg12).returncode == 0, "update-write seed sync failed")
+    update_target = root12 / "A.strm"
+    update_before = update_target.read_bytes()
+    # Change the public prefix so a real update is required on the next run.
+    cfg12b = h12.config("update-write-b", api12, [("/Movies", root12)], db12,
+                        public="https://changed.example.invalid")
+
+    update_hold["on"] = True
+    update_proc = h12.start(cfg12b, ignore_sigxfsz=True)
+    check(update_entered.wait(timeout=15), "update-write process never reached the API barrier")
+    _, hard12 = resource.prlimit(update_proc.pid, resource.RLIMIT_FSIZE)
+    resource.prlimit(update_proc.pid, resource.RLIMIT_FSIZE, (0, hard12))
+    update_barrier.set()
+    try:
+        update_out, update_err = update_proc.communicate(timeout=30)
+    finally:
+        update_barrier.set()
+    check(update_proc.returncode == 1,
+          f"update write failure should be a handled error: {update_proc.returncode} {update_err}")
+    check("errors=1" in update_out and "partial=true" in update_out,
+          f"update write error was not counted: {update_out}")
+    check(update_target.read_bytes() == update_before, "failed update changed the old target")
+    update_tree12 = snapshot_tree(root12)
+    check(set(update_tree12["entries"]) == {"A.strm"},
+          f"failed update left a temporary file: {update_tree12}")
+    update_state12 = read_db(db12)
+    check(len(update_state12["ownership"]) == 1 and update_state12["rounds"][0][1] == 1,
+          f"failed update changed ownership or advanced the round: {update_state12}")
+    update_retry = h12.run(cfg12b, timeout=30)
+    check(update_retry.returncode == 0 and "updated=1" in update_retry.stdout,
+          f"retry after update write failure failed: {update_retry.returncode} {update_retry.stdout}")
+    check("https://changed.example.invalid/d/Movies/A.mkv" in update_target.read_text(),
+          "retry did not persist the updated URL")
+    observed["update_write_failure"] = update_proc.returncode
+    observed["update_write_failure_retry"] = update_retry.returncode
+    h12.cleanup()
+
+    # Update interrupted after the atomic exchange but before the round is
+    # committed. The new bytes are already durable and ownership still maps to
+    # the target; the release binary must restart, skip the owned file and
+    # commit the original incomplete epoch without reclaiming anything.
+    if h.fault_binary is None:
+        raise Failure("update-interruption recovery requires --fault-binary (strmgen_testhooks build)")
+    h13 = Harness(h.binary, h.workdir / "update-before-round-interruption")
+    update_dirs13 = {"/Movies": [{"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]}
+    api13, _ = h13.server(directories=update_dirs13)
+    root13 = h13.workdir / "out"
+    db13 = h13.workdir / "data" / "strmgen.db"
+    cfg13 = h13.config("update-interrupt", api13, [("/Movies", root13)], db13)
+    check(h13.run(cfg13).returncode == 0, "update-interrupt seed sync failed")
+    cfg13b = h13.config("update-interrupt-b", api13, [("/Movies", root13)], db13,
+                        public="https://changed.example.invalid")
+    marker13 = h13.workdir / "update-held.marker"
+    interrupted_proc = h13.start(cfg13b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_UPDATE_HOLD": "A.strm",
+        "STRMGEN_TEST_UPDATE_MARKER": str(marker13),
+    })
+    deadline13 = time.monotonic() + 60
+    while time.monotonic() < deadline13 and not marker13.exists():
+        if interrupted_proc.poll() is not None:
+            break
+        time.sleep(0.005)
+    check(marker13.exists(), "update barrier never recorded a durable exchange")
+    stopped13 = None
+    stop_deadline13 = time.monotonic() + 10
+    while time.monotonic() < stop_deadline13:
+        if interrupted_proc.poll() is not None:
+            break
+        try:
+            status13 = Path(f"/proc/{interrupted_proc.pid}/status").read_text()
+        except FileNotFoundError:
+            break
+        state_line13 = next((line for line in status13.splitlines() if line.startswith("State:")), "")
+        fields13 = state_line13.split()
+        if len(fields13) > 1 and fields13[1] in ("T", "t"):
+            stopped13 = fields13[1]
+            break
+        time.sleep(0.002)
+    check(stopped13 in ("T", "t"), f"update barrier did not stop the process: {stopped13}")
+    check("https://changed.example.invalid/d/Movies/A.mkv" in (root13 / "A.strm").read_text(),
+          "interrupted update did not persist the new bytes")
+    interrupted13 = read_db(db13)
+    check(len(interrupted13["ownership"]) == 1 and interrupted13["rounds"][0][1] == 1,
+          f"interrupted update changed ownership or advanced the round: {interrupted13}")
+    interrupted_proc.kill()
+    interrupted_proc.communicate(timeout=10)
+    check(interrupted_proc.returncode == -signal.SIGKILL,
+          f"update interruption expected SIGKILL, got {interrupted_proc.returncode}")
+    update_retry13 = h13.run(cfg13b, timeout=60)
+    check(update_retry13.returncode == 0 and "skipped=1" in update_retry13.stdout,
+          f"restart after update interruption did not skip the owned file: {update_retry13.returncode} {update_retry13.stdout}")
+    recovered13 = read_db(db13)
+    check(len(recovered13["ownership"]) == 1 and recovered13["rounds"] and recovered13["rounds"][0][1] == 2,
+          f"restart did not complete the update epoch: {recovered13}")
+    check(set(snapshot_tree(root13)["entries"]) == {"A.strm"},
+          "update interruption left residue in the output")
+    observed["update_then_sigkill"] = interrupted_proc.returncode
+    observed["update_interruption_recovery"] = update_retry13.returncode
+    h13.cleanup()
+
+    # Update publish race: the owned target is replaced by an external actor
+    # after the content read and immediately before the atomic exchange. The
+    # testhooks-only build injects the foreign bytes; the exchange must be
+    # undone and the external content preserved, with no ownership/round
+    # change and no temporary residue.
+    if h.fault_binary is None:
+        raise Failure("update-target race requires --fault-binary (strmgen_testhooks build)")
+    h14 = Harness(h.fault_binary, h.workdir / "update-target-race")
+    race_dirs14 = {"/Movies": [{"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]}
+    api14, _ = h14.server(directories=race_dirs14)
+    root14 = h14.workdir / "out"
+    db14 = h14.workdir / "data" / "strmgen.db"
+    cfg14 = h14.config("update-race", api14, [("/Movies", root14)], db14)
+    check(h14.run(cfg14).returncode == 0, "update-race seed sync failed")
+    cfg14b = h14.config("update-race-b", api14, [("/Movies", root14)], db14,
+                        public="https://changed.example.invalid")
+    race_result14 = h14.run(cfg14b, extra_env={
+        "STRMGEN_TEST_UPDATE_BEFORE_EXCHANGE_TARGET": "A.strm",
+    })
+    check(race_result14.returncode == 1 and "errors=1" in race_result14.stdout,
+          f"update race should fail safely: {race_result14.returncode} {race_result14.stdout} {race_result14.stderr}")
+    check((root14 / "A.strm").read_bytes() == b"external", "racing update overwrote external bytes")
+    check(set(snapshot_tree(root14)["entries"]) == {"A.strm"},
+          "racing update left a temporary file")
+    race_state14 = read_db(db14)
+    check(len(race_state14["ownership"]) == 1 and race_state14["rounds"][0][1] == 1,
+          f"racing update changed ownership or advanced the round: {race_state14}")
+    observed["update_target_race_exit"] = race_result14.returncode
+    h14.cleanup()
 
     results["fault_recovery"] = observed
 

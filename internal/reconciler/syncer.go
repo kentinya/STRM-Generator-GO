@@ -54,9 +54,9 @@ type SourceResult struct {
 	SourceIndex        int
 	Remote             string
 	Created            int
+	Updated            int
 	Skipped            int
 	Conflicts          int
-	NeedsUpdate        int
 	Filtered           int
 	Errors             int
 	Partial            bool
@@ -180,9 +180,9 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		res.addDiagnostic("incomplete traversal; no round committed")
 		return res
 	}
-	if res.Conflicts > 0 || res.NeedsUpdate > 0 || res.Errors > 0 {
+	if res.Conflicts > 0 || res.Errors > 0 {
 		res.Partial = true
-		res.addDiagnostic("round not committed because of conflicts, pending updates or errors")
+		res.addDiagnostic("round not committed because of conflicts or errors")
 		return res
 	}
 	if s.opts.DryRun {
@@ -345,9 +345,20 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			}
 			return
 		default:
-			// Update is required; this task does not replace content.
-			res.NeedsUpdate++
-			res.addDiagnostic(fmt.Sprintf("update required but not executed: %s", rel))
+			// A trusted owned target requires new content. In dry-run this is a
+			// preview; otherwise the target is atomically replaced while
+			// preserving the previous ownership mapping.
+			if s.opts.DryRun {
+				res.Updated++
+				res.addDiagnostic(fmt.Sprintf("would update %s", rel))
+				return
+			}
+			if err := s.opts.FS.Update(src.Output, rel, raw, desired.Bytes()); err != nil {
+				res.Errors++
+				res.addDiagnostic(fmt.Sprintf("update failed for %s", rel))
+				return
+			}
+			res.Updated++
 			return
 		}
 	}
