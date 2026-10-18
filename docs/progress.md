@@ -2,15 +2,15 @@
 
 ## 当前状态（2026-10-18）
 
-用户最终要求简化：源根未成功读取为目录时保留，不增加缺失次数；源根可读取时，对需判断缺失的已拥有路径 Get 未读到即计缺失，不再辨别同样未读到响应的其他原因；所有列表请求 refresh:false。A 已同步 AGENTS、Slice RO-2／RO-3／RO-6、需求、架构、用户旅程、范围、路线图及测试矩阵。三次完整轮阈值、再出现清零、整轮取消／列表不完整／本地必要处理失败不提交、归属／输出边界及 dry-run 保留。
+用户要求 B 同步 Task。B 已核对真实代码和合同 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea`，决定 **Task 2.1 合法原地调整继续，不重规划**。Task 保持 FIX REQUIRED／High／T4，Task Base `a8c2d62369a21e8d9a0c2cefec2af09927fb3286` 不变，Contract Checkpoint 更新为上述 A 合同。新 TASK.md 已替换旧强刷执行清单、AC、错误／缓存测试计划，记录旧新断言与 B-1 映射；旧计划／报告／审查原文保留于 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea:TASK.md`。
 
-前两次 A 检查点 a2a3b18（权威刷新列表／最终 500 例外）和 82cceae（按需强刷／目录证明复用／请求预算）均由本次用户指令取代，历史原文与证据留在 Git 及既有 artifacts，不改称已修复。用户接受源根仍可读而目标因权限、驱动、缓存等其他问题未读到也可能累计至删除；这不是权威不存在承诺。
+新 Task 仅交付源根／目标 Get 两步判定与固定真实服务实证：根不可读保留，根可读且目标未读到按缺失观察，整次调用 context 中止优先返回 Unknown。所有列表包括 Python 准备／取证均 refresh:false，确认器不列目录或查询祖先。现有 ListFresh、祖先链、目标 403 保留和缓存立即可见断言均须按新计划替换；不能将接受的错误歧义写成已安全辨别／已修复。B-1 的整轮取消缺陷仍需专门修正，父 context 有效的单请求超时则已被新合同接受为目标未读到。
 
-Slice 2 仍 ACTIVE，Base `930782035615512be811a7b8bcc8416050f0c12f`、Implementation Head NOT SET；Task 2.1 仍 FIX REQUIRED／High／T4、Task Base `a8c2d62369a21e8d9a0c2cefec2af09927fb3286`。旧 Contract Checkpoint `56167f7884682a0d8d0269440f7357ed19892ca1` 与 B 计划暂存为历史，B 须在新合同提交后显式调整或重规划任务、AC、错误／缓存测试与 checkpoint。治理在适配前拒绝实施，A 不代签 B 决定。当前代码仍有旧强刷确认候选且 CLI 清理未开放，本回合无产品／测试／依赖改动或新 PASS。
+Slice 2 仍 ACTIVE，Base `930782035615512be811a7b8bcc8416050f0c12f`、Implementation Head NOT SET。当前产品仍为旧候选，CLI 清理继续拒绝；本 Task 不累计缺失次数、不改库或删除文件。三次资格、本地归属／边界、完整轮与清理恢复等须在后续连贯接入中落实，RO-1..RO-6 尚未全部满足，无 Closure Packet。本次只同步 B 计划与当前交接状态，无产品实现或独立 B／A 产品 PASS。
 
-本轮文档证据：`artifacts/validation-evidence/slice-2-simple-get-contract-20261018/`；文档链接／原方案身份／补丁检查与治理交接结果分别记录。产品 Go／race／CLI／真实 OpenList 本轮 NOT RUN。旧 Developer `artifacts/validation-evidence/task-2.1-final-ftETbR/`、B `artifacts/validation-evidence/task-2.1-b-review-20261018/` 及前两次 A 文档证据保留，不作为新 Get 规则的验证。Mirror 计数／删除／恢复尚未交付，无 Closure Packet。
+本轮计划证据：`artifacts/validation-evidence/task-2.1-simple-get-b-plan-20261018/`。原方案身份、文档链接、固定合同／Task 祖先关系、治理与空白检查按本轮实际结果记录。产品 Go／race／CLI／真实 OpenList 本轮 NOT RUN，Developer 修改后须按新 Task 重跑完整 T4 与固定真实服务。旧 Developer `artifacts/validation-evidence/task-2.1-final-ftETbR/`、B `artifacts/validation-evidence/task-2.1-b-review-20261018/` 及三次 A 文档证据继续保留，不作为新候选验收。
 
-Next Action: B RE-EVALUATES TASK 2.1 UNDER THE USER'S SIMPLIFIED GET CONTRACT
+Next Action: Developer implements the revised Task 2.1 and returns for independent B review
 
 ## Slice 2 激活（历史，2026-10-18）
 

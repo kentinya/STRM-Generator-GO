@@ -1,6 +1,6 @@
 # Slice 路线图
 
-状态表由治理工具读取；Slice 1 PASS / CLOSED、Slice 2 ACTIVE、Task 2.1 FIX REQUIRED。用户最终改为源根／目标 Get 简化判定，所有列表关闭强刷；撤回前两次权威列表／500 例外和刷新预算决定。下一步 B 重评 Task 2.1 并协调接口、AC、测试与合同指针；次序和 Slice Base 不变。
+状态表由治理工具读取；Slice 1 PASS / CLOSED、Slice 2 ACTIVE、Task 2.1 FIX REQUIRED。用户最终改为源根／目标 Get 简化判定，所有列表关闭强刷；撤回前两次权威列表／500 例外和刷新预算决定。B 已决定在 Task 2.1 原地调整，接口、AC、测试与合同指针已同步；下一步 Developer 按新计划修正并交 B 独立复审，次序和 Slice Base 不变。
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|
