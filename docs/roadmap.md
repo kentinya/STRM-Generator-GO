@@ -1,6 +1,6 @@
 # Slice 路线图
 
-状态表由治理工具读取；Slice 1 已 PASS / CLOSED，Slice 2 已 ACTIVE，Task 2.1 为 FIX REQUIRED。A 已按用户认可裁定列表证明与最终 Get 的边界，下一步由 B 协调 Task AC-4／Contract Checkpoint，再交 Developer 修正。优先级来自原方案 P0～P4，但按完整行为交付；本次不改变 Slice 次序或增加 Task。
+状态表由治理工具读取；Slice 1 已 PASS / CLOSED，Slice 2 已 ACTIVE，Task 2.1 为 FIX REQUIRED。A 已按用户认可裁定列表证明与最终 Get 的边界，用户随后补充网盘风控顾虑，A 已增加按需刷新、目录复用与请求节奏约束，下一步由 B 协调 Task AC-4／刷新方案／Contract Checkpoint，再交 Developer 修正。优先级来自原方案 P0～P4，但按完整行为交付；本次不改变 Slice 次序或增加 Task。
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|
@@ -17,4 +17,4 @@
 
 Slice 1 的 Base 保留为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，已审查 Implementation Head 为 `248a609eb70dbb8591091463ed51c5146d7c378a`。完整关闭合同及 Closure Packet 位于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；Task 1.1／1.2 独立 B PASS、A PASS / CLOSED 及原始证据均保留。正常写者与最终一致性边界继续遵循需求 SW-1..SW-6，旧外部写者 FAIL 不改称已修复。
 
-规模验收分十万起步、按实际结果扩展到百万，并报告 RSS、目录宽深、分页、队列、吞吐、错误与恢复；512 MB 作为第一档限制。宽目录重复枚举成本为已知 P2，不为它单独延长 Mirror 交付，但新增清理工作必须有界。真实外部依赖缺失时明确 NOT RUN／BLOCKED，不用合成 API 或交叉编译替代。
+规模验收分十万起步、按实际结果扩展到百万，并报告 RSS、目录宽深、分页、队列、吞吐、错误与恢复；512 MB 作为第一档限制。本地宽目录重复枚举成本为已知 P2；远端确认刷新放大与请求节奏已按用户约束收为 Slice 2 必要修正，详见当前合同，新增清理工作必须有界。真实外部依赖缺失时明确 NOT RUN／BLOCKED，不用合成 API 或交叉编译替代。
