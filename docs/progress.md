@@ -27,3 +27,12 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 2026-10-17：Developer按Task 1.1实现首个产品闭环并提交检查点，状态置为READY FOR B REVIEW（待提交）。交付：`cmd/strmgen` 的 `sync`／`sync --dry-run`；`internal/config` 严格YAML校验；`internal/openlist` 有界list/get与分页／应用层错误；`internal/pathmap`／`internal/strm` 纯路径、稳定URL、版本1协议与比较；`internal/storage` 用 `modernc.org/sqlite v1.60.1` 记录最小归属与完整轮次，dry-run对WAL库读私有快照不产生sidecar；`internal/reconciler` 有界遍历、同目标冲突、原子发布（同目录临时文件 + 不覆盖link）与跨进程flock互斥。依赖 `gopkg.in/yaml.v3 v3.0.1`；race门槛使用仓库固定Zig `cc`。
 
 本机已执行（证据见 `artifacts/validation-evidence/task-1.1-final/`）：治理、mod download／verify、quality（gofmt／vet／Go test／build＋Python回归）、race、Linux amd64／arm64 CGO=0构建、以及隔离CLI全场景驱动（首次、重复与比较、归属与路径、API与限额、dry-run边界、多进程、故障恢复）全部PASS。产品未完成：已拥有文件内容替换、Mirror删除／移动、serve／定时、发布镜像；真实OpenList、固定插件解析、Jellyfin／代理、ARM64实机与性能仍NOT RUN。B独立审查PENDING，不预设Slice通过。
+
+
+## 最新审查指针（2026-10-18）
+
+B 已读取仓库约束／必读文档并在审查前取得常规治理 PASS；独立审查 Task Base 951aaeeeca966e8ef79e8ac9500827ce27d0f035 至 Developer Head 4752ec2057f998d762829cdb352c8b75198ee900，核对纯报告后继和本机原始 quality／race／构建证据。现有实际 CLI 七类场景独立重跑 7/7 PASS，但新增隔离反例复现了根／祖先符号链接逃逸、锁命名空间分裂及预览锁写输出、多 source 归属覆盖、DB URI 路径误解、错误列表形状提交成功轮、可选 Size 阻断、诊断泄露、FIFO 阻塞及相对路径语义不符。
+
+Task 1.1 为 **FIX REQUIRED**，详细 F-1..F-8 修正与复验步骤在 TASK.md；修正保留同一 Task／Base／T4，不新建 Task。Slice 1 仍 ACTIVE，Implementation Head 仍指向被审候选；RO-1..RO-5 均未全部满足，无 Closure Packet 或 A 最终 PASS。本次 B 未实施产品代码，未改 Slice／Roadmap／稳定需求，未触及配套仓库及生产服务，未推送。早先 PLANNED／NOT SET／PENDING 为历史记录，以本节及活动 Task 为当前状态。
+
+审查证据仅本机：artifacts/validation-evidence/task-1.1-b-review-20261018/（index.json、原始日志、隔离输出／SQL、反例脚本）。B 未重跑完整 quality／race／双架构构建，发现阻断后先退回；Developer 修正后须用新证据目录重跑完整 T4。真实 OpenList／固定插件解析、Jellyfin／代理、ARM64实机、性能仍 NOT RUN。下一步：Developer 在 Task 1.1 增量修正并重新送 B 审查。

@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.1
 Parent Slice: 1
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -163,8 +163,104 @@ B 审查 Task Base..Developer Head 的全部实际差异，核对锁文件／配
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Decision: PENDING
-Slice Required Outcomes all satisfied: PENDING
-Next: B REVIEWS TASK 1.1
+Reviewed: 951aaeeeca966e8ef79e8ac9500827ce27d0f035..4752ec2057f998d762829cdb352c8b75198ee900
+Decision: FIX REQUIRED
+Slice Required Outcomes all satisfied: NO
+Next: DEVELOPER FIXES TASK 1.1 IN PLACE
 ```
+
+
+### B 独立审查 — 2026-10-18
+
+- 审查完整 Task Base..Developer Head，含计划与全部实施变更；报告／哈希修正文档后继核到本次起始 HEAD（完整 SHA 见证据 index.json），后继只改 SLICE Implementation Head 和 TASK 报告。B 不实施产品修正，不改 ID／Base／Goal／Scope／T4／Slice 合同。
+- B 独立重跑现有隔离 CLI **7/7 PASS**：首次、重复／比较、陌生文件／跨页冲突、API 失败不提交轮次、dry-run、同锁命名空间多进程、发布后归属失败再启动。只说明现有用例通过，不能覆盖以下反例。
+- 本机证据目录：artifacts/validation-evidence/task-1.1-b-review-20261018/；含 baseline/summary.json／baseline.log、probe_review.py／probes.json／probes.log、probe_additional.py／additional.json／additional.log、source-collision.json。probe 退出 0 表示采样完成，不是产品通过；全为隔离假服务，不是远程可读或真实 OpenList／插件证据。
+- 核对旧 quality（39 Python＋Go test／vet／build）、race JSON（86 pass／0 fail／0 skip）及产物。B 未重跑完整 quality／race／构建，已有明确阻断，不能凭旧绿灯接受候选。产物 SHA-256 与报告相符；VCS stamp 是纯文档后继 ee3e20217675eebee6a135dce58b0d70ae100498、modified=false，可执行输入与实施 Head 一致。
+
+### 必须在同一 Task 完成的修正
+
+均为原有 AC／需求的缺陷，不新增 Task 或产品能力。先补能在当前候选失败的回归，再修正；保留已有断言，不得靠 skip、改合同或声称生产不会这样配置绕过。
+
+#### F-1 / P1：输出根、祖先与物理边界（AC-3／AC-7，R-04／R-06）
+
+锚点：internal/config/config.go:265-318 只 Lstat 最后一段；internal/reconciler/fs.go:29-60,127-161 不约束 root 自身／祖先。证据 ancestor_symlink、root_swapped_after_validation 均退出 0，在隔离根外哨兵各创建四个 STRM，记录四条归属及成功轮次。别名同时绕过输出重叠和 DB 不得入输出根校验。
+
+1. 补祖先链接、配置通过后 HTTP 屏障期间根换成链接、词法独立但实际重叠根、DB 经别名入输出根测试；覆盖根存在／不存在。配置期已知不安全须在产品写入前失败。
+2. 统一校验所有已有祖先、根自身和 DB 边界，不能只靠 Clean／词法 Rel／末段 Lstat。读／建目录／发布使用绑定已验证目录的受限根或相对目录句柄，抵抗检查后替换；不能只多加一次 Lstat 后继续可被替换的绝对路径操作。
+3. 实际 CLI 断言根外目录项／字节／mtime 不变，失败源无假归属／成功轮次；保留目标恰好出现时不覆盖保障。
+
+#### F-2 / P1：共同互斥与预览锁副作用（AC-5／AC-6，R-10／R-11）
+
+锚点：internal/reconciler/lock.go:20-43 按环境、TMPDIR、UID 选择锁。lock_namespace_bypass 第一实际进程仍在屏障，第二实际进程同输出、不同 DB／锁目录退出 0 并创建四文件。dry_run_lock_inside_output 预览退出 0 却创建 out/locks/sync-0.lock。报告的全局串行保证不成立。
+
+1. 生产入口选择不会被配置／每进程环境／DB／UID 分裂的协调机制；允许保守全局串行，同物理输出所有受支持运行方式须争用同一锁。测试隔离接口不能成为发布二进制旁路。
+2. 任何 mkdir／锁文件创建前证明运行时位置在输出／DB／sidecar 外且祖先可靠；默认 TMPDIR 或 override 落入输出不得先写后查。不得每轮 unlink 活跃锁。
+3. 补实际双进程同输出、真正祖先／子目录、别名、不同 DB／锁环境／TMPDIR、dry-run 对实际轮次。当前 driver 的 ancestor 是另一个不相交根，应修正；TestLockIsCrossProcessSafe 实为同进程两次调用，不能以名称代替进程证据。
+4. 第二轮忙碌／安全拒绝且无 DB／输出变化；第一轮正常退出、SIGTERM、SIGKILL 后再获锁。预览锁位置误配保持目录项／SQL／文件快照不变。
+
+#### F-3 / P1：source 归属与轮次被合并（AC-1／AC-2／AC-7，R-06／R-07）
+
+锚点：cmd/strmgen/main.go:125-132 仅 remote 作 Key；internal/storage/storage.go:20-33,213-223 据此 upsert。同 /Movies 配两个合法独立根，首轮成功八文件却仅四条归属，第二轮第一个根四个冲突（source-collision.json）。改 API 服务但保留 remote／output／DB 也沿用旧源归属与轮次。
+
+1. source 身份稳定绑定已校验 API 源、远端根与输出映射；不含 token，不按数组序号或 public_url 建身份。public_url 变化仍走既有 URL 更新判断。
+2. 不同 API／输出不能覆盖彼此归属／round；sources 重排、同源重复、凭证轮换保持正确归属。不新增媒体版本表。
+3. 明确旧 schema／remote 键恢复：不默认对新源可信。无法证明映射则非零并保留文件；安全迁移必须独立验证，不静默认领。
+4. 两独立根首轮八文件／八归属／两轮次，二轮全跳过且字节／mtime 不变；换 API／源映射不借旧归属更新或推进别人的轮次。
+
+#### F-4 / P1：数据库文件名被当作 URI（AC-1／AC-5／AC-7，R-06／R-07）
+
+锚点：internal/storage/storage.go:55,92,160 直接拼 file:＋路径＋query。database_path_uri_interpretation 配 db?name.sqlite，退出 0，配置文件不存在而创建截断 db；预览随后看不到可靠归属。
+
+1. 统一正确构造／编码文件 URI 与读写 DSN；问号、井号、百分号、空格不能注入 query／fragment／pragma。若拒绝不支持名称，须在产品写入前明确拒绝，不能静默换位置。
+2. 测精确文件名、无替代文件、重复 sync／dry-run 同归属、正确 sidecar；联合 F-1 校验 DB 边界。错误不输出私有路径，不用临时 DB／自动认领补洞。
+
+#### F-5 / P1：必要响应形状与可选 Size 混淆（AC-1／AC-4，R-01／R-02）
+
+锚点：internal/openlist/openlist.go:133-151,206-245。missing_content_accepted_as_empty 仅 data={total:0}，产品退出 0 并提交 epoch。负值／溢出／小数／错误类型 Size 阻断合法媒体而非省略无效可选字段；零对照正常保留。
+
+1. 区分 content 缺失／null／数组／错误类型；缺失失败，合法空数组成功。null 须有可核验 OpenList 证据支持，未证实不默认为空。root get 核对目录语义。
+2. 将必要字段失败与可选元数据无效分开；保留 Size 原始形状，仅 0..MaxInt64 整数有效；缺失／null／无效值省略标记、报告受限原因，不伪造零、不阻断合法媒体；list／get 统一。
+3. 逐项检查退出码、STRM、归属和 rounds：必要形状失败无成功轮；无效可选字段仍生成合法协议，重复遵守信息不足不推断变化。
+
+#### F-6 / P1：脱敏和真实失败摘要（AC-8，R-12）
+
+锚点：cmd/strmgen/main.go:90-118,178-187 原样输出 YAML／DB／锁错误及完整 src.Remote。diagnostic_redaction、yaml_value_redaction 用假秘密复现未知键／值片段泄漏；成功摘要也输出完整远端根。
+
+1. CLI 统一稳定错误类别、可信字段名／行号、source 序号和相对项；不输出原始 YAML、os.PathError、SQLite 正文、远端完整根或 API 正文。
+2. 在配置类型／未知键／不存在配置／重复根／DB／锁／API 错误植入合成 token、Cookie、签名 URL、私有路径标记，检查 stdout／stderr 不泄漏完整值或前缀；不能只匹配完整 token。
+3. 保持可操作性；API 根／分页失败当前可 errors=0，须有真实错误计数或明确失败／partial 标记，不能把失败显示为零错误成功摘要。
+
+#### F-7 / P1：特殊文件阻塞与容量边界（AC-4／AC-7／AC-8，R-02／R-11）
+
+锚点：internal/reconciler/fs.go:62-70 无类型／长度上限 ReadFile；handleFile:267-274 不要求常规文件。owned_fifo_hangs 隔离内替换已拥有目标为 FIFO 后 sync 阻塞，SIGTERM 不能退出，只能 SIGKILL。openlist.List:215-272 累积单目录对象至最多100000页×200；SourceResult.Diagnostics 逐文件积累，平铺源即全库对象／诊断。
+
+1. 安全打开后验证常规文件，FIFO／socket／设备／目录／链接快速保守失败，避免 Lstat/open 之间替换后阻塞。读取限协议上限＋1，解析在规范化前查原始长度和 UTF-8。
+2. 补实际 CLI 特殊／超大文件和取消回归，明确超时，保留原目标、不提交轮次、退出后再获锁。
+3. 设实际可执行每目录累计条目／名称字节上限，或分页＋有界临时路径索引检测冲突；超限明确失败、不提交轮次，不能只限单响应。保留跨页冲突目标一个也不生成。
+4. 诊断保留有限样例＋总数／截断计数，不全轮累积；宽／深／平铺目录、批量异常和 dry-run 可结束或明确失败、不死锁。报告实际容量，不新增性能承诺。
+
+#### F-8 / P2（本次一并修正）：cwd 路径语义与交付事实（AC-8／步骤2.1）
+
+internal/config/config.go:107-111,270-273,290-293 以配置目录而非批准的启动 cwd 解析相对路径；relative_path_base 已复现。
+
+1. 按既有 Task／config.example.yaml 的 cwd 语义修正；配置在 cwd 外，测试 cwd／输出／DB 全为专用夹具，不试写源码目录。
+2. 修正文档矛盾：环境文档同时说尚无依赖／go.sum和已提交；Progress 当前指针仍 PLANNED／NOT SET。补准确权限、DB丢失、未登记文件、锁／临时文件恢复说明，不建议盲目认领或删除未知文件。旧报告作历史，新报告说明修正事实。
+
+### 修正验证与重新送审
+
+1. 把反例迁入受版本控制 Go／CLI 回归，本机 probe 不是唯一交接。建议 F-1／F-2 → F-3／F-4 → F-5／F-6／F-7 → F-8，各组先跑影响包和 CLI 失败恢复；仍是一个整体 Task。
+2. 现有 fault_recovery 主要测建目录失败、归属插入失败、子目录 HTTP 失败、SIGTERM；补实际 CLI 临时写入／发布失败、目标恰好出现、归属成功后进程中断、page>1 中断、SIGKILL 恢复。不能用内部注入、完成轮后重启或子目录失败冒充。必要时测试专用构建／受控 OS 故障须标与发布二进制差异，不开放生产安全旁路。
+3. 完整 T4 不变：原门槛中的治理、mod download／verify、quality、race、双架构 CGO=0 构建、隔离 CLI all；新 artifacts/validation-evidence/task-1.1-fix-<run-id>/，驱动用新空子目录。不得覆盖 final／B证据；保留首次失败／重跑、命令／cwd、计数／skip／耗时、源码／配置／fixture／二进制身份及逐 F 映射。
+4. 增量提交，不改写旧实现；填新真实 Head，送 READY FOR B REVIEW。B 审原 Base..新 Head，复现所有 P1 与关键恢复；未满足保持 FIX REQUIRED，不新建 Task 1.2。
+
+### Slice 全部 RO 复核（未 PASS，不进入 Closure）
+
+| Outcome | 本次判断 | 缺口 |
+|---|---|---|
+| RO-1 | 未满足 | F-6／F-8 脱敏、失败摘要、路径语义；基础入口已复现 |
+| RO-2 | 未满足 | F-5 形状／Size；真实 OpenList／无签名 /d/ 仍 NOT RUN |
+| RO-3 | 未满足 | F-1 祖先／根替换／物理重叠；基础映射／特殊名称／既有跨页冲突用例 PASS |
+| RO-4 | 未满足 | F-3／F-4／F-7 归属／DB／读取；内容替换原已留后续连贯 Task；固定插件解析 NOT RUN |
+| RO-5 | 未满足 | F-2 互斥／预览副作用、F-7 容量；关键恢复证据待补 |
+
+合同可执行，无需 A 改 Contract；Task 1.1 原地修正，Slice 保持 ACTIVE。没有 Task PASS、Closure Packet 或 A 最终结论。删除／serve／生产联调／ARM64实机／性能不伪报通过。可复用经验留待 Slice 收尾，不将审查流水账写入角色经验文档。
