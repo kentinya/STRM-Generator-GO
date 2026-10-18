@@ -2,7 +2,21 @@
 
 ## 当前状态（2026-10-18）
 
-Slice 1 **PASS / CLOSED**。A 审查完整 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`，接受 RO-1..RO-5 的本地单轮生成／更新／恢复闭环，未发现 P0/P1 阻断；Task 1.1／1.2 均有独立 B PASS。当前无活动 Task，未选择或激活后续 Slice。
+Slice 2「安全目录镜像与清理恢复」由 A 在 Slice 1 关闭后的独立回合选择并激活为 **ACTIVE**。Base 固定为选择前真实 HEAD `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET。当前无活动实施 Task，无产品改动或新产品验收；下一步 B 按提交后的合同核查代码并规划首个 Task，Developer 尚无实施准入。
+
+原路线 Slice 2 的增量比较与正常恢复已在 Slice 1 接受，避免重复交付；未激活路线重排为安全 Mirror、定时／部署、端到端／规模三个后续结果。当前合同 RO-1..RO-6 覆盖显式清理配置、完整成功轮及连续缺失、精确路径／归属、当前权威再确认、移动旧路径、旧库兼容、预览和正常清理失败恢复。固定隔离 OpenList 的所选缺失确认语义实证是 Slice 2 必要安全证据；真实 `/d/`、插件解析、Jellyfin／代理、ARM64 实机与规模仍为后续独立层。
+
+A 同步需求、用户旅程、架构 TARGET、验收矩阵与当前状态，明确清理默认关闭、计数阈值≥2、失败轮不新增证明、再出现保守失效、旧轮次不追认、旧映射缺失保留及跨文件部分清理恢复。原方案、协议／比较、安全与 SW-1..SW-6 边界不变；不新增外部写者绝对防护。详细实现顺序与 Task 由 B 决定。
+
+激活文档验证和原始日志保存在本机 `artifacts/validation-evidence/slice-2-activation-20261018-gnh9np0u/`。原方案 SHA-256 未变，23 份 Markdown 的 66 个本地链接、合同／真实 Base／无活动 Task 预检和空白检查通过。治理回归首轮因仓库内临时夹具向上发现主 Git 而 1/14 失败；限制该夹具的 Git 查找边界后，同一测试 14/14 通过，首次日志保留。未提交合同的常规治理拒绝符合预期；提交后的常规治理结果记录于同一索引。本轮产品 Go／race／CLI／真实服务 NOT RUN，不把合同激活当 T4 或产品 PASS；未推送。
+
+Next Action: B PLANS FIRST TASK
+
+以下均为历史时点；当前状态以上节、SLICE 与 TASK 为准。完整 Slice 1 关闭合同保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；Task 1.2 报告保留于 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。
+
+## Slice 1 关闭（历史，2026-10-18）
+
+Slice 1 **PASS / CLOSED**。A 审查完整 `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`，接受 RO-1..RO-5 的本地单轮生成／更新／恢复闭环，未发现 P0/P1 阻断；Task 1.1／1.2 均有独立 B PASS。关闭时无活动 Task，尚未选择或激活后续 Slice。
 
 A Slice Final：治理、quality（48 项 Python 与 Go 格式／vet／test／build）、F-14～F-16／未归属／歧义残留聚焦回归、隔离 CLI 全场景 9/9、diff check 全部 PASS。原始证据见 `artifacts/validation-evidence/slice-1-a-final-20261018-ksy6lbym/`。核对可执行输入与二进制身份后复用 B 完整 T4 `artifacts/validation-evidence/task-1.2-b-review-20261018-3rVdg8/` 的依赖校验、race（180 测试＋8 包通过事件，0 fail／skip）及双架构构建；A 未重复这些门槛。
 
@@ -12,7 +26,7 @@ A Slice Final：治理、quality（48 项 Python 与 Go 格式／vet／test／bu
 
 Next Action: A SELECTS THE NEXT LARGE SLICE
 
-以下保留历史时点及首次失败；以本节和 SLICE 为当前状态。完整 Task 1.2 报告保留在 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。
+以下保留更早时点及首次失败，不覆盖后续独立审查结论。
 
 ## 前次 B 复审（历史，F-15／F-16 修正前）
 
@@ -57,8 +71,8 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 
 2026-10-17：用户明确要求激活第一个Slice；A提交Slice 1「安全的单轮生成闭环」ACTIVE合同及同步Roadmap，固定开发准备基线 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`。本次只激活合同，没有产品实现或审查结论。
 
-- [Slice 1](../SLICE.md)：ACTIVE；Base为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，Implementation Head为NOT SET。
-- [Task 1.1](../TASK.md)：PLANNED；首次生成、归属登记与安全重复运行，Task Base与Contract Checkpoint均为 `951aaeeeca966e8ef79e8ac9500827ce27d0f035`。尚无Developer实现，产品审查PENDING。
+- Slice 1（当时合同见 `951aaeeeca966e8ef79e8ac9500827ce27d0f035:SLICE.md`）：ACTIVE；Base为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，Implementation Head为NOT SET。
+- Task 1.1（初始计划留在可达历史）：PLANNED；首次生成、归属登记与安全重复运行，Task Base与Contract Checkpoint均为 `951aaeeeca966e8ef79e8ac9500827ce27d0f035`。尚无Developer实现，产品审查PENDING。
 - 产品Go测试／构建、真实OpenList、插件解析、Jellyfin／代理、压力、产品发布：NOT RUN。
 - B独立审查与A产品最终审查：PENDING。
 - 下一步：Developer按Task 1.1实施并提交真实验证证据；B审查后重新核对全部RO。已拥有文件内容更新及恢复、真实OpenList／固定插件解析等缺口仍未完成，不预设Slice通过。
@@ -72,7 +86,7 @@ Compose夹具已在专用 `strm-generator-dev` 项目启动并通过health检查
 本机已执行（证据见 `artifacts/validation-evidence/task-1.1-final/`）：治理、mod download／verify、quality（gofmt／vet／Go test／build＋Python回归）、race、Linux amd64／arm64 CGO=0构建、以及隔离CLI全场景驱动（首次、重复与比较、归属与路径、API与限额、dry-run边界、多进程、故障恢复）全部PASS。产品未完成：已拥有文件内容替换、Mirror删除／移动、serve／定时、发布镜像；真实OpenList、固定插件解析、Jellyfin／代理、ARM64实机与性能仍NOT RUN。B独立审查PENDING，不预设Slice通过。
 
 
-## B 审查记录（2026-10-18）
+## B 审查记录（历史，2026-10-18）
 
 B 已读取仓库约束／必读文档并在审查前取得常规治理 PASS；独立审查 Task Base 951aaeeeca966e8ef79e8ac9500827ce27d0f035 至 Developer Head 4752ec2057f998d762829cdb352c8b75198ee900，核对纯报告后继和本机原始 quality／race／构建证据。现有实际 CLI 七类场景独立重跑 7/7 PASS，但新增隔离反例复现了根／祖先符号链接逃逸、锁命名空间分裂及预览锁写输出、多 source 归属覆盖、DB URI 路径误解、错误列表形状提交成功轮、可选 Size 阻断、诊断泄露、FIFO 阻塞及相对路径语义不符。
 

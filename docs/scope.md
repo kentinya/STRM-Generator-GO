@@ -2,7 +2,9 @@
 
 [V4.3 原方案](<../STRM Generator Go.md>) 原样保留，内容身份固定在 [环境规范](../dev/environment-spec.json)。配套项目只读 STRM；本项目维护 STRM。两者共享文件协议，不共享状态库、调度器或内部接口。
 
-开发准备基线及 Slice 1「安全的单轮生成闭环」已交付；Slice 1 为 PASS / CLOSED，Task 1.1／1.2 均有独立 B PASS，当前无活动实施 Task。已接受的本地能力包含配置／sync／dry-run、API 与协议处理、镜像路径映射、已拥有文件更新、最小归属、互斥和正常中断后的重试收敛。A 审查范围、原始证据与延期见 [SLICE.md](../SLICE.md)，尚无真实 OpenList／固定插件实际解析／播放／ARM64 实机／性能或正式发布验收。
+开发准备基线及 Slice 1「安全的单轮生成闭环」已交付；Slice 1 为 PASS / CLOSED，Task 1.1／1.2 均有独立 B PASS。已接受的本地能力包含配置／sync／dry-run、API 与协议处理、镜像路径映射、已拥有文件更新、最小归属、互斥和正常中断后的重试收敛。A 完整关闭合同、原始证据与延期保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`，尚无真实 OpenList／固定插件实际解析／播放／ARM64 实机／性能或正式发布验收。
+
+当前 [Slice 2](../SLICE.md) 为 ACTIVE：安全目录镜像与清理恢复，Base 为上述关闭检查点，Implementation Head 为 NOT SET。范围包括完整成功轮与连续缺失、精确映射及旧库兼容、权威再确认、归属／边界内删除、移动旧路径收敛、dry-run 和正常清理失败恢复；固定隔离 OpenList 的不存在确认实证是必要安全证据。尚无活动 Task，下一步由 B 规划；清理仍未实现，本次没有新产品验收。
 
 产品范围：OpenList list／get 元数据；稳定 `/d/` URL；版本化 STRM；目录镜像；增量比较与原子更新；SQLite 最小归属／轮次；经过完整成功对账的安全清理；单轮互斥、有界目录并发；手动／预览／定时；Linux amd64／arm64 容器与二进制；最终一致性和分层验收。
 

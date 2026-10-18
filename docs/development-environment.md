@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Task 1.1 已有产品 Go 包和 CLI，但前一候选的 B 决定是 FIX REQUIRED；产品代码、环境 smoke 或旧证据都不代表当前 Task 已被接受。当前 Task 状态与证据索引见 [TASK.md](../TASK.md)。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 已 PASS / CLOSED，Task 1.1／1.2 均有独立 B PASS，完整关闭合同及证据保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`。当前 Slice 2 已 ACTIVE，无活动实施 Task；Mirror 清理仍未实现，环境 smoke 不代表新 Slice 通过。状态见 [SLICE.md](../SLICE.md) 和 [TASK.md](../TASK.md)。
 
 ## 安装与检查
 
@@ -95,7 +95,9 @@ docker compose -f dev/compose.yaml stop
 
 ## T4 验证与 Git 证据
 
-Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引见 [SLICE.md](../SLICE.md)：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。完整历史 Task 计划保留于 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。完整故障场景还需传 `--fault-binary`，该二进制以 `-tags strmgen_testhooks` 构建，示例见 README。hook 仅用于确定性发布／归属／staging 写入／交换及 round 前中断；测试二进制不可用于生产。发布二进制不含 hook 环境开关，并用于实际重启验证。
+Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。完整历史 Task 计划保留于 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。完整故障场景还需传 `--fault-binary`，该二进制以 `-tags strmgen_testhooks` 构建，示例见 README。hook 仅用于确定性发布／归属／staging 写入／交换及 round 前中断；测试二进制不可用于生产。发布二进制不含 hook 环境开关，并用于实际重启验证。
+
+Slice 2 的目标 T4 与缺失确认真实 OpenList 实证见当前合同和测试矩阵，准确命令及夹具由 B 在激活提交后规划；已有 CLI 驱动尚不覆盖 Mirror 删除，不把 Slice 1 的 9/9 直接作为清理证据。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin。
 
 验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 

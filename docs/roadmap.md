@@ -1,16 +1,20 @@
 # Slice 路线图
 
-状态表由治理工具读取；Slice 1 已 PASS / CLOSED，后续 Slice 均为 PLANNED，当前无活动实施 Task。优先级来自原方案 P0～P4，但按完整行为交付。
+状态表由治理工具读取；Slice 1 已 PASS / CLOSED，Slice 2 已 ACTIVE，当前无活动实施 Task，下一步由 B 规划首个 Task。优先级来自原方案 P0～P4，但按完整行为交付。
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|
-| 1 | 安全单轮生成 | PASS / CLOSED | 开发基线 | P0＋必要P1：配置、API、协议、映射、原子创建／更新、最小归属、正常恢复、dry-run／互斥闭环 |
-| 2 | 增量与故障恢复 | PLANNED | Slice 1 | P1：变化矩阵、无变化零写、崩溃窗口、持久化恢复与重复运行 |
-| 3 | 安全目录镜像 | PLANNED | Slice 2 | P2：移动、删除，两轮完整成功缺失及再次确认，归属／边界与故障恢复 |
-| 4 | 定时、部署与端到端验收 | PLANNED | Slice 3 | P3＋P4：serve、有界负载、Linux双架构／Docker、真实OpenList／插件／Jellyfin联调 |
+| 1 | 安全单轮生成 | PASS / CLOSED | 开发基线 | P0＋必要 P1：配置、API、协议、映射、原子创建／更新、增量比较、最小归属、正常恢复、dry-run／互斥闭环 |
+| 2 | 安全目录镜像与清理恢复 | ACTIVE | Slice 1 | P2＋清理所需 P1：移动／删除、完整轮与连续缺失、权威再确认、归属／边界、旧库兼容、清理故障恢复及预览 |
+| 3 | 定时与部署 | PLANNED | Slice 2 | P3：serve、共同互斥、停止恢复、Linux 双架构／Docker、状态与挂载运行说明 |
+| 4 | 端到端与规模验收 | PLANNED | Slice 3 | P3＋P4：真实 OpenList／无签名地址、固定插件解析、Jellyfin／代理、ARM64 实机与有界负载实测 |
 
-[Slice 1](../SLICE.md) 的 Base 固定为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，已审查 Implementation Head 为 `248a609eb70dbb8591091463ed51c5146d7c378a`。后续条目只是路线，不预设合同、Task 或审查结果。原列于 Slice 2 的比较矩阵、稳定零写和正常中断恢复已作为 Slice 1 必要安全接受；下一轮 A 选择时应按真实缺口重评，不机械重复这些能力。本轮只关闭 Slice 1。
+## 2026-10-18 A 选择与重排
 
-2026-10-18 A 按用户澄清纠正 Slice 1 的本地写者与最终一致性边界（需求 SW-1..SW-6）：正常生成器单写、消费者只读、多生成器共享锁，不要求抵御任意外部写者或新增 UID／权限系统。Task 1.2 原地完成 F-14 与正常更新／中断后的重试收敛，不新增权限矩阵／消费者 OS 实验、不拆碎片 Task。该修订本身不是产品 PASS；随后 Task 1.2 完成 F-14～F-16 修正、取得独立 B PASS，A 再以完整 Slice Final 关闭。原始方案及固定 Base 不变。
+原路线 Slice 2 的比较矩阵、稳定输出零写和正常中断恢复已作为 Slice 1 必要安全接受；继续按原标题实施会重复已交付能力。本次把尚未激活的路线重新安排为：Slice 2 交付原计划 Slice 3 的完整 Mirror 旅程；定时／部署和端到端／规模分别留作后续完整结果。计划条目的重排不是新 PASS，未启动后续 Slice 或 Task。
 
-规模验收分十万起步、按实际结果扩展到百万，并报告 RSS、目录宽深、分页、队列、吞吐、错误与恢复；512 MB 作为第一档限制。真实外部依赖缺失时明确 NOT RUN／BLOCKED，不用合成 API 或交叉编译替代。
+[当前 Slice 2 合同](../SLICE.md) 的 Base 固定为选择前真实 HEAD `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 NOT SET。必要删除安全要求不延期；本 Slice 对真实 OpenList 的范围限于权威缺失确认所需的固定隔离版本／驱动实证，不能替代 Slice 4 的真实部署、无签名 `/d/`、插件或播放验收。
+
+Slice 1 的 Base 保留为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，已审查 Implementation Head 为 `248a609eb70dbb8591091463ed51c5146d7c378a`。完整关闭合同及 Closure Packet 位于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；Task 1.1／1.2 独立 B PASS、A PASS / CLOSED 及原始证据均保留。正常写者与最终一致性边界继续遵循需求 SW-1..SW-6，旧外部写者 FAIL 不改称已修复。
+
+规模验收分十万起步、按实际结果扩展到百万，并报告 RSS、目录宽深、分页、队列、吞吐、错误与恢复；512 MB 作为第一档限制。宽目录重复枚举成本为已知 P2，不为它单独延长 Mirror 交付，但新增清理工作必须有界。真实外部依赖缺失时明确 NOT RUN／BLOCKED，不用合成 API 或交叉编译替代。
