@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.2
 Parent Slice: 1
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
 Contract Checkpoint: bfdceed5b3c564ca92aef47035dcced314f24d45
 Difficulty: High
@@ -21,11 +21,12 @@ Planner / Reviewer: B
 
 ## Base 与实际未完成项
 
-- Task 1.1 的历史 B PASS 范围是 `951aaeeeca966e8ef79e8ac9500827ce27d0f035..15d749b3f151e94a6fb5e9850e6e21d7101aa603`。其创建／归属／互斥／dry-run 能力继续复用；首次发布后尚未登记归属的中断窗口仍保留未归属冲突，不另造自动认领机制。
-- 最新产品候选仍为 `d0e2bacfb824b4876c647059e43c2996a9339417`，不是本轮文档提交。现有 `LocalFS.Update` 使用同目录确定性暂存、RENAME_EXCHANGE、校验与回滚；`Recover` 在比较前执行；SQLite 仍只存最小归属／轮次。上述能力不是待从零重建的模块。
-- **F-14 已确认未修：** `securepath.Dir.Duplicate` 使用 dup 共享 open file description，`ReadDirNames` 在该描述上调用 Readdirnames(-1)；`findStagingFiles` 因而既一次装入整目录，又会因共用游标漏检后续文件的残留，错误允许完整 round。相关枚举／恢复接入始于 `f16ea0f176334c9eb5ebf4eb13d0d63970acc5b9`。当前 Task 必须修正并补真实装配回归。
-- **正常恢复收敛待实证：** 当前 Recover 的 target==desired／staging==desired／两侧都不同等分支，须覆盖正常中断和重启前远端 desired 变化；从代码风险不能直接宣称已经复现或已经修好。若无外部干预的正常流程产生永久冲突或错误成功，仍在本 Task 修正。
-- 历史 F-10／F-13 和外部来源 F-11 按末尾映射重新分类；既有失败日志不改写为 PASS，也不因收窄范围而抹去。没有新产品实现／新独立 B PASS；Task 保持 FIX REQUIRED，A Final Review PENDING。
+- Task 1.1 历史 B PASS 范围为 951aaeeeca966e8ef79e8ac9500827ce27d0f035..15d749b3f151e94a6fb5e9850e6e21d7101aa603；创建／归属／互斥／dry-run 继续复用。首次发布后尚未登记归属的中断窗口继续保留未归属冲突，不新增自动认领。
+- 被审实现 Head：14119b8389fdc76aa35df5ed7ba3e297810c11c5；报告后继 abdc6e5 仅改 SLICE／TASK，可执行输入未变。完整 Task Base..Head 纳入审查；已提交 A 合同修订作为 authority，不由 B 重签。
+- **F-14 修正已核对：** OpenDirReader 相对已绑定目录打开独立 open file description；findStagingFiles 使用 128 项批次、最多缓存两个匹配名、EOF／读取错误分离。prepared root 非首目标／重复查询回归通过，不再列为未修阻断。保留实现，不退回 dup／Readdirnames(-1)。
+- **F-15 / P1，空／半写暂存的正常重启仍不收敛：** Update 自己建立确定性 staging 后，在 writeTempFile 尚未完成时退出，留下 0 或 17 字节 regular residual；可靠 ownership 与旧 target 完整保留。Recover 只接受完整 old/new hash 配对，连续两个重试均 conflicts=1、partial=true、目标未更新。相同／改变 desired 四组合均复现。位置：internal/reconciler/fs.go 的 Update 写入段和 Recover 完整哈希匹配分支；无外部目标／暂存替换。
+- **F-16 / P1，恢复目录变更未确认持久化即提交 round：** Recover 在交换／删除残留后直接返回 nil，未调用现有 syncDirectory。交换后中断、以旧 desired 重试，会恢复旧 target 并走 Unchanged：注入 syncDir 失败的接缝调用为 0，返回成功、skipped=1、下一 epoch 从 2 变 3。这证明缺失目录 sync／错误传播，不是已实测断电丢数据。
+- F-10／F-13／外部来源 F-11 历史失败及 SW 分类保留，不重新要求任意外部注入永久保全。F-15／F-16 阻断 AC-4／AC-6，Task 原地 FIX REQUIRED；Task Base、合同、High／T4 不变，不新增碎片 Task。
 
 ## Scope
 
@@ -42,12 +43,13 @@ Planner / Reviewer: B
 
 ### Developer 修正步骤（按顺序，留在同一 Task）
 
-1. **记录当前失败。** 先执行治理，记录真实源码起点和新证据目录；使用现有 PrepareRoots／Recover 接口构造同根 A、B 两个目标，把残留安排在非首个目标，连续查询和重复查询。检查退出码、残留、ownership、round，保存修前结果；不要只断言返回 error 或绕过 PrepareRoots。
-2. **让每次枚举独立。** 在 securepath 为目录枚举提供一个小接缝：从已绑定目录 fd 相对 openat 点目录，取得新的 open file description；使用 O_RDONLY／O_DIRECTORY／O_CLOEXEC／O_NOFOLLOW，不绝对路径重开、不在共享 fd 上 Seek，不改其他无需枚举的 Duplicate 用途。打开／读取／关闭失败向上返回，自己打开的 fd 在各退出路径关闭。
-3. **分批找残留。** Readdirnames(n) 固定小批次（如 128），不能先 Readdirnames(-1) 再切片。findStagingFiles 最多保留两个匹配名，第二个即可判歧义；只有完整 EOF 能判 0 或唯一。读取错误／自设限额到达不能等同不存在，不推进完整 round。不要缓存整个本地目录或为每个文件开 goroutine。
-4. **核对正常恢复分支。** 复用现有故障接缝，测试更新写入后／交换前、交换校验前、发布后 round 前的失败／SIGTERM／SIGKILL；重启先用相同 desired，再测远端 URL 或可比较元数据在重启前变化。不得插入外部文件替换。若既有可靠归属的正常状态被永久冲突卡住，在现有恢复流程中做最小修正；不把全部残留直接删除，也不把全部恢复永久失败。无 DB／无可靠归属或真正歧义仍保守保留；若只有改变 ownership 语义／新增持久状态才能满足，给 A 最小状态对与合同矛盾，不自行扩张。
-5. **补收敛与回归断言。** 证明第 1 步的多目标／重复枚举稳定检出，补子目录、多个独立 source、dry-run 后真实运行、发布二进制重启和大量无关条目。扫描后远端变化用既有可控 API 夹具验证后续按比较规则更新；收敛后再跑一次应跳过、不改 bytes／mtime。实际 I/O／权限错误仍非零且不提交 round，不做新的权限安全矩阵。
-6. **匹配候选再送审。** 先顺序执行聚焦五包与 CLI 三场景，再对最终候选跑完整 T4。全部新增回归／hook 入库，生产二进制不含测试开关。提交真实 Implementation Head，完整记录首次失败和重跑，填完成报告，交 READY FOR B REVIEW；不得自签 B PASS／A PASS。
+1. **保留失败输入。** 执行治理，记录源码 SHA／工作区、工具链和新 artifacts 证据目录。读取 B overlay／原始日志（见 B Review Result），将正常流程断言纳入入库回归，不只断言返回 error；先记录修前失败再改产品。
+2. **复现 F-15。** 使用 PrepareRoots、真实 SQLite store 与 Syncer 先创建 A.strm。让 Update 自己建立 staging，分别在任何字节写入前和只写部分后中断，不由外部制造／替换 staging。断言旧 bytes／mtime／ownership 保留、round 不推进。分别使用相同 desired 与改变 URL／可比较 SHA-1／Size 重试，检查退出码、目标、残留、ownership、round。
+3. **最小修正未完成写入。** 复用 LocalFS／Recover、双哈希 staging 名、现有 ownership 和目录句柄。区分“可靠拥有、唯一可识别 regular staging、target 仍匹配旧内容”的交换前未完成写入，与无归属、歧义、类型／路径错误；不要仅因 staging 不匹配完整 new hash 就永久冲突。按 SW 正常单写者边界识别自己的未完成暂存，不要求抵御任意伪造同名内容。不能批量删 tmp、按合法 STRM／名字自动认领或增加媒体状态表；若确需改变 ownership／合同，交 A 最小矛盾，不自行扩张。
+4. **修正 F-16 完成边界。** 逐一检查 Recover 中 exchange／remove 成功路径，让现有目录同步及错误接缝在返回恢复成功前生效；不能指望后续 Update 必定执行，不能用 DB commit 代替目录 sync。sync／读取／删除失败须非零、partial=true、不提交 round。覆盖恢复后目标已等于 desired、后续只 skip 分支及 sync 失败后再运行；必要时调整现有恢复顺序，不新增持久化恢复状态机。
+5. **保留安全与映射。** 未归属、DB 丢失、两个残留、未知／不可解释名称、symlink／FIFO／目录、路径逃逸继续保留冲突；dry-run 不做恢复写入。参见 F-15 专项映射，允许分离外部注入永久保护断言，不删除真正未归属保护或隐藏 skip。枚举 reader 的 open/read/close 错误向上传播，各路径关闭自己打开的 fd；大目录测试应实际确认跨批次，不能凭创建顺序假定。
+6. **补确定性进程验证。** 必要屏障仅放 testhooks：staging 创建后未写、部分写入后暂停；SIGKILL 后使用无测试开关发布二进制重启。证明相同／改变 desired 收敛，稳定重跑 bytes／mtime 不变。Go 故障测试补恢复目录 sync 失败、不提交 round、重试；保留既有交换前后／round 前 SIGTERM／SIGKILL、F-14、I/O／DB／互斥测试。不改生产或配套仓库。
+7. **匹配新候选再送审。** 先跑下方 F-15／F-16 回归、五包，再顺序运行 CLI repeat_and_compare、dry_run_boundaries、fault_recovery。最终新实现及入库测试执行原完整 T4；不能把 14119b8 T4 当修后通过。提交实际实现检查点、完成报告后交 READY FOR B REVIEW，不自签 B／A PASS。
 
 ## Acceptance Conditions
 
@@ -65,7 +67,13 @@ Planner / Reviewer: B
 
 ### 开发／修正反馈
 
-先跑新增 F-14 和正常恢复回归，然后执行：
+先将 F-15／F-16 入库回归命名为 TestInterruptedPartialStagingRecoveryConverges、TestRecoveryDirectorySyncFailureDoesNotCommit（可加子测试），先执行：
+
+```bash
+bash scripts/go-local test -count=1 -v -run 'TestInterruptedPartialStagingRecoveryConverges|TestRecoveryDirectorySyncFailureDoesNotCommit' ./internal/reconciler
+```
+
+然后执行原反馈门槛：
 
 ```bash
 python3 scripts/check_governance.py
@@ -99,7 +107,7 @@ quality.py 包含非 race 的 Go／Python 检查；race、arm64 交叉构建、�
 
 ### B 独立验证与证据
 
-独立复现 F-14 真实装配、URL／SHA-1／Size 更新、稳定零写、dry-run、正常中断重启和 desired 变化后的收敛；核对全部目标／暂存、ownership／round、退出码及锁释放。未归属保护／真实 I/O 错误继续核对，不要求不同 UID 消费者实验。按下面映射区分外部干预诊断和正常故障回归。
+独立复现 F-15 的 0／半写后重启及 F-16 的恢复目录 sync 失败／round 不推进；保留 F-14 真实装配、URL／SHA-1／Size 更新、零写、dry-run、正常重启及 desired 变化收敛；核对全部目标／暂存、ownership／round、退出码及锁释放。未归属保护／真实 I/O 错误继续核对，不要求不同 UID 消费者实验。按下面映射区分外部干预诊断和正常故障回归。
 
 每个候选记录完整源码 SHA、未提交输入摘要、命令／cwd／版本／依赖／fixture 身份、退出码／计数／耗时、原始日志、首次失败和重跑。源码、测试、依赖或运行输入改变后，最终 T4 重新匹配候选。旧相同输入的事实可引用，但旧 T4 不能证明修后新候选已通过。NOT RUN／BLOCKED／SKIPPED 不写 PASS，本机 ignored evidence 不宣称已远端交接。
 
@@ -112,12 +120,14 @@ quality.py 包含非 race 的 Go／Python 检查；race、arm64 交叉构建、�
 | F-10：最终检查后外部换名，再按名清理 | 不再是任意外部写者绝对保全门槛；保留历史 FAIL，不称已修复 | 正常更新／回滚／暂存清理、系统调用失败、完整轮与真正未归属保护 |
 | F-13：最后校验后外部替换 staging 再发布 | 排除任意替换窗口的绝对防护；不要求 inode CAS 或更多轮检查 | 正常暂存完整性、原子发布、失败／取消；已有低成本替换检测回归可保留 |
 | F-11：外部注入内容经恢复后的多次运行被覆盖 | 原外部来源序列不再强制三次永久冲突；不换成静态 legacy 继续要求无损保全全部注入字节 | 无外部干预的正常恢复不丢必要依据、不错误成功且后续收敛；真正无归属／类型／路径冲突保留 |
-| F-14：prepared root 共用目录游标漏检后续目标 | 与外部干预无关，继续应修／AC-9 | 独立流式枚举、非首个目标残留、重复／交替／多 source、EOF／错误、有界内存 |
+| F-14：prepared root 共用目录游标漏检后续目标 | 本候选修正已核对；保留 AC-9 回归 | 独立流式枚举、非首个目标残留、重复／交替／多 source、EOF／错误、有界内存 |
 | F-12：内部 I/O／发布／回滚／目录 sync／信号故障 | 已补覆盖保留，正常故障门槛不降低 | 目标完整性、DB／round、锁释放、正常重启；不能把观察屏障当持久化证明 |
 
 **现有用例的具体授权：** `TestRecoverRestoresForeignDisplacedContent`、`TestForeignInterruptedUpdateRecoveryConflicts`、`TestValidForeignInterruptedUpdateRecoveryConflicts` 以及 CLI `update_before_verification_foreign`／`update_before_verification_valid_foreign` 的现有有益防御可继续保留，不要求扩展为任意外部内容跨三轮永久保全。若正常恢复修正使其断言需调整，B 允许明确分离为外部干预诊断与正常流程的恢复／未归属回归，报告原名、原触发条件、调整原因和替代断言；不得批量删除、只加 skip 或把已知 FAIL 标 PASS 来凑全绿。`TestRecoverRefusesUnownedStagingWithoutDeleting` 等真正未归属用例不因该分类被删除或削弱。若相同失效能由正常生成器流程复现，按 AC-4／AC-6 修正，不借外部写者排除条款回避。
 
-本轮文档调整不产生产品通过结论。旧报告／复审详见 `483069c2182e69a19fa8fd1ef605367df0495063:TASK.md`（包含历次候选和验证索引）；最新 B 技术复审记录为 `e42f68644b7d7a0b16b5df62c5c6b59467df8927`，报告校正见 `e474e64d8a895283b4641a980ce8523e2b17b190`。既有本机证据 `artifacts/validation-evidence/task-1.2-b-rereview-20261018-02/` 保留，不冒充新合同验证。
+**F-15 专项测试授权（B 本次显式调整）：** TestRecoverAmbiguousResidualIsConflictAndLeavesEverything 当前把任意外部字节写入一个正确双哈希名字；该单残留外部注入 fixture 不应反过来阻止正常半写恢复。如需调整此断言，保留旧名／旧触发条件／历史结果，明确转为外部干预诊断或按新正常识别条件细分，不称原外部保全目标已修复；以 Update 自己生成 0／半写残留的入库回归替代正常覆盖。TestRecoverTwoResidualsIsConflictAndPreservesAll、TestRecoverRefusesUnownedStagingWithoutDeleting 和无效名称／类型／路径保护仍必跑且不得削弱。本授权不允许删除无归属文件或任意 tmp。
+
+先前合同调整不产生产品通过结论。旧报告／复审详见 `483069c2182e69a19fa8fd1ef605367df0495063:TASK.md`（包含历次候选和验证索引）；前次 B 技术复审记录为 `e42f68644b7d7a0b16b5df62c5c6b59467df8927`，报告校正见 `e474e64d8a895283b4641a980ce8523e2b17b190`。既有本机证据 `artifacts/validation-evidence/task-1.2-b-rereview-20261018-02/` 保留，不冒充新合同验证。
 
 ## Non-goals
 
@@ -131,13 +141,13 @@ quality.py 包含非 race 的 Go／Python 检查；race、arm64 交叉构建、�
 
 | RO | 当前判断与剩余 |
 |---|---|
-| RO-1 配置／入口／摘要 | 既有实现保留；F-14 与正常故障退出码／partial／round 待本 Task 复验 |
+| RO-1 配置／入口／摘要 | 配置／CLI／摘要基线保留；F-15 重试失败、F-16 错误成功阻断闭环 |
 | RO-2 API／元数据／稳定 URL | 夹具能力保留；真实 OpenList／无签名 /d/ 实证仍 NOT RUN |
-| RO-3 映射／筛选／冲突／路径 | 既有能力保留；按新合同核对基线边界，不强求任意外部替换绝对保全 |
-| RO-4 协议／比较／原子写入／最小归属 | 本 Task 尚未接受；F-14、正常失败恢复和重试收敛待完成；固定插件解析仍 NOT RUN |
-| RO-5 互斥／有界工作／dry-run／证据 | 本 Task 尚未接受；独立有界恢复枚举、故障及无写验证待完成 |
+| RO-3 映射／筛选／冲突／路径 | 既有映射／保护能力保留，不强求任意外部替换绝对保全 |
+| RO-4 协议／比较／原子写入／最小归属 | F-14 修正有效；F-15 半写恢复、F-16 目录 sync 阻断；固定插件解析 NOT RUN |
+| RO-5 互斥／有界工作／dry-run／证据 | 独立有界枚举与既有隔离证据有效；正常中断／恢复持久化仍不完整 |
 
-Task PASS 后 B 再逐项核对全部 RO，满足则停止创建 Task，完成最终验证和 Closure Packet 交 A；本轮没有 Task PASS／Closure Packet，不代 A 宣布 Slice 关闭。
+无 Task PASS，不创建新 Task／Closure Packet；Slice ACTIVE、A Final Review PENDING。修后 PASS 时 B 再核对全部 RO 与真实 OpenList／固定插件解析缺口，不自动进入后续 Slice，不代 A 关闭。
 
 ## Developer Completion Report
 
@@ -160,10 +170,14 @@ Task PASS 后 B 再逐项核对全部 RO，满足则停止创建 Task，完成�
 ## B Review Result
 
 ```text
-Reviewed: 15d749b3f151e94a6fb5e9850e6e21d7101aa603..d0e2bacfb824b4876c647059e43c2996a9339417
+Reviewed: 15d749b3f151e94a6fb5e9850e6e21d7101aa603..14119b8389fdc76aa35df5ed7ba3e297810c11c5
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: DEVELOPER FIXES F14 AND VALIDATES NORMAL RECOVERY IN TASK 1.2
+Next: DEVELOPER FIXES F15/F16 IN TASK 1.2; RETAINS F14 REGRESSION; RERUNS T4
 ```
 
-保留上一候选的 FIX REQUIRED，不自签新产品审查。A 澄清后的新实现尚未送审；本次仅为 B 合法调整当前 Task 和测试计划，不是独立产品 PASS。
+- B 独立审查以 bfdceed5b3c564ca92aef47035dcced314f24d45 合同为 authority；同 Task／Base／High／T4。F-14 与完整 staging 的相同／改变 desired 恢复通过，不抵销 F-15／F-16。
+- 独立结果：常规治理 PASS；Go 五包 -count=1 PASS；amd64 发布／review-only overlay 构建 PASS。F-15 Go 四组合 FAIL，实际 SIGKILL 后发布二进制八次重试均 FAIL（旧目标／归属／round 安全保留，但不收敛）；F-16 一例 FAIL（sync 接缝 0 次、错误提交 round）。overlay 仅位于 ignored artifacts，未改产品代码；不称无插桩程序恰好命中窗口，不涉及外部目标／暂存替换。
+- 原始证据：artifacts/validation-evidence/task-1.2-b-convergence-review-20261018-bc87Qy/index.json；overlay、反例脚本、日志、构建输入均保留。首轮 Python 准备转义错误、SIGSTOP 屏障未可靠停住的 harness 失败保留，修正屏障后才统计四组合结果。
+- 核对 Developer 候选 T4：quality 含 Python 48 项及 Go／vet／build；race 为 174 测试事件＋8 包通过，0 fail／skip；隔离 all 9/9、双架构及 testhooks 构建，日志／三二进制 SHA-256 匹配。14119b8..abdc6e5 仅报告文档变更；ignored evidence/go.mod 隔离旧 B overlay scratch 的事实显式保留，不是产品依赖。原 T4 未覆盖新反例，不代表 Task PASS。
+- B 确认阻断后不重跑完整 quality／race／arm64／all；顺序 CLI repeat_and_compare、dry_run_boundaries、fault_recovery 独立复跑 3/3 PASS（新构建发布二进制＋已核对哈希的候选 testhooks）；记录见同索引，不以未执行写 PASS。真实 OpenList、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍 NOT RUN；无生产／配套仓库改动，无 push。
