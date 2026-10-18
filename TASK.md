@@ -7,7 +7,7 @@
 ```text
 Task ID: 3.2
 Parent Slice: 3
-Status: PASS
+Status: PLANNED
 Task Base: 8fc3a3ad8a720e9ca4c832967fdf39874581beff
 Contract Checkpoint: ee5001646d4239755606c28b61f340d795ee7014
 Difficulty: High
@@ -217,4 +217,107 @@ Slice Required Outcomes all satisfied: YES (RO-1..RO-6; Task 3.1 evidence reused
 NOT RUN: ARM64 real hardware, real OpenList, unsigned `/d/` playback, plugin parsing, Jellyfin/proxy,
 scale and formal publication.
 Next: B submits Slice 3 Closure Packet; A performs final review
+```
+
+## B In-Slice Correction Plan (2026-10-19)
+
+The A Final Review returned two P1 blockers against the candidate
+`2131b54bcec1cd43769d239a30456b4a8607f4aa`. This is a correction of Task 3.2,
+not a new Task or a Slice contract change. The original Task Base remains
+`8fc3a3ad8a720e9ca4c832967fdf39874581beff`; the final review must cover the
+complete original Task range through the correction head.
+
+### Fixed behavior
+
+1. **Command-specific interval validation (RO-1).** Preserve the accepted
+   `sync` and `sync --dry-run` behavior for `sync.interval_minutes: 0` while
+   retaining strict integer parsing and the existing negative-value safety
+   rejection. A zero value must not create a timer or otherwise affect the
+   one-shot command. Add a serve-only validation step immediately after
+   configuration load and before token lookup, lock acquisition, output-root
+   preparation, database open, or remote requests. `serve` rejects zero,
+   negative, and minutes-to-`time.Duration` overflow with a fixed safe
+   diagnostic; omitted interval remains 60 minutes. No scheduler, Reconciler,
+   lock, database, or deletion behavior changes are in scope.
+
+2. **Runtime-only Compose secret (RO-4/RO-6).** Replace value interpolation
+   in `deploy/compose.yaml` with Compose environment pass-through
+   (`OPENLIST_TOKEN:`). `docker compose config` and `--no-interpolate` must
+   show only a null/pass-through declaration, never the runtime value; the
+   running container must still receive the host `OPENLIST_TOKEN`. Update the
+   container driver to prove injection with a redacted boolean marker (for
+   example `TOKEN_SET`) and to assert the synthetic token is absent from
+   rendered Compose, container stdout/stderr, and evidence. Remove the current
+   `echo TOKEN=${OPENLIST_TOKEN}` probe. Keep the existing non-root, read-only
+   configuration, mount, lock, and lifecycle contract unchanged.
+
+### Allowed implementation surface
+
+`internal/config/config.go`, its focused Go tests, `cmd/strmgen/main.go` and
+command/config tests, `deploy/compose.yaml`,
+`scripts/run_container_integration.py`, its Python unit tests, and the
+corresponding deployment/progress evidence text. Do not alter scheduling,
+Reconciler, lock naming, SQLite schema, output safety, source semantics,
+Docker base images, dependency versions, or the Slice contract.
+
+### Developer completion and handoff
+
+Developer must first run `python3 scripts/check_governance.py`, then verify the
+new zero-interval sync/dry-run cases, serve rejection-before-side-effects,
+Compose render redaction, runtime token presence without echo, and the
+existing focused container unit tests. The completion report must include the
+new implementation head, exact commands and exit codes, first failure and
+rerun (if any), and identify the unchanged Task 3.1 evidence that is reused.
+The Task remains `READY FOR B REVIEW` only after these inputs are committed;
+the Developer does not sign a B decision.
+
+The correction feedback loop is limited to the affected inputs:
+
+```bash
+python3 scripts/check_governance.py
+bash scripts/go-local test -count=1 ./internal/config ./cmd/strmgen
+python3 -m unittest discover -s tests -p 'test_run_container_integration.py' -v
+OPENLIST_TOKEN=strmgen-fixture-only STRMGEN_UID=1001 STRMGEN_GID=1001 \
+  docker compose -f deploy/compose.yaml config --quiet
+OPENLIST_TOKEN=strmgen-fixture-only STRMGEN_UID=1001 STRMGEN_GID=1001 \
+  docker compose -f deploy/compose.yaml config > "$TASK_EVIDENCE/compose-rendered.yaml"
+! grep -F 'strmgen-fixture-only' "$TASK_EVIDENCE/compose-rendered.yaml"
+```
+
+The feedback driver must additionally run with the newly built amd64 image;
+its mount probe may report only `TOKEN_SET`/`TOKEN_MISSING`, never the token
+value. These focused checks do not replace the final T4 gate below.
+
+### B final gate and independent replay
+
+Because Go command/config code, Compose, and the acceptance driver are
+executable inputs, the final correction candidate must rerun the Task 3.2 T4
+candidate gate: governance, module download/verify, quality, Go race and
+non-race tests, amd64/arm64/testhooks builds, all Python tests, Compose
+render checks, amd64 image build, arm64 OCI build, container 6-scenario
+driver, serve regression, isolated sync regression, and `git diff --check`.
+The previous Task 3.1 full evidence may be reused only when its source,
+configuration, toolchain, fixtures, and binary identities match; the changed
+Go executable inputs require the correction candidate's complete Go gates.
+
+B independently reviews the full original Task Base..correction Head and
+freshly reproduces: (a) `sync` and `sync --dry-run` with interval zero, plus
+`serve` zero/negative/overflow failure before any output or database action;
+(b) `docker compose config` with a synthetic token showing no token value,
+while a live container receives the token and emits only `TOKEN_SET`; (c)
+first serve round, normal stop/cancel and lock release, restart stability,
+shared-lock busy-skip, and arm64 OCI manifest/ELF identity. B checks that
+stdout/stderr and retained evidence contain no token or private full path,
+then maps AC-1..AC-6 and RO-1..RO-6. Any changed executable input after the
+candidate requires the affected gate to rerun; no PASS is issued for a
+partial or stale replay.
+
+### Correction status
+
+```text
+Plan Status: READY FOR DEVELOPER
+Decision: PLANNED (same Task 3.2; no new Task)
+Implementation Head: remains 2131b54bcec1cd43769d239a30456b4a8607f4aa until Developer commit
+B Review of correction: PENDING
+Slice closure: NOT READY; A Final Review remains FIX REQUIRED
 ```
