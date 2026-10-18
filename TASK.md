@@ -8,7 +8,7 @@ Task 2.1 已独立 PASS，完整计划、报告及 B 审查保留于
 ```text
 Task ID: 2.2
 Parent Slice: 2
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: c629858ba7559a03c1eba30f8cd91a269f4b2702
 Contract Checkpoint: 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
 Difficulty: High
@@ -240,10 +240,56 @@ SKIPPED 如实报告，真实环境缺失非零 BLOCKED，不改用合成API冒�
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：PENDING
-- Tests and Results / Evidence：NOT RUN for Task 2.2
-- Decisions / Risks / Remaining Required Outcomes：PENDING
-- Head SHA：NOT SET
+- Changed Files / Implemented：
+  - `internal/config/config.go`：Resolved 增加 Mirror／CleanupEnabled／MissingConfirmations；
+    默认 mirror=true、cleanup=false、阈值 3；显式阈值只接受整数 ≥3，清理关闭时非法值同样
+    拒绝；mirror=false＋cleanup=true 在输出／数据库变更前拒绝；安全诊断映射新字段，不回显
+    秘密或私有完整路径。
+  - `internal/storage/storage.go`：写模式在事务中幂等升级 Slice 1 表，新增 `remote_path` 与
+    `missing_round`；旧行保留归属与轮次、映射未知且计数不具资格；新增精确映射观测／清零、
+    删除归属、keyset 批量枚举、资格查询与未映射计数。观察集合与待提交缺失路径放入进程私有
+    内存 scratch（有页上限），`CommitRound` 与轮次同一事务提交每 epoch 至多一次的缺失计数，
+    溢出不反转，重复／旧 epoch 不能覆盖新轮次。
+  - `internal/reconciler/syncer.go`：列表观察（含 skip／目标冲突）立即保守清零；仅对未观察且
+    映射可靠的已拥有目标复用 `openlist.Confirmer` 重核；只消费已提交阈值证据，删除前再重核
+    源根与精确目标；本地失败停止该源后续清理、不提交失败轮计数；dry-run 只用已提交阈值列
+    候选，不写文件／库／计数／轮次；移动时新路径先交付，旧路径独立三轮后退出；同目标扩展名
+    变化按比较规则更新。
+  - `internal/reconciler/fs.go` 与删除故障钩子：`InspectDeletable`／`DeleteOwned` 使用绑定
+    输出根与相对 unlink＋父目录 sync，拒绝符号链接／目录／特殊文件与未知暂存；testhooks
+    构建提供 unlink 前 gate、unlink 后 hold／sync 失败窗口，发布构建无环境开关。
+  - `cmd/strmgen/main.go`：把清理开关／阈值传入 Reconciler；摘要区分 deleted／missing／
+    reclaimed／retained／candidates。
+  - 测试与运行器：新增 `cleanup_test.go`、`fs_delete_test.go`、`storage_round_test.go`，更新
+    config／CLI 测试；隔离 CLI 新增 `mirror_cleanup`／`mirror_recovery`；真实 OpenList 运行器
+    新增可选 `--sync-binary` 的发布 CLI Mirror 闭环；旧“cleanup true 一律拒绝”断言改为有效
+    配置与非法组合验收；`dev/environment-spec.json` 登记新文件。
+  - 文档：README、`config.example.yaml`、`docs/architecture.md` CURRENT、`docs/test-matrix.md`、
+    `docs/development-environment.md`、`docs/progress.md`、`internal/README.md` 同步已实现事实
+    与待审状态，不改变需求、Slice 边界或 Roadmap。
+- Tests and Results / Evidence：证据索引
+  `artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md`（本机 Git 忽略路径）。最终
+  实现检查点后门禁：治理、`mod download`／`verify`、`quality.py`（Python 87 项、gofmt、vet、
+  test、build）、race `-race -count=1 ./...`（275 测试／8 包，0 fail／skip）、`-count=1 -json
+  ./...`（275 测试／8 包，0 fail／skip）、Linux amd64／arm64、testhooks、集成测试二进制、
+  隔离 CLI `--scenario all`（11/11 PASS，含新 2 场景）、`git diff --check` 全部 exit 0。
+  固定隔离 OpenList v4.2.7：原 8 场景（11 个 Go 集成测试，0 skip）与新增发布 CLI Mirror
+  闭环（生成 250、三轮保留、dry-run 零写候选、下一次重核删除、再出现清零、禁用存储源根不可
+  读保留）全部 PASS，所有列表轮询 `refresh:false`。真实服务层首次运行因驱动使用错误本地
+  路径（期望 `Wide/E0000.strm` 而实际目标为 `E0000.strm`）在 CLI Mirror 断言 FAIL；修正驱动
+  后同服务版本全量重跑 PASS，首次失败与重跑日志同时保留。
+- Decisions / Risks / Remaining Required Outcomes：清理采用“第 3 个不同完整轮提交资格、
+  第 4 次成功同步重核删除”，不把未提交的本轮观察凑成阈值；删除只消费已提交计数，源根不可读
+  或整轮失败冻结计数。观察／待提交集合有界但为进程内 scratch，跨进程仅依赖已提交计数；
+  清理本地失败不承诺跨文件回滚，重启按当前源根／Get 与本地事实收敛。旧库映射未知的历史
+  缺失记录保留并报告，不猜扩展名、不自动再认领。RO-1～RO-6 的本轮实现与本地／隔离 CLI／
+  固定隔离服务证据已提交；B 仍需独立重放关键窗口、逐项重评全部 RO 并决定 PASS 或
+  FIX REQUIRED。真实 `/d/` 播放、固定插件实际解析、Jellyfin／代理、ARM64 实机与十万／百万
+  规模仍 NOT RUN；宽目录重复枚举成本仍为已知 P2。未自签 B／A 产品 PASS。
+- Head SHA：`de802804c5436de035c6c9210f332f17a982d451`（实现、测试、运行器与文档检查点）。
+  门禁运行后仅更新本报告与 Task 状态，无产品／测试／运行器输入变化。
+- Evidence Run：`artifacts/validation-evidence/task-2.2-final-7TWPAV/`（本机 Git 忽略路径，
+  不是远端可读证据；二进制 SHA-256 见 `logs/binaries.sha256`）。
 
 ## B Review Result
 
