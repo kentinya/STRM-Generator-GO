@@ -2,7 +2,9 @@
 
 ## 当前状态（2026-10-18）
 
-用户进一步澄清：不要求完全保护任意外部写者，只要求正常单写者使用及后续同步收敛。A 本轮同步修订需求、架构、Slice、说明与测试矩阵，撤回 `66facd2` 中追加的 UID／mode 强制检查、消费者 OS 拒写实验及外部注入状态永久冲突门槛；原始方案与 Base 不变。F-14 与正常中断后重试收敛仍须修正／验证，真正未归属保护、路径边界、dry-run 和完整 T4 保留。只有文档修订，没有产品改动／新 PASS；Task 1.2 仍 FIX REQUIRED，Slice ACTIVE，A Final PENDING，无 Closure Packet。先提交 A 合同，再由 B 更新 Task checkpoint 和当前执行清单。
+用户进一步澄清：不要求完全保护任意外部写者，只要求正常单写者使用及后续同步收敛。A 本轮同步修订需求、架构、Slice、说明与测试矩阵，撤回 `66facd2` 中追加的 UID／mode 强制检查、消费者 OS 拒写实验及外部注入状态永久冲突门槛；原始方案与 Base 不变。F-14 与正常中断后重试收敛仍须修正／验证，真正未归属保护、路径边界、dry-run 和完整 T4 保留。只有文档修订，没有产品改动／新 PASS；Task 1.2 仍 FIX REQUIRED，Slice ACTIVE，A Final PENDING，无 Closure Packet。A 合同已先提交为 `bfdceed5b3c564ca92aef47035dcced314f24d45`；B 随后判定 Task 1.2 合法原地调整，更新 Contract Checkpoint，重写当前执行清单与明确旧／新测试映射；旧详细修复流水账保留在可达 `483069c`。
+
+本轮文档验证：原方案 SHA-256 未变，Python 工具回归 48 项通过；未提交合同、A 已提交而旧 Task 尚未更新两次治理拒绝均符合预期。Task 更新后常规治理、diff check 及再次执行的 Python 工具回归 48 项均 PASS；此处 PASS 仅指文档／工具检查，不是产品或独立审查通过。证据仅本机 `artifacts/validation-evidence/slice-1-convergence-contract-20261018-01/`；Go／race／CLI／外部服务在本轮 NOT RUN，未把旧产品证据写成新合同 PASS。
 
 ## 历史检查点与证据（旧要求已由上述澄清取代）
 
