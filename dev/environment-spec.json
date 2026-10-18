@@ -134,7 +134,15 @@
     "internal/openlist/absence_test.go",
     "internal/openlist/openlist_integration_test.go",
     "scripts/run_openlist_absence_integration.py",
-    "tests/test_run_openlist_absence_integration.py"
+    "tests/test_run_openlist_absence_integration.py",
+    ".dockerignore",
+    "Dockerfile",
+    "deploy/.env.example",
+    "deploy/compose.yaml",
+    "deploy/config.example.yaml",
+    "docs/deployment.md",
+    "scripts/run_container_integration.py",
+    "tests/test_run_container_integration.py"
   ],
   "cc": {
     "version": "0.14.1",

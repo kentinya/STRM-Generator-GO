@@ -1,0 +1,57 @@
+# Single-instance product Compose file for strmgen.
+#
+# Copy deploy/config.example.yaml to deploy/config.yaml and edit it, then run:
+#
+#   export OPENLIST_TOKEN=...            # never written to this file or an image
+#   export STRMGEN_UID="$(id -u)"        # owner of the host bind mounts
+#   export STRMGEN_GID="$(id -g)"
+#   docker compose -f deploy/compose.yaml up -d
+#
+# All host paths default to deploy/data/ so a local run never touches a
+# production media tree. Override STRMGEN_OUTPUT, STRMGEN_STATE, STRMGEN_LOCK_DIR
+# and STRMGEN_CONFIG for a real deployment. See deploy/README.md for the
+# permission, backup and multi-instance contract.
+name: strmgen
+
+services:
+  strmgen:
+    image: "${STRMGEN_IMAGE:-strmgen:local}"
+    # The token is injected only at runtime. There is no default: a missing
+    # OPENLIST_TOKEN fails the compose interpolation instead of starting a
+    # container without credentials.
+    environment:
+      OPENLIST_TOKEN: "${OPENLIST_TOKEN:?set OPENLIST_TOKEN in the environment}"
+    # Run as the host owner of the bind mounts. Defaults to the unprivileged
+    # image account; override with STRMGEN_UID/STRMGEN_GID to match the host.
+    user: "${STRMGEN_UID:-10001}:${STRMGEN_GID:-10001}"
+    # Allow reaching an OpenList instance that runs directly on the host. A
+    # containerized OpenList on the same Compose network does not need this.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Configuration is read-only. It must not live in the image and must never
+    # contain a token; the token comes from the environment above.
+    volumes:
+      - "${STRMGEN_CONFIG:-./config.yaml}:/etc/strmgen/config.yaml:ro"
+      # Product output (STRM files). This is the generator's owned tree.
+      - "${STRMGEN_OUTPUT:-./data/output}:/output"
+      # SQLite database, its -wal/-shm/-journal sidecars and dry-run snapshots.
+      - "${STRMGEN_STATE:-./data/state}:/state"
+      # Fixed lock namespace. Every instance that shares an output MUST mount
+      # the exact same host directory here and use the same UID/GID.
+      - "${STRMGEN_LOCK_DIR:-./data/locks}:/tmp/strmgen-locks"
+    # Bounded, ephemeral temporary filesystem. It shadows only the container's
+    # own scratch space; the lock bind mount above is re-mounted inside it.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    read_only: true
+    init: true
+    # SIGTERM lets the current serve round cancel and release the flock before
+    # the engine escalates to SIGKILL.
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
+    restart: unless-stopped

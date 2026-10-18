@@ -1,0 +1,9 @@
+# Keep the image build context minimal and secret-free. Only the module files
+# and the product Go source are copied into the build stage.
+*
+!go.mod
+!go.sum
+!cmd
+!cmd/**
+!internal
+!internal/**

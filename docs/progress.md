@@ -1,5 +1,25 @@
 # 进度
 
+## Task 3.2 实现（2026-10-19，READY FOR B REVIEW）
+
+Developer 按已提交 Task 3.2 实现 Linux amd64／arm64 部署运行包，状态置为
+**READY FOR B REVIEW**（尚无 B／A 结论）。交付：仓库根 `Dockerfile`（`golang:1.27.2`
+与 `alpine:3.20` 均按 digest 固定，构建层在 `$BUILDPLATFORM` 以 `CGO_ENABLED=0`
+交叉编译目标架构，运行层只复制 CA 根、非特权账号文件与静态二进制）、`.dockerignore`、
+`deploy/compose.yaml`（运行时环境注入 token、只读配置、输出／SQLite／固定锁分别挂载、
+容器私有 `/tmp` tmpfs、非 root、`read_only`、`cap_drop: ALL`、`no-new-privileges`、
+`stop_grace_period: 60s`）、`deploy/config.example.yaml`、`deploy/.env.example`、
+`docs/deployment.md`、`scripts/run_container_integration.py` 与对应 Python 测试。
+
+本机已执行：治理、新增容器驱动单元测试 13 项、amd64 `--load` 构建、arm64 OCI 构建、
+隔离容器驱动 6/6（镜像静态检查与非 root 身份、最小 sync 与挂载／token、serve 首轮＋
+正常停止＋重启、双容器同输出同锁竞争 busy-skip、Compose 生命周期、arm64 OCI
+manifest／ELF 核对）。证据索引见本 Task 完成报告；完整 T4 门禁与 B 独立关键复现仍
+待 B 执行。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机、
+规模与正式发布仍 NOT RUN。
+
+Next Action: B REVIEWS TASK 3.2
+
 ## Task 3.1 B 独立审查（2026-10-19，PASS）
 
 审查完整范围 `ee5001646d4239755606c28b61f340d795ee7014..b18caba6fd786bfe589f6ac29c2a2e779a5a1628`；
@@ -14,7 +34,7 @@ NOT RUN。RO-4 及容器生命周期对应 RO-6 未满足，因此 Slice 继续 
 
 Next Action: Developer implements planned Task 3.2 after the planning checkpoint is committed
 
-## Task 3.2 规划（2026-10-19，PLANNED）
+## Task 3.2 规划（历史，2026-10-19，PLANNED）
 
 B 按当前 Slice 3 合同与真实仓库缺口规划 Linux 双架构 Docker 运行包。范围包括固定 Go 源码／
 依赖的 amd64／arm64 CGO=0 镜像、非 root、环境 token、只读配置、输出／DB／sidecar／临时区／
@@ -51,18 +71,19 @@ Next Action: B REVIEWS TASK 3.1
 
 ## 当前状态（2026-10-19，Slice 3 ACTIVE）
 
-Slice 1 与 Slice 2 均 PASS / CLOSED；Slice 2 的 A 最终审查范围和分层证据保留在其
+Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 最终审查范围和分层证据保留在其
 关闭检查点。A 已激活 Slice 3「定时与部署」，Base 固定为
-`ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Implementation Head 为 `NOT SET`，当前
-没有活动实施 Task。
+`ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Implementation Head 为 `NOT SET`。
+Task 3.1 已独立 B PASS；Task 3.2 已实现并交 READY FOR B REVIEW。
 
 本 Slice 的 Required Outcomes 是 `serve` 首轮立即执行与固定间隔、有界 tick、手动／
 定时共享互斥、忙碌跳过、取消不提交、重启恢复、Docker 隔离挂载及 Linux amd64／arm64
-构建。Task 3.1 已实现前四项中的调度／取消／互斥并交 READY FOR B REVIEW；Task 3.2
-部署镜像仍待规划。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64
-实机、规模与正式发布仍 NOT RUN；尚无 B／A 产品 PASS，不能把本实现写成能力验收。
+构建。Task 3.1 已实现调度／取消／互斥并独立 B PASS；Task 3.2 已实现双架构镜像、
+Compose 与隔离容器证据，尚待独立 B 审查。真实 OpenList、无签名 `/d/`、固定插件
+解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN；尚无 B／A 产品 PASS，
+不能把本实现写成能力验收。
 
-Next Action: B REVIEWS TASK 3.1
+Next Action: B REVIEWS TASK 3.2
 
 ## Slice 2 关闭状态（历史，2026-10-19）
 

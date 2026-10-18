@@ -1,0 +1,38 @@
+# Product container configuration example.
+#
+# Copy this file to deploy/config.yaml and edit it. It is mounted read-only at
+# /etc/strmgen/config.yaml. It must never contain a token: the token is read at
+# runtime from the environment variable named by openlist.token_env.
+#
+# Paths are resolved relative to the process working directory, which is the
+# container root. The container mounts are:
+#   /etc/strmgen/config.yaml  read-only configuration
+#   /output                   STRM output tree
+#   /state                    SQLite database and sidecars
+#   /tmp/strmgen-locks        fixed shared lock namespace
+openlist:
+  api_url: "http://openlist:5244"
+  public_url: "https://openlist.example.invalid"
+  token_env: "OPENLIST_TOKEN"
+
+sources:
+  - remote: "/Movies"
+    output: "/output/Movies"
+
+sync:
+  # serve runs one immediate round, then repeats every interval_minutes.
+  interval_minutes: 60
+  directory_workers: 4
+  atomic_write: true
+  skip_unchanged: true
+  mirror: true
+
+cleanup:
+  # Cleanup stays off unless explicitly enabled together with mirror: true.
+  enabled: false
+  missing_confirmations: 3
+
+database:
+  # Must stay on the persistent /state mount so ownership and rounds survive a
+  # container restart. Never place it inside /output.
+  path: "/state/strmgen.db"
