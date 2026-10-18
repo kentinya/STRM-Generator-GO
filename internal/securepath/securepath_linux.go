@@ -384,14 +384,23 @@ func (d *Dir) Duplicate() (*Dir, error) {
 	return &Dir{file: os.NewFile(uintptr(fd), d.file.Name())}, nil
 }
 
-// ReadDirNames returns the names of all direct children of d. It does not
-// follow symlinks and is used to locate deterministic staging files without
-// relying on a separately opened pathname.
-func (d *Dir) ReadDirNames() ([]string, error) {
+// OpenDirReader opens an independent directory reader for the same directory
+// as d. Unlike Duplicate, which shares one open file description (and therefore
+// one directory cursor), it opens a fresh description relative to d with
+// openat, so every enumeration gets its own cursor while remaining bound to the
+// already-validated directory inode. The final component is never resolved
+// through a symlink and the configured absolute path is not reopened. The
+// caller owns the returned file and must close it.
+func (d *Dir) OpenDirReader() (*os.File, error) {
 	if d == nil || d.file == nil {
 		return nil, errors.New("directory is closed")
 	}
-	return d.file.Readdirnames(-1)
+	fd, err := unix.Openat(int(d.file.Fd()), ".",
+		unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, safePathError("open directory reader", err)
+	}
+	return os.NewFile(uintptr(fd), d.file.Name()), nil
 }
 
 // Lstat reports one direct child without following a final symlink.

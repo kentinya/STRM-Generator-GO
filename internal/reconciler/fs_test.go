@@ -482,7 +482,7 @@ func TestUpdateRollbackFailurePreservesForeignResidual(t *testing.T) {
 func TestUpdateForeignStagingReplacementIsNotPublished(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	staging := newStagingName("A.strm", old)
+	staging := newStagingName("A.strm", old, newer)
 	fs := LocalFS{beforeExchange: func(dir *securepath.Dir, _ string) error {
 		return replaceTargetBytes(dir, staging, "foreign-staging-object")
 	}}
@@ -502,7 +502,7 @@ func TestUpdateForeignStagingReplacementIsNotPublished(t *testing.T) {
 func TestUpdateForeignStagingSurvivesMissingTarget(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	staging := newStagingName("A.strm", old)
+	staging := newStagingName("A.strm", old, newer)
 	fs := LocalFS{beforeExchange: func(dir *securepath.Dir, target string) error {
 		if err := replaceTargetBytes(dir, staging, "foreign-staging-object"); err != nil {
 			return err
@@ -602,7 +602,7 @@ func TestRecoverRestoresForeignDisplacedContent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "A.strm"), newer, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", []byte("previous-owned"))), []byte("external"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", []byte("previous-owned"), newer)), []byte("external"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); !errors.Is(err, ErrStagingPresent) {
@@ -618,7 +618,7 @@ func TestRecoverRestoresForeignDisplacedContent(t *testing.T) {
 func TestRecoverAmbiguousResidualIsConflictAndLeavesEverything(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old)), []byte("foreign"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old, newer)), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); !errors.Is(err, ErrStagingPresent) {
@@ -636,7 +636,7 @@ func TestRecoverAmbiguousResidualIsConflictAndLeavesEverything(t *testing.T) {
 func TestRecoverRefusesUnownedStagingWithoutDeleting(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old)), []byte("foreign"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old, newer)), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, false, false); !errors.Is(err, ErrStagingPresent) {
@@ -653,7 +653,7 @@ func TestRecoverRefusesUnownedStagingWithoutDeleting(t *testing.T) {
 func TestRecoverDryRunDetectsWithoutModifying(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	staging := filepath.Join(root, newStagingName("A.strm", old))
+	staging := filepath.Join(root, newStagingName("A.strm", old, newer))
 	if err := os.WriteFile(staging, []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +674,7 @@ func TestRecoverRemovesOwnStagingWhenTargetAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	newer := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
-	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", newer)), newer, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", []byte("old"), newer)), newer, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {

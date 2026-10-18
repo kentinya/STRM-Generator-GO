@@ -311,7 +311,7 @@ func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 		return ErrTargetChanged
 	}
 
-	staging := newStagingName(base, expected)
+	staging := newStagingName(base, expected, data)
 	if _, err := dir.Lstat(staging); err == nil {
 		// A staging file from an earlier interrupted update is still present.
 		// Never overwrite unknown content; recovery must run first.
@@ -430,14 +430,15 @@ func (fs LocalFS) undoExchange(dir *securepath.Dir, staging, base string, newID 
 }
 
 // Recover reconciles a deterministic staging file left by an interrupted
-// atomic update. It is proof-based: the staging name encodes the hash of the
-// previous owned content, so a residual that byte-equals that hash is
-// provably the displaced old content, while any other residual may hold
-// foreign bytes. When the exchange already completed it restores the displaced
-// content to the target and removes only this run's own desired output; if the
-// displaced content cannot be proven to be the old owned content the caller is
-// told to treat the target as an unowned conflict instead of silently
-// updating it. When dryRun is true it only detects the residual.
+// atomic update. It is proof-based: the staging name encodes hashes of both
+// the previous owned content and the new content, so a residual is reclaimed
+// only when the two files on disk match those hashes in one of the exchange
+// orders. A provable post-exchange residual is restored to the target and the
+// new copy removed so the normal comparison redoes the update; a provable
+// pre-exchange residual is dropped so the normal comparison stages it again.
+// If the residual cannot be proven to belong to this generator's own update the
+// caller is told to treat it as a conflict instead of silently updating or
+// deleting it. When dryRun is true it only detects the residual.
 func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bool) error {
 	dir, base, err := fs.openParent(root, relFile, false)
 	if err != nil {
@@ -481,8 +482,9 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 	if err != nil {
 		return ErrStagingPresent
 	}
-	oldHash, ok := stagingOldHash(staging, base)
-	provenOld := ok && hashPrefix(stagingRaw, len(oldHash)) == oldHash
+	oldHash, newHash, hashesOK := stagingHashes(staging, base)
+	provenOld := hashesOK && hashPrefix(stagingRaw, len(oldHash)) == oldHash
+	provenNew := hashesOK && hashPrefix(stagingRaw, len(newHash)) == newHash
 
 	targetInfo, terr := dir.Lstat(base)
 	targetExists := terr == nil
@@ -490,9 +492,10 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 		return terr
 	}
 	if !targetExists {
-		if bytes.Equal(stagingRaw, desired) {
-			// The new content was never published; drop our own staging output and
-			// let the normal creation path run.
+		// The target is gone. When the residual is provably one side of this
+		// generator's own deterministic update, it is stale and may be dropped so
+		// the normal creation path runs. Any other residual is preserved.
+		if provenOld || provenNew {
 			if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
@@ -506,6 +509,41 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 	targetRaw, err := readRegularAt(dir, base)
 	if err != nil {
 		return ErrStagingPresent
+	}
+	targetOldMatch := hashesOK && hashPrefix(targetRaw, len(oldHash)) == oldHash
+	targetNewMatch := hashesOK && hashPrefix(targetRaw, len(newHash)) == newHash
+
+	// Provably this generator's own interrupted update: the deterministic
+	// staging name encodes hashes of both the previous owned content and the new
+	// content, and the two files on disk match those hashes in one of the two
+	// exchange orders. This is the normal single-writer interruption case,
+	// including when the remote desired content changes before the restart.
+	// Reclaim only the stale residual and let the normal comparison decide. This
+	// requires a reliably owned target and exactly one regular residual; every
+	// other shape falls through to the conservative branches below.
+	if provenOld && targetNewMatch {
+		// The exchange completed. Restore the previous owned content to the
+		// target and remove the new copy so the normal comparison redoes the
+		// update against the current desired bytes.
+		if err := fs.exchangeNames(dir, staging, base); err != nil {
+			return ErrStagingPresent
+		}
+		raw, err := readRegularAt(dir, staging)
+		if err != nil || hashPrefix(raw, len(newHash)) != newHash {
+			return ErrStagingPresent
+		}
+		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if provenNew && targetOldMatch {
+		// The exchange never happened. Drop only our staged output; the target
+		// still holds the previous owned content.
+		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
 	}
 
 	switch {
@@ -607,48 +645,76 @@ func (fs LocalFS) syncDirectory(dir *securepath.Dir) error {
 const updateStagingSuffix = ".update.tmp"
 
 // newStagingName returns the deterministic, hidden staging name used for
-// atomic replacement of one target. It encodes a hash of the previous owned
-// content so crash recovery can prove whether a residual is the displaced old
-// content or possibly foreign bytes. Determinism lets the next run reconcile
-// an interruption instead of guessing at a random name.
-func newStagingName(base string, expected []byte) string {
-	return stagingPrefix(base) + hashPrefix(expected, 16) + updateStagingSuffix
+// atomic replacement of one target. It encodes hashes of both the previous
+// owned content and the new content, so crash recovery can prove which side of
+// an interrupted exchange each name holds without relying on the target bytes
+// alone. Determinism lets the next run reconcile an interruption instead of
+// guessing at a random name.
+func newStagingName(base string, expected, desired []byte) string {
+	return stagingPrefix(base) + hashPrefix(expected, 16) + hashPrefix(desired, 16) + updateStagingSuffix
 }
 
 func stagingPrefix(base string) string {
 	return ".strmgen-" + hashPrefix([]byte(base), 16) + "-"
 }
 
-// stagingOldHash extracts the encoded previous-content hash from a staging
-// name belonging to base.
-func stagingOldHash(name, base string) (string, bool) {
+// stagingHashes extracts the encoded previous-owned and new-content hashes
+// from a staging name belonging to base. It reports ok=false for any entry
+// that does not carry both hashes, so an unrecognized residual is never
+// treated as this generator's own output.
+func stagingHashes(name, base string) (oldHash, newHash string, ok bool) {
 	prefix := stagingPrefix(base)
 	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, updateStagingSuffix) {
-		return "", false
+		return "", "", false
 	}
 	mid := name[len(prefix) : len(name)-len(updateStagingSuffix)]
-	if len(mid) != 16 {
-		return "", false
+	if len(mid) != 32 {
+		return "", "", false
 	}
-	return mid, true
+	return mid[:16], mid[16:], true
 }
 
-// findStagingFiles lists every deterministic staging entry for base. It reads
-// the directory through the already-open descriptor so it cannot be redirected
-// by a pathname swap.
+// stagingBatchSize bounds how many directory entries are read at once so a
+// large output directory is never loaded in full.
+const stagingBatchSize = 128
+
+// maxStagingMatches bounds how many matching staging names are retained. A
+// second match is already enough to report ambiguity, so enumeration can stop
+// early. Only a complete EOF proves that zero or one entry exists.
+const maxStagingMatches = 2
+
+// findStagingFiles lists deterministic staging entries for base. It reads the
+// directory through an independent descriptor opened relative to the already
+// bound directory, so each target has its own cursor and a residual for a
+// later target cannot be missed because an earlier target consumed a shared
+// stream. Entries are read in fixed small batches. A read error is reported as
+// an error, never as "no residual".
 func findStagingFiles(dir *securepath.Dir, base string) ([]string, error) {
-	names, err := dir.ReadDirNames()
+	reader, err := dir.OpenDirReader()
 	if err != nil {
 		return nil, err
 	}
+	defer reader.Close()
+
 	prefix := stagingPrefix(base)
 	var found []string
-	for _, name := range names {
-		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, updateStagingSuffix) {
-			found = append(found, name)
+	for {
+		names, readErr := reader.Readdirnames(stagingBatchSize)
+		for _, name := range names {
+			if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, updateStagingSuffix) {
+				found = append(found, name)
+				if len(found) >= maxStagingMatches {
+					return found, nil
+				}
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return found, nil
+		}
+		if readErr != nil {
+			return nil, readErr
 		}
 	}
-	return found, nil
 }
 
 // hashPrefix returns the first n hex characters of the SHA-256 digest of data.

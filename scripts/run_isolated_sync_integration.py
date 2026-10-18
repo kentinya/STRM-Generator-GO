@@ -2022,6 +2022,53 @@ def scenario_fault_recovery(h, results):
     observed["update_pre_exchange_recovery"] = retry17.returncode
     h17.cleanup()
 
+    # Changed desired after an exchange interruption: the same interrupted
+    # state as h15, but the release-binary restart uses a different public URL.
+    # The residual must be reconciled and the target must converge to the
+    # newest URL instead of stalling on a permanent conflict.
+    if h.fault_binary is None:
+        raise Failure("changed-desired recovery requires --fault-binary (strmgen_testhooks build)")
+    h18 = Harness(h.binary, h.workdir / "update-changed-desired-interruption")
+    api18, _ = h18.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root18 = h18.workdir / "out"
+    db18 = h18.workdir / "data" / "strmgen.db"
+    cfg18 = h18.config("update-changed", api18, [("/Movies", root18)], db18)
+    check(h18.run(cfg18).returncode == 0, "update-changed seed sync failed")
+    cfg18b = h18.config("update-changed-b", api18, [("/Movies", root18)], db18,
+                        public="https://changed.example.invalid")
+    cfg18c = h18.config("update-changed-c", api18, [("/Movies", root18)], db18,
+                        public="https://second.example.invalid")
+    marker18 = h18.workdir / "exchange.marker"
+    gate18 = h18.workdir / "exchange.gate"
+    proc18 = h18.start(cfg18b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_UPDATE_EXCHANGE_GATE": str(gate18),
+        "STRMGEN_TEST_UPDATE_EXCHANGE_MARKER": str(marker18),
+    })
+    check(wait_for_marker(proc18, marker18), "changed-desired exchange barrier never recorded")
+    check(proc18.poll() is None, "changed-desired exchange barrier process exited early")
+    check("changed.example.invalid" in (root18 / "A.strm").read_text(),
+          "changed-desired interruption did not persist the intermediate bytes")
+    check(update_staging_names(root18), "changed-desired interruption left no staging residual")
+    proc18.kill()
+    proc18.communicate(timeout=10)
+    check(proc18.returncode == -signal.SIGKILL,
+          f"changed-desired interruption expected SIGKILL, got {proc18.returncode}")
+    retry18 = h18.run(cfg18c, timeout=60)
+    check(retry18.returncode == 0 and "updated=1" in retry18.stdout,
+          f"restart with changed desired did not converge: {retry18.returncode} {retry18.stdout} {retry18.stderr}")
+    check("https://second.example.invalid/d/Movies/A.mkv" in (root18 / "A.strm").read_text(),
+          "restart with changed desired did not persist the newest URL")
+    check(not update_staging_names(root18), "changed-desired recovery left staging residue")
+    check(read_db(db18)["rounds"][0][1] == 2, "changed-desired recovery did not commit the update round")
+    stable18 = h18.run(cfg18c, timeout=60)
+    check(stable18.returncode == 0 and "skipped=1" in stable18.stdout,
+          f"stable rerun after changed-desired recovery did not skip: {stable18.returncode} {stable18.stdout}")
+    observed["update_changed_desired_sigkill"] = proc18.returncode
+    observed["update_changed_desired_recovery"] = retry18.returncode
+    observed["update_changed_desired_stable"] = stable18.returncode
+    h18.cleanup()
+
     # SIGTERM at each update window: the gate keeps the process runnable so
     # context cancellation is processed; the round must not commit and the
     # release binary must finish the update on restart.
