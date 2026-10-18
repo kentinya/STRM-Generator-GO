@@ -8,7 +8,7 @@ Task 2.1 已独立 PASS，完整计划、报告及 B 审查保留于
 ```text
 Task ID: 2.2
 Parent Slice: 2
-Status: READY FOR B REVIEW
+Status: PASS
 Task Base: c629858ba7559a03c1eba30f8cd91a269f4b2702
 Contract Checkpoint: 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
 Difficulty: High
@@ -298,8 +298,12 @@ SKIPPED 如实报告，真实环境缺失非零 BLOCKED，不改用合成API冒�
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Decision: PENDING
-Slice Required Outcomes all satisfied: NO
-Next: Developer implements Task 2.2 after governance, then returns for independent B review
+Reviewed: 2026-10-19 by B
+Reviewed Range: c629858ba7559a03c1eba30f8cd91a269f4b2702..d0a0f6db5447f38467c67612ed7173d77e6bea27
+Decision: PASS
+Slice Required Outcomes all satisfied: YES (RO-1..RO-6)
+Independent Replay: PASS; focused Go tests and isolated CLI mirror_cleanup/mirror_recovery, evidence at artifacts/validation-evidence/b-review-task-2.2-20261019/
+Final Gate: PASS by matching evidence at artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md; implementation candidate, CLI drivers and built binaries match recorded identities. Current HEAD adds only this review/report documentation after the implementation candidate.
+Outstanding: /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 runtime and 100k/1M scale remain NOT RUN; wide-directory repeated enumeration cost is P2.
+Next: A reviews Slice 2 Base..Implementation Head; B does not close the Slice
 ```

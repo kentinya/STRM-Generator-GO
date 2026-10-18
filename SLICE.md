@@ -3,9 +3,9 @@
 ```text
 Slice ID: 2
 Owner: A
-Status: ACTIVE
+Status: READY FOR A REVIEW
 Base SHA: 930782035615512be811a7b8bcc8416050f0c12f
-Implementation Head: NOT SET
+Implementation Head: d0a0f6db5447f38467c67612ed7173d77e6bea27
 ```
 
 ## 用户目标
@@ -71,7 +71,19 @@ B 须在本合同提交后重评 Task 2.1，调整或重规划目标、接口、
 
 ## Closure Packet
 
-NOT READY。Task 2.1 为 FIX REQUIRED，既有候选与 B 审查不构成 Slice 验收；本轮仅修订确认合同，B 尚须协调 Task，Developer 尚须按新规则修正实现并验证。B 在所有 RO 满足后汇总 Task 索引、最终 T4／实证、不变量、延期与文档协调项，交 READY FOR A REVIEW。
+```text
+Packet Status: READY FOR A REVIEW
+Slice Base: 930782035615512be811a7b8bcc8416050f0c12f
+Reviewed Implementation Head: d0a0f6db5447f38467c67612ed7173d77e6bea27
+Task Index: Task 2.1 PASS at c629858ba7559a03c1eba30f8cd91a269f4b2702; Task 2.2 B PASS, reviewed c629858ba7559a03c1eba30f8cd91a269f4b2702..d0a0f6db5447f38467c67612ed7173d77e6bea27
+Required Outcomes: RO-1 PASS; RO-2 PASS; RO-3 PASS; RO-4 PASS; RO-5 PASS; RO-6 PASS
+Final Evidence: artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md (local-only); independent B replay: artifacts/validation-evidence/b-review-task-2.2-20261019/summary.json
+Invariants: protocol/comparison, unowned-file protection, output boundary, dry-run zero-write, refresh:false, source isolation, bounded traversal/ownership batches, and shared output lock retained
+Known limitations / deferred: /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 runtime, and 100k/1M scale remain NOT RUN; wide-directory repeated enumeration cost is P2; unlink plus SQLite ownership is not a cross-resource transaction
+Documentation coordination: README, architecture CURRENT, scope, product journey, test matrix, progress, environment spec, and examples updated in the Task 2.2 range; no requirement, Slice, Roadmap, or V4.3 behavior change
+A Final Review: PENDING
+Next Action: A REVIEWS SLICE 2 BASE..IMPLEMENTATION HEAD
+```
 
 ## A 合同修订记录
 
@@ -82,8 +94,8 @@ NOT READY。Task 2.1 为 FIX REQUIRED，既有候选与 B 审查不构成 Slice 
 ## A Final Review
 
 ```text
-Reviewed Range: NOT STARTED
+Reviewed Range: PENDING
 Decision: PENDING
 P0/P1 Blockers: NOT ASSESSED
-Next Action: B RE-EVALUATES TASK 2.1 UNDER THE REVISED CONTRACT
+Next Action: A REVIEWS SLICE 2 BASE..IMPLEMENTATION HEAD
 ```
