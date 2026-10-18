@@ -33,6 +33,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
+# A valid version-1 STRM that is not owned by the generator. Used to prove that
+# content validity alone never lets an interrupted recovery reclaim a foreign
+# target.
+FOREIGN_VALID_STRM = (b"# strm-probe-version:1\n# strm-probe-size:999\n"
+                      b"https://external.example.invalid/user-owned.mkv\n")
 ALL_SCENARIOS = [
     "first_generation",
     "repeat_and_compare",
@@ -1936,6 +1941,50 @@ def scenario_fault_recovery(h, results):
     check(read_db(db16)["rounds"][0][1] == 1, "foreign residual committed a round")
     observed["update_before_verification_foreign"] = retry16.returncode
     h16.cleanup()
+
+    # F-11 valid variant: a valid but foreign version-1 STRM displaced by the
+    # interrupted exchange must be restored and reported as a conflict. Content
+    # validity, a matching path and an existing ownership row must never be
+    # enough to reclaim it.
+    h16b = Harness(h.binary, h.workdir / "update-verification-valid-foreign-interruption")
+    api16b, _ = h16b.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root16b = h16b.workdir / "out"
+    db16b = h16b.workdir / "data" / "strmgen.db"
+    cfg16c = h16b.config("update-verify-valid-foreign", api16b, [("/Movies", root16b)], db16b)
+    check(h16b.run(cfg16c).returncode == 0, "update-verify-valid-foreign seed sync failed")
+    cfg16d = h16b.config("update-verify-valid-foreign-b", api16b, [("/Movies", root16b)], db16b,
+                         public="https://changed.example.invalid")
+    pre_gate16 = h16b.workdir / "pre.gate"
+    pre_marker16 = h16b.workdir / "pre.marker"
+    post_gate16 = h16b.workdir / "post.gate"
+    post_marker16 = h16b.workdir / "post.marker"
+    proc16b = h16b.start(cfg16d, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_GATE": str(pre_gate16),
+        "STRMGEN_TEST_UPDATE_PRE_EXCHANGE_MARKER": str(pre_marker16),
+        "STRMGEN_TEST_UPDATE_EXCHANGE_GATE": str(post_gate16),
+        "STRMGEN_TEST_UPDATE_EXCHANGE_MARKER": str(post_marker16),
+    })
+    check(wait_for_marker(proc16b, pre_marker16), "valid-foreign pre barrier never recorded")
+    check(proc16b.poll() is None, "valid-foreign pre barrier process exited early")
+    (root16b / "A.strm").write_bytes(FOREIGN_VALID_STRM)
+    pre_gate16.touch()
+    check(wait_for_marker(proc16b, post_marker16),
+          "valid-foreign exchange barrier never recorded a durable exchange")
+    check(proc16b.poll() is None, "valid-foreign exchange barrier process exited early")
+    proc16b.kill()
+    proc16b.communicate(timeout=10)
+    check(proc16b.returncode == -signal.SIGKILL,
+          f"valid-foreign verification interruption expected SIGKILL, got {proc16b.returncode}")
+    retry16b = h16b.run(cfg16d, timeout=60)
+    check(retry16b.returncode == 1 and "conflicts=1" in retry16b.stdout,
+          f"valid foreign residual must be a conservative conflict: {retry16b.returncode} {retry16b.stdout}")
+    check((root16b / "A.strm").read_bytes() == FOREIGN_VALID_STRM,
+          "valid foreign bytes were not preserved")
+    check(not update_staging_names(root16b), "valid foreign recovery left staging residue")
+    check(read_db(db16b)["rounds"][0][1] == 1, "valid foreign residual committed a round")
+    observed["update_before_verification_valid_foreign"] = retry16b.returncode
+    h16b.cleanup()
 
     # SIGKILL before the exchange: the old target is untouched and the next run
     # simply performs the update.
