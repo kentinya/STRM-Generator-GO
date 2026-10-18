@@ -269,18 +269,18 @@ SKIPPED 如实报告，真实环境缺失非零 BLOCKED，不改用合成API冒�
     与待审状态，不改变需求、Slice 边界或 Roadmap。
 - Tests and Results / Evidence：证据索引
   `artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md`（本机 Git 忽略路径）。最终
-  实现检查点后门禁：治理、`mod download`／`verify`、`quality.py`（Python 87 项、gofmt、vet、
-  test、build）、race `-race -count=1 ./...`（276 测试／8 包，0 fail／skip）、`-count=1 -json
-  ./...`（276 测试／8 包，0 fail／skip）、testhooks vet／构建、Linux amd64／arm64、集成测试
-  二进制、隔离 CLI `--scenario all`（11/11 PASS，含新 2 场景）、`git diff --check` 全部 exit 0。
-  固定隔离 OpenList v4.2.7：原 8 场景（11 个 Go 集成测试，0 skip）与新增发布 CLI Mirror
-  闭环（生成 250、三轮保留、dry-run 零写候选、下一次重核删除、再出现清零、禁用存储源根不可
-  读保留）全部 PASS，所有列表轮询 `refresh:false`。真实服务层首次运行因驱动使用错误本地
-  路径（期望 `Wide/E0000.strm` 而实际目标为 `E0000.strm`）在 CLI Mirror 断言 FAIL；修正驱动
-  后同服务版本全量重跑 PASS。后续补强证据时又保留两个驱动／时序失败：`cli-rerun` 的 legacy
-  dry-run 断言在写入迁移后取样（驱动错误，改为先 dry-run 后写），`cli-rerun-focus` 的取消
-  gate 存在 SIGTERM 投递竞态（驱动等待 1 秒并让 hook 轮询 context），修正后 `cli-final` 全量
-  11/11 PASS。首次失败、修正与重跑日志均保留。
+  实现检查点后门禁：治理、`mod download`／`verify`、`quality-final2`（Python 87 项、
+  gofmt、vet、test、build）、race `-race -count=1 ./...`（277 测试／8 包，0 fail／skip）、
+  `-count=1 -json ./...`（277 测试／8 包，0 fail／skip）、testhooks vet／构建、Linux amd64／
+  arm64、集成测试二进制、隔离 CLI `--scenario all`（`cli-final2` 11/11 PASS，含新 2 场景）、
+  `git diff --check` 全部 exit 0。固定隔离 OpenList v4.2.7：原 8 场景（11 个 Go 集成测试，
+  0 skip）与新增发布 CLI Mirror 闭环（`real-openlist-final`：生成 250、三轮保留、dry-run 零写
+  候选、下一次重核删除、再出现清零、禁用存储源根不可读保留）全部 PASS，缓存列表自然到期
+  61.66 秒，所有列表轮询 `refresh:false`。开发期间保留首次失败与修正：真实服务首轮因驱动
+  错误本地路径（期望 `Wide/E0000.strm` 而实际为 `E0000.strm`）FAIL 后重跑；`cli-rerun` 的
+  legacy dry-run 断言取样顺序错误；`cli-rerun-focus` 的取消 gate 存在 SIGTERM 投递竞态；
+  自查又发现并修正“同一轮先缺失后重核 present 仍会提交暂存 +1”的证据缺陷（新增链式
+  确认器回归），其后重建二进制并重跑全部产品门禁与两层 CLI／真实服务。
 - Decisions / Risks / Remaining Required Outcomes：清理采用“第 3 个不同完整轮提交资格、
   第 4 次成功同步重核删除”，不把未提交的本轮观察凑成阈值；删除只消费已提交计数，源根不可读
   或整轮失败冻结计数。观察／待提交集合有界但为进程内 scratch，跨进程仅依赖已提交计数；
@@ -289,9 +289,9 @@ SKIPPED 如实报告，真实环境缺失非零 BLOCKED，不改用合成API冒�
   固定隔离服务证据已提交；B 仍需独立重放关键窗口、逐项重评全部 RO 并决定 PASS 或
   FIX REQUIRED。真实 `/d/` 播放、固定插件实际解析、Jellyfin／代理、ARM64 实机与十万／百万
   规模仍 NOT RUN；宽目录重复枚举成本仍为已知 P2。未自签 B／A 产品 PASS。
-- Head SHA：`3fa242bd6fcfca5df936f4186eb1586aadcc8a3b`（含实现提交 `de80280` 与测试／
-  运行器补强；发布 amd64／arm64 二进制与 `de80280` 产品源码字节一致）。门禁运行后仅更新本
-  报告与 Task 状态，无产品／测试／运行器输入变化。
+- Head SHA：`d0a0f6db5447f38467c67612ed7173d77e6bea27`（含实现 `de80280`、测试／运行器
+  补强 `3fa242b` 与自查证据修正；发布 amd64 `26f31c5a…`、arm64 `2b1374c3…`，与最终源码
+  同次构建）。门禁运行后仅更新本报告与 Task 状态，无产品／测试／运行器输入变化。
 - Evidence Run：`artifacts/validation-evidence/task-2.2-final-7TWPAV/`（本机 Git 忽略路径，
   不是远端可读证据；二进制 SHA-256 见 `logs/binaries.sha256`）。
 
