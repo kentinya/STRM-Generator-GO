@@ -4,7 +4,7 @@
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|
-| 1 | 安全单轮生成 | ACTIVE | 开发基线 | P0＋必要P1：配置、API、协议、映射、原子创建、最小归属、dry-run／互斥闭环 |
+| 1 | 安全单轮生成 | READY FOR A REVIEW | 开发基线 | P0＋必要P1：配置、API、协议、映射、原子创建、最小归属、dry-run／互斥闭环 |
 | 2 | 增量与故障恢复 | PLANNED | Slice 1 | P1：变化矩阵、无变化零写、崩溃窗口、持久化恢复与重复运行 |
 | 3 | 安全目录镜像 | PLANNED | Slice 2 | P2：移动、删除，两轮完整成功缺失及再次确认，归属／边界与故障恢复 |
 | 4 | 定时、部署与端到端验收 | PLANNED | Slice 3 | P3＋P4：serve、有界负载、Linux双架构／Docker、真实OpenList／插件／Jellyfin联调 |

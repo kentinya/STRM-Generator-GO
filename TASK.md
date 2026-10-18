@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.2
 Parent Slice: 1
-Status: READY FOR B REVIEW
+Status: PASS
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
 Contract Checkpoint: bfdceed5b3c564ca92aef47035dcced314f24d45
 Difficulty: High
@@ -11,7 +11,7 @@ Test Level: T4
 Planner / Reviewer: B
 ```
 
-范围 authority：已提交的 `bfdceed5b3c564ca92aef47035dcced314f24d45:SLICE.md`（2026-10-18 A 按用户澄清修订最终一致性边界）。Slice 1 仍 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；Task Base 不变。B 判定当前 Task **合法原地调整后继续修正**，不新建 Task，不把合同修订当产品 PASS。Developer 不自行修改 Slice／Roadmap／稳定需求或降低 T4。
+范围 authority：已提交的 `bfdceed5b3c564ca92aef47035dcced314f24d45:SLICE.md`（2026-10-18 A 按用户澄清修订最终一致性边界）。Slice 1 Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；本 Task 已由 B PASS 并提交 Closure Packet，Task Base 不变。此前“合法原地调整后继续修正”的说明保留为规划历史；不把合同修订当产品 PASS。Developer 不自行修改 Slice／Roadmap／稳定需求或降低 T4。
 
 本文件替代 `483069c2182e69a19fa8fd1ef605367df0495063:TASK.md` 的当前指令；旧完整计划、Developer 报告、复审、反例和权限扩展清单留在该可达检查点及其祖先，作为历史证据，不再叠加执行。尤其撤回强制 UID／mode 校验、消费者 OS 拒写实验、F-11 外部注入状态三次永久冲突和 F-10／F-13 任意写者绝对防护要求。
 
@@ -147,7 +147,7 @@ quality.py 包含非 race 的 Go／Python 检查；race、arm64 交叉构建、�
 | RO-4 协议／比较／原子写入／最小归属 | F-14 修正有效；F-15 半写恢复、F-16 目录 sync 阻断；固定插件解析 NOT RUN |
 | RO-5 互斥／有界工作／dry-run／证据 | 独立有界枚举与既有隔离证据有效；正常中断／恢复持久化仍不完整 |
 
-无 Task PASS，不创建新 Task／Closure Packet；Slice ACTIVE、A Final Review PENDING。修后 PASS 时 B 再核对全部 RO 与真实 OpenList／固定插件解析缺口，不自动进入后续 Slice，不代 A 关闭。
+Task 1.2 已 PASS；B 已逐项重核 Slice 1 RO-1..RO-5 并将 Closure Packet 写入 `SLICE.md`。Slice 进入 READY FOR A REVIEW，A Final Review 仍 PENDING；真实 OpenList／固定插件解析、Jellyfin／代理、ARM64 实机和性能按边界保留 `NOT RUN`，不自动进入后续 Slice，不代 A 关闭。
 
 ## Developer Completion Report
 
@@ -171,14 +171,13 @@ quality.py 包含非 race 的 Go／Python 检查；race、arm64 交叉构建、�
 ## B Review Result
 
 ```text
-Reviewed: 15d749b3f151e94a6fb5e9850e6e21d7101aa603..14119b8389fdc76aa35df5ed7ba3e297810c11c5
-Decision: FIX REQUIRED
-Slice Required Outcomes all satisfied: NO
-Next: DEVELOPER FIXES F15/F16 IN TASK 1.2; RETAINS F14 REGRESSION; RERUNS T4
+Reviewed: 15d749b3f151e94a6fb5e9850e6e21d7101aa603..248a609eb70dbb8591091463ed51c5146d7c378a
+Decision: PASS
+Slice Required Outcomes all satisfied: YES (local contract evidence; external OpenList/plugin/Jellyfin evidence remains NOT RUN and is not substituted by fixtures)
+Next: CLOSURE PACKET SUBMITTED; A REVIEWS SLICE 1
 ```
 
-- B 独立审查以 bfdceed5b3c564ca92aef47035dcced314f24d45 合同为 authority；同 Task／Base／High／T4。F-14 与完整 staging 的相同／改变 desired 恢复通过，不抵销 F-15／F-16。
-- 独立结果：常规治理 PASS；Go 五包 -count=1 PASS；amd64 发布／review-only overlay 构建 PASS。F-15 Go 四组合 FAIL，实际 SIGKILL 后发布二进制八次重试均 FAIL（旧目标／归属／round 安全保留，但不收敛）；F-16 一例 FAIL（sync 接缝 0 次、错误提交 round）。overlay 仅位于 ignored artifacts，未改产品代码；不称无插桩程序恰好命中窗口，不涉及外部目标／暂存替换。
-- 原始证据：artifacts/validation-evidence/task-1.2-b-convergence-review-20261018-bc87Qy/index.json；overlay、反例脚本、日志、构建输入均保留。首轮 Python 准备转义错误、SIGSTOP 屏障未可靠停住的 harness 失败保留，修正屏障后才统计四组合结果。
-- 核对 Developer 候选 T4：quality 含 Python 48 项及 Go／vet／build；race 为 174 测试事件＋8 包通过，0 fail／skip；隔离 all 9/9、双架构及 testhooks 构建，日志／三二进制 SHA-256 匹配。14119b8..abdc6e5 仅报告文档变更；ignored evidence/go.mod 隔离旧 B overlay scratch 的事实显式保留，不是产品依赖。原 T4 未覆盖新反例，不代表 Task PASS。
-- B 确认阻断后不重跑完整 quality／race／arm64／all；顺序 CLI repeat_and_compare、dry_run_boundaries、fault_recovery 独立复跑 3/3 PASS（新构建发布二进制＋已核对哈希的候选 testhooks）；记录见同索引，不以未执行写 PASS。真实 OpenList、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍 NOT RUN；无生产／配套仓库改动，无 push。
+- B 独立审查以 `bfdceed5b3c564ca92aef47035dcced314f24d45` 合同为 authority；同 Task Base／High／T4。F-14 独立有界枚举、F-15 正常空／半写 staging 中断恢复、F-16 恢复目录同步失败阻断均复现并通过；正常更新、URL／SHA-1／Size 比较、未归属保护、dry-run 和锁边界未回归。
+- B 独立反馈门槛：`python3 scripts/check_governance.py` PASS；F-15/F-16 聚焦回归 PASS；Go 五包 `-count=1` PASS。完整 T4 在 `artifacts/validation-evidence/task-1.2-b-review-20261018-3rVdg8/` 独立重跑：quality（Python 48、Go vet/test/build）PASS，race 188 pass／0 fail，amd64／arm64／testhooks 构建 PASS，隔离 `--scenario all` 9/9 PASS，`git diff --check` PASS。
+- 原始 B 证据索引：`artifacts/validation-evidence/task-1.2-b-review-20261018-3rVdg8/`（本次独立命令、race JSON、构建 SHA-256、隔离 summary）。Developer 候选 T4 `artifacts/validation-evidence/task-1.2-convergence-20261018-dev2/` 与本次输入匹配；旧 F-15/F-16 首次失败仍保留，未被覆盖。
+- 外部真实 OpenList、固定插件解析、Jellyfin／代理播放、ARM64 实机、性能与正式发布仍 `NOT RUN`；本 Task／Slice 1 不把合成 API、交叉构建或 CLI 隔离夹具写成这些层级的 PASS。无生产／配套仓库改动，无 push。

@@ -3,7 +3,7 @@
 ```text
 Slice ID: 1
 Owner: A
-Status: ACTIVE
+Status: READY FOR A REVIEW
 Base SHA: f90f9560e55b07fd2d6a20e8bac43741c39176c4
 Implementation Head: 248a609eb70dbb8591091463ed51c5146d7c378a
 ```
@@ -46,13 +46,23 @@ Mirror 删除／移动旧路径清理、定时常驻、正式容器发布、百�
 
 ## Closure Packet
 
-NOT STARTED。Task 1.1 有历史 B PASS；最新实现候选为上列 Implementation Head，Task 1.2 仍 FIX REQUIRED。写者／最终一致性边界澄清不是产品修正或验收通过；B 调整 Task 后仍须实现、复审、逐项核对全部 RO，满足后才提交 Closure Packet。
+READY FOR A REVIEW。
+
+- **Reviewed range:** `f90f9560e55b07fd2d6a20e8bac43741c39176c4..248a609eb70dbb8591091463ed51c5146d7c378a`。
+- **Task index:** Task 1.1 historical B PASS (`951aaeeeca966e8ef79e8ac9500827ce27d0f035..15d749b3f151e94a6fb5e9850e6e21d7101aa603`); Task 1.2 B PASS (`15d749b3f151e94a6fb5e9850e6e21d7101aa603..248a609eb70dbb8591091463ed51c5146d7c378a`).
+- **RO-1:** PASS in local CLI/config/error and dry-run evidence.
+- **RO-2:** PASS in bounded list/get, pagination/application-error, metadata and stable URL implementation evidence; real OpenList and fixed plugin parsing remain `NOT RUN` and are not replaced by fixtures.
+- **RO-3:** PASS in mapping, extension filtering, special-name, conflict, path and symlink-boundary evidence.
+- **RO-4:** PASS in protocol/compare, atomic update, ownership, SQLite ordering, F-15 recovery convergence and F-16 directory-sync failure evidence; unowned and ambiguous residuals remain protected.
+- **RO-5:** PASS in shared-lock, bounded enumeration, dry-run, failure feedback and isolated temporary-root evidence; F-14 enumeration regression and normal single-writer SW-1..SW-6 recovery are covered.
+- **Invariants:** No deletion/mirror, serve, permission hardening, media-version state, remote lock, ffprobe, Jellyfin database, plugin-internal API or production-tree changes. External integration, ARM64 execution, performance and release packaging are deferred/`NOT RUN` at their defined roadmap layers.
+- **Evidence:** B independent T4 index at `artifacts/validation-evidence/task-1.2-b-review-20261018-3rVdg8/`; Developer T4 and first-failure evidence remain at `artifacts/validation-evidence/task-1.2-convergence-20261018-dev2/`.
 
 ## A Final Review
 
 ```text
 Reviewed Range: NOT SET
 Decision: PENDING
-P0/P1 Blockers: TASK 1.2 FIX REQUIRED; REVISED CONTRACT VALIDATION PENDING
-Next Action: DEVELOPER FIXES TASK 1.2 UNDER COMMITTED CONVERGENCE CONTRACT
+P0/P1 Blockers: NONE FOUND BY B; EXTERNAL INTEGRATION AND ARM64 EXECUTION REMAIN NOT RUN
+Next Action: A REVIEWS CLOSURE PACKET AND DECIDES SLICE 1
 ```
