@@ -7,7 +7,7 @@
 ```text
 Task ID: 3.2
 Parent Slice: 3
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 8fc3a3ad8a720e9ca4c832967fdf39874581beff
 Contract Checkpoint: ee5001646d4239755606c28b61f340d795ee7014
 Difficulty: High
@@ -140,10 +140,65 @@ Next: Developer may implement planned Task 3.2 after its planning checkpoint is 
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：NOT STARTED
-- Tests and Results / Evidence：NOT RUN
-- Decisions / Risks / Remaining Required Outcomes：Task 3.2 仅补齐当前 Slice RO-4 与 RO-6 的部署证据；RO-1／RO-2／RO-3／RO-5 与调度部分 RO-6 由 Task 3.1 PASS 覆盖。
-- Head SHA：NOT SET
+- **Changed Files / Implemented：**
+  - `Dockerfile`（新增）：`golang:1.27.2` 构建层与 `alpine:3.20` 运行层均按 digest 固定；构建层在
+    `$BUILDPLATFORM` 上以 `CGO_ENABLED=0` 交叉编译 `$TARGETOS/$TARGETARCH`，并在构建期
+    `go mod verify`；`prep` 层只在构建平台生成非特权账号与默认目录；运行层不执行架构相关
+    命令，仅复制 CA 根、账号文件与静态二进制，默认非 root `10001:10001`、`serve` 默认命令。
+  - `.dockerignore`（新增）：只允许 `go.mod`／`go.sum`／`cmd/`／`internal/` 进入构建上下文。
+  - `deploy/compose.yaml`（新增）：运行时环境注入 `OPENLIST_TOKEN`；配置只读挂载；输出／
+    SQLite 状态／固定锁目录分别挂载；容器私有 `/tmp` tmpfs；非 root、`read_only`、
+    `cap_drop: ALL`、`no-new-privileges`、`pids_limit`、`mem_limit`、`stop_grace_period: 60s`。
+  - `deploy/config.example.yaml`、`deploy/.env.example`（新增）：容器路径合同与仅夹具用假 token 示例。
+  - `scripts/run_container_integration.py`（新增）：隔离容器验收驱动（6 场景）。
+  - `tests/test_run_container_integration.py`（新增）：驱动单元测试 13 项。
+  - `docs/deployment.md`（新增）：构建、挂载、权限、备份、共享锁与 NOT RUN 边界。
+  - `README.md`、`docs/architecture.md`、`docs/development-environment.md`、`docs/test-matrix.md`、
+    `docs/progress.md`、`dev/environment-spec.json`：状态与交付事实同步。
+  - 未修改 `cmd/`、`internal/` 的 Go 产品源码、调度、Reconciler、锁命名空间、数据库协议或
+    稳定需求；`git diff b18caba..HEAD -- cmd internal` 为空。
+
+- **Tests and Results / Evidence：** 最终候选 SHA `2131b54bcec1cd43769d239a30456b4a8607f4aa`；
+  证据目录 `artifacts/validation-evidence/task-3.2-final-20261019-1792350581/`（本机 Git 忽略）。
+  - 治理 `PASS`；`mod download`／`mod verify` exit 0；`quality.py` exit 0。
+  - `test -count=1 -json ./...`：290 test pass／0 fail／0 skip，exit 0。
+  - `test -race -count=1 -json ./...`（CGO＋固定 Zig cc）：290 test pass／0 fail／0 skip，exit 0。
+  - Linux amd64／arm64 `CGO_ENABLED=0` 构建与 testhooks 构建 exit 0；二进制 SHA-256 见
+    `binaries-sha256.txt`。
+  - Python 全量 110 项 exit 0。
+  - amd64 镜像 `--load` 构建 exit 0，image id `sha256:1e6d2dfe…`，`amd64/linux`；arm64
+    `--output type=oci` 构建 exit 0，OCI SHA-256 `ef3941fa…`，manifest `sha256:53caa292…`，
+    config `arm64/linux`、user `10001:10001`，层内 `/usr/local/bin/strmgen` ELF machine 183。
+  - 隔离容器驱动 6/6 PASS：`image_static`（非 root、默认命令、镜像层无 token／testhooks
+    标记）、`minimal_run`（挂载 RW／RO、token 注入、4 STRM＋1 round＋sidecar）、
+    `serve_lifecycle`（首轮、stop exit 1、重启后 round 3、稳定输出不改写）、
+    `cross_container_busy`（同输出同锁双容器，contender exit 1 且未改 DB／轮次，释放后 skip）、
+    `compose_lifecycle`（Compose up／stop exit 1）、`arm64_oci`。
+  - `run_serve_integration.py` 6/6 PASS；`run_isolated_sync_integration.py --scenario all`
+    11/11 PASS（复用与 Task 3.1 相同的 Go 源码，二进制为本次候选重建）。
+  - Compose 渲染 `config --quiet`／`--no-interpolate` exit 0，仓库文件与渲染均不含真实 token；
+    运行容器 `mount` 显示配置 `ro`、输出／状态／锁为独立挂载。
+  - `git diff --check`、`git show --format= --check HEAD` exit 0；发布二进制 `strings` 无
+    `STRMGEN_TEST*`／`strmgen_testhooks`。
+  - 首次失败与重跑：容器驱动开发期发现默认 CMD 为 `serve` 导致一次性场景超时、合成服务
+    未接受运行 token 导致源根不可读、`ARG TARGETARCH=amd64` 默认值覆盖 BuildKit 平台参数
+    导致 arm64 OCI 内为 x86-64 二进制；三处均在实现内修正后重跑通过。原始失败记录见
+    `docs/progress.md` 历史与开发证据目录。
+
+- **Decisions / Risks / Remaining Required Outcomes：**
+  - 镜像基础层按 digest 固定，运行层不执行架构相关命令，故 arm64 无需 QEMU 即可在 amd64
+    宿主构建；代价是账号／目录以数据方式从 `prep` 层复制。
+  - `dev/environment-spec.json` 的 `required_files` 已加入本 Task 新增文件；未改动 Go 版本、
+    依赖、原方案身份或既有文件集合。
+  - 风险：arm64 只有 OCI manifest／ELF 证据，**ARM64 实机 NOT RUN**；容器 `/tmp` 为每容器
+    私有 tmpfs，文档明确它不构成跨容器互斥，共享输出必须显式共享同一锁目录对象。
+  - 本 Task 覆盖 RO-4 与部署相关 RO-6；RO-1／RO-2／RO-3／RO-5 与调度部分 RO-6 由 Task 3.1
+    PASS 覆盖。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机、规模
+    与正式发布仍 NOT RUN。
+
+- **Head SHA：** `2131b54bcec1cd43769d239a30456b4a8607f4aa`
+
+- **B Review Result：** PENDING（Developer 不签发独立审查结论）
 
 ## B Review Result
 
