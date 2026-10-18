@@ -2069,6 +2069,106 @@ def scenario_fault_recovery(h, results):
     observed["update_changed_desired_stable"] = stable18.returncode
     h18.cleanup()
 
+    # F-15: SIGKILL after Update created its deterministic staging file but
+    # before any byte was written. This is the zero-length residual window; the
+    # release binary must reclaim it and converge to the newest desired URL, and
+    # a stable rerun must then skip.
+    if h.fault_binary is None:
+        raise Failure("staging-created recovery requires --fault-binary (strmgen_testhooks build)")
+    h19 = Harness(h.binary, h.workdir / "update-staging-created-interruption")
+    api19, _ = h19.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root19 = h19.workdir / "out"
+    db19 = h19.workdir / "data" / "strmgen.db"
+    cfg19 = h19.config("update-staging-created", api19, [("/Movies", root19)], db19)
+    check(h19.run(cfg19).returncode == 0, "update-staging-created seed sync failed")
+    cfg19b = h19.config("update-staging-created-b", api19, [("/Movies", root19)], db19,
+                        public="https://changed.example.invalid")
+    marker19 = h19.workdir / "staging-created.marker"
+    gate19 = h19.workdir / "staging-created.gate"
+    proc19 = h19.start(cfg19b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_STAGING_BEFORE_WRITE_GATE": str(gate19),
+        "STRMGEN_TEST_STAGING_BEFORE_WRITE_MARKER": str(marker19),
+    })
+    check(wait_for_marker(proc19, marker19), "staging-created barrier never recorded")
+    check(proc19.poll() is None, "staging-created barrier process exited early")
+    check("changed.example.invalid" not in (root19 / "A.strm").read_text(),
+          "staging-created interruption changed the target")
+    created_residuals = update_staging_names(root19)
+    check(len(created_residuals) == 1 and (root19 / created_residuals[0]).stat().st_size == 0,
+          f"expected one zero-length staging residual: {created_residuals}")
+    interrupted19 = read_db(db19)
+    check(len(interrupted19["ownership"]) == 1 and interrupted19["rounds"][0][1] == 1,
+          f"staging-created interruption changed ownership or advanced the round: {interrupted19}")
+    proc19.kill()
+    proc19.communicate(timeout=10)
+    check(proc19.returncode == -signal.SIGKILL,
+          f"staging-created interruption expected SIGKILL, got {proc19.returncode}")
+    retry19 = h19.run(cfg19b, timeout=60)
+    check(retry19.returncode == 0 and "updated=1" in retry19.stdout,
+          f"restart after staging-created interruption failed: {retry19.returncode} {retry19.stdout} {retry19.stderr}")
+    check("https://changed.example.invalid/d/Movies/A.mkv" in (root19 / "A.strm").read_text(),
+          "restart after staging-created interruption did not persist the newest URL")
+    check(not update_staging_names(root19), "staging-created recovery left staging residue")
+    check(read_db(db19)["rounds"][0][1] == 2, "staging-created recovery did not commit the update round")
+    stable19 = h19.run(cfg19b, timeout=60)
+    check(stable19.returncode == 0 and "skipped=1" in stable19.stdout,
+          f"stable rerun after staging-created recovery did not skip: {stable19.returncode} {stable19.stdout}")
+    observed["update_staging_created_sigkill"] = proc19.returncode
+    observed["update_staging_created_recovery"] = retry19.returncode
+    observed["update_staging_created_stable"] = stable19.returncode
+    h19.cleanup()
+
+    # F-15: SIGKILL after a partial staging write. The truncated residual has no
+    # complete hash, so this is the exact case the previous implementation
+    # stalled on; the release binary must reclaim it and converge.
+    if h.fault_binary is None:
+        raise Failure("partial-staging recovery requires --fault-binary (strmgen_testhooks build)")
+    h20 = Harness(h.binary, h.workdir / "update-partial-staging-interruption")
+    api20, _ = h20.server(directories={"/Movies": [
+        {"name": "A.mkv", "is_dir": False, "size": 1, "hash_info": None}]})
+    root20 = h20.workdir / "out"
+    db20 = h20.workdir / "data" / "strmgen.db"
+    cfg20 = h20.config("update-partial-staging", api20, [("/Movies", root20)], db20)
+    check(h20.run(cfg20).returncode == 0, "update-partial-staging seed sync failed")
+    cfg20b = h20.config("update-partial-staging-b", api20, [("/Movies", root20)], db20,
+                        public="https://changed.example.invalid")
+    marker20 = h20.workdir / "partial-staging.marker"
+    gate20 = h20.workdir / "partial-staging.gate"
+    proc20 = h20.start(cfg20b, binary=h.fault_binary, extra_env={
+        "STRMGEN_TEST_STAGING_PARTIAL_GATE": str(gate20),
+        "STRMGEN_TEST_STAGING_PARTIAL_MARKER": str(marker20),
+        "STRMGEN_TEST_STAGING_PARTIAL_BYTES": "17",
+    })
+    check(wait_for_marker(proc20, marker20), "partial-staging barrier never recorded")
+    check(proc20.poll() is None, "partial-staging barrier process exited early")
+    check("changed.example.invalid" not in (root20 / "A.strm").read_text(),
+          "partial-staging interruption changed the target")
+    partial_residuals = update_staging_names(root20)
+    check(len(partial_residuals) == 1 and (root20 / partial_residuals[0]).stat().st_size == 17,
+          f"expected one 17-byte staging residual: {partial_residuals}")
+    interrupted20 = read_db(db20)
+    check(len(interrupted20["ownership"]) == 1 and interrupted20["rounds"][0][1] == 1,
+          f"partial-staging interruption changed ownership or advanced the round: {interrupted20}")
+    proc20.kill()
+    proc20.communicate(timeout=10)
+    check(proc20.returncode == -signal.SIGKILL,
+          f"partial-staging interruption expected SIGKILL, got {proc20.returncode}")
+    retry20 = h20.run(cfg20b, timeout=60)
+    check(retry20.returncode == 0 and "updated=1" in retry20.stdout,
+          f"restart after partial-staging interruption failed: {retry20.returncode} {retry20.stdout} {retry20.stderr}")
+    check("https://changed.example.invalid/d/Movies/A.mkv" in (root20 / "A.strm").read_text(),
+          "restart after partial-staging interruption did not persist the newest URL")
+    check(not update_staging_names(root20), "partial-staging recovery left staging residue")
+    check(read_db(db20)["rounds"][0][1] == 2, "partial-staging recovery did not commit the update round")
+    stable20 = h20.run(cfg20b, timeout=60)
+    check(stable20.returncode == 0 and "skipped=1" in stable20.stdout,
+          f"stable rerun after partial-staging recovery did not skip: {stable20.returncode} {stable20.stdout}")
+    observed["update_partial_staging_sigkill"] = proc20.returncode
+    observed["update_partial_staging_recovery"] = retry20.returncode
+    observed["update_partial_staging_stable"] = stable20.returncode
+    h20.cleanup()
+
     # SIGTERM at each update window: the gate keeps the process runnable so
     # context cancellation is processed; the round must not commit and the
     # release binary must finish the update on restart.

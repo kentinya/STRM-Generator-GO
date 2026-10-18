@@ -615,21 +615,33 @@ func TestRecoverRestoresForeignDisplacedContent(t *testing.T) {
 	onlyEntryNamed(t, root, "A.strm")
 }
 
+// F-15 external-intervention diagnostic (historical fixture). Before the
+// 2026-10-18 convergence contract this single correctly-named residual holding
+// foreign bytes was expected to yield ErrStagingPresent and be preserved. A
+// reliably owned target that still holds the pre-update content plus exactly one
+// deterministic staging name is now recognized as this generator's own
+// interrupted pre-exchange staging under the normal single-writer boundary, so
+// only the residual is reclaimed and the normal comparison decides. The true
+// protections that remain are covered by
+// TestRecoverTwoResidualsIsConflictAndPreservesAll,
+// TestRecoverRefusesUnownedStagingWithoutDeleting and
+// TestRecoverRestoresForeignDisplacedContent; this test does not claim
+// arbitrary-writer preservation.
 func TestRecoverAmbiguousResidualIsConflictAndLeavesEverything(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
-	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old, newer)), []byte("foreign"), 0o644); err != nil {
+	residual := filepath.Join(root, newStagingName("A.strm", old, newer))
+	if err := os.WriteFile(residual, []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); !errors.Is(err, ErrStagingPresent) {
-		t.Fatalf("recover = %v, want ErrStagingPresent", err)
+	if err := (LocalFS{}).Recover(root, "A.strm", newer, true, false); err != nil {
+		t.Fatalf("recover = %v, want nil for own interrupted staging", err)
 	}
-	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
-	if string(raw) != string(old) {
-		t.Fatalf("ambiguous recovery changed the target: %q", raw)
+	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(old) {
+		t.Fatalf("recovery changed the owned target: %q", raw)
 	}
-	if got := residualBytes(t, root, "A.strm"); string(got) != "foreign" {
-		t.Fatalf("ambiguous recovery deleted the residual: %q", got)
+	if _, err := os.Stat(residual); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted staging residual was not reclaimed: %v", err)
 	}
 }
 

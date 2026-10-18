@@ -333,7 +333,17 @@ func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 	}
 	tmpID, haveID := identityOf(tmpInfo)
 
+	if err := beforeStagingWrite(dir, base); err != nil {
+		_ = tmp.Close()
+		fs.removeIfIdentity(dir, staging, tmpID, haveID)
+		return err
+	}
 	if err := fs.writeTempFile(tmp, data); err != nil {
+		_ = tmp.Close()
+		fs.removeIfIdentity(dir, staging, tmpID, haveID)
+		return err
+	}
+	if err := afterStagingWrite(dir, base); err != nil {
 		_ = tmp.Close()
 		fs.removeIfIdentity(dir, staging, tmpID, haveID)
 		return err
@@ -499,7 +509,7 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 			if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			return nil
+			return fs.syncDirectory(dir)
 		}
 		return ErrStagingPresent
 	}
@@ -535,7 +545,7 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		return nil
+		return fs.syncDirectory(dir)
 	}
 	if provenNew && targetOldMatch {
 		// The exchange never happened. Drop only our staged output; the target
@@ -543,7 +553,22 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		return nil
+		return fs.syncDirectory(dir)
+	}
+	if hashesOK && targetOldMatch {
+		// The target still holds the previous owned content, so the exchange
+		// never happened, and the deterministic staging name is this
+		// generator's own. Under the normal single-writer boundary no other
+		// actor parks bytes at that exact name, so the only expected residual
+		// here is an interrupted pre-exchange staging write: a complete copy, a
+		// zero-length file, or a partially written document. Drop only the
+		// residual so the normal comparison decides whether to stage the update
+		// again. Ambiguous shapes (unknown name, non-regular entry, unowned
+		// target, multiple residuals) were already rejected above.
+		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return fs.syncDirectory(dir)
 	}
 
 	switch {
@@ -570,6 +595,9 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
+		if err := fs.syncDirectory(dir); err != nil {
+			return err
+		}
 		if provenOld {
 			return nil
 		}
@@ -579,7 +607,7 @@ func (fs LocalFS) Recover(root, relFile string, desired []byte, owned, dryRun bo
 		if err := fs.removeFile(dir, staging); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		return nil
+		return fs.syncDirectory(dir)
 	default:
 		// Neither side matches what this run would write. Leave both untouched
 		// and report a conservative conflict.
@@ -611,7 +639,7 @@ func (fs LocalFS) writeTempFile(w io.Writer, data []byte) error {
 	if fs.writeTemp != nil {
 		return fs.writeTemp(w, data)
 	}
-	return writeAll(w, data)
+	return writeAll(w, stagingWriteData(data))
 }
 
 // exchangeNames atomically swaps two names in the same directory. Tests can

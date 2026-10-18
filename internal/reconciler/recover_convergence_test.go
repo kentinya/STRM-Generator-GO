@@ -4,14 +4,198 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/securepath"
+	"strm-generator-go/internal/strm"
 )
+
+var errSimulatedInterruption = errors.New("simulated process interruption")
+
+// localStagingNames lists the deterministic update-staging entries in one
+// output directory.
+func localStagingNames(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".strmgen-") && strings.HasSuffix(entry.Name(), ".update.tmp") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// F-15/AC-4/AC-6: Update itself creates the deterministic staging file, then
+// the process stops before any byte or after a partial write. The old target,
+// its mtime, ownership and round must survive, and a later run with the same or
+// a changed desired URL must converge instead of stalling on a conflict.
+func TestInterruptedPartialStagingRecoveryConverges(t *testing.T) {
+	for _, written := range []int{0, 17} {
+		for _, changed := range []bool{false, true} {
+			name := fmt.Sprintf("written=%d/changed=%v", written, changed)
+			t.Run(name, func(t *testing.T) {
+				root := t.TempDir()
+				store := newStore(t)
+				lister := &fakeLister{
+					dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, shaA)}},
+					getErr:  map[string]error{},
+					listErr: map[string]error{},
+				}
+				seed := Options{PublicPrefix: "https://seed.example.invalid"}
+				if _, err := New(lister, store, seed).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+					t.Fatalf("seed run: %v", err)
+				}
+				oldRaw := mustRead(t, filepath.Join(root, "A.strm"))
+				oldTimes := statTimes(t, root)
+
+				fs := &LocalFS{}
+				if err := fs.PrepareRoots([]string{root}); err != nil {
+					t.Fatalf("prepare roots: %v", err)
+				}
+				defer fs.CloseRoots()
+				interruptedDesired := "https://first.example.invalid"
+				data := (&strm.Document{URL: interruptedDesired + "/d/Movies/A.mkv"}).Bytes()
+				fs.writeTemp = func(w io.Writer, payload []byte) error {
+					if written > 0 {
+						if _, err := w.Write(payload[:written]); err != nil {
+							return err
+						}
+					}
+					panic(errSimulatedInterruption)
+				}
+				func() {
+					defer func() {
+						if r := recover(); r == nil {
+							t.Fatal("expected simulated process interruption")
+						}
+					}()
+					_ = fs.Update(root, "A.strm", []byte(oldRaw), data)
+				}()
+
+				if got := mustRead(t, filepath.Join(root, "A.strm")); got != oldRaw {
+					t.Fatalf("interrupted update changed the target: %q", got)
+				}
+				if after := statTimes(t, root); !after["A.strm"].Equal(oldTimes["A.strm"]) {
+					t.Fatal("interrupted update changed the target mtime")
+				}
+				if _, ok, err := store.Lookup("/Movies", "A.strm"); err != nil || !ok {
+					t.Fatalf("interrupted update lost ownership: ok=%t err=%v", ok, err)
+				}
+				if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 2 {
+					t.Fatalf("interrupted update advanced the round: epoch=%d err=%v", epoch, err)
+				}
+				staging := localStagingNames(t, root)
+				if len(staging) != 1 {
+					t.Fatalf("expected exactly one staging residual, got %v", staging)
+				}
+				if raw, err := os.ReadFile(filepath.Join(root, staging[0])); err != nil || len(raw) != written {
+					t.Fatalf("unexpected staging bytes: len=%d err=%v", len(raw), err)
+				}
+
+				retryPrefix := interruptedDesired
+				if changed {
+					retryPrefix = "https://second.example.invalid"
+				}
+				report, err := New(lister, store, Options{PublicPrefix: retryPrefix}).Run(context.Background(), []Source{sourceFor(root)})
+				if err != nil {
+					t.Fatalf("retry run: %v", err)
+				}
+				res := report.Sources[0]
+				if res.Updated != 1 || res.Conflicts != 0 || res.Partial || res.Errors != 0 {
+					t.Fatalf("retry did not converge: %+v", res)
+				}
+				if raw := mustRead(t, filepath.Join(root, "A.strm")); !strings.Contains(raw, retryPrefix+"/d/Movies/A.mkv") {
+					t.Fatalf("retry did not persist the newest URL: %q", raw)
+				}
+				if names := localStagingNames(t, root); len(names) != 0 {
+					t.Fatalf("retry left staging residue: %v", names)
+				}
+				if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 3 {
+					t.Fatalf("retry did not commit the update round: epoch=%d err=%v", epoch, err)
+				}
+			})
+		}
+	}
+}
+
+// F-16/AC-4: after Recover mutates the directory it must flush that metadata
+// through the existing sync seam before reporting success. A sync failure must
+// surface as a partial conflict, must not commit the round, and a later run
+// with working durability must converge normally.
+func TestRecoveryDirectorySyncFailureDoesNotCommit(t *testing.T) {
+	root := t.TempDir()
+	store := newStore(t)
+	lister := &fakeLister{
+		dirs:    map[string][]openlist.Entry{"/Movies": {media("A.mkv", 1, shaA)}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	seed := Options{PublicPrefix: "https://seed.example.invalid"}
+	if _, err := New(lister, store, seed).Run(context.Background(), []Source{sourceFor(root)}); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	// Interrupt after the exchange: the target holds the new bytes and staging
+	// holds the displaced old content.
+	interrupted := Options{
+		PublicPrefix: "https://first.example.invalid",
+		FS: &LocalFS{afterExchange: func(*securepath.Dir, string) error {
+			return errSimulatedInterruption
+		}},
+	}
+	if _, err := New(lister, store, interrupted).Run(context.Background(), []Source{sourceFor(root)}); err == nil {
+		t.Fatal("interruption must fail the run")
+	}
+
+	calls := 0
+	failing := Options{
+		PublicPrefix: "https://seed.example.invalid",
+		FS: &LocalFS{syncDir: func(*securepath.Dir) error {
+			calls++
+			return errors.New("injected recovery directory sync failure")
+		}},
+	}
+	report, err := New(lister, store, failing).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("recovery directory sync failure must not succeed")
+	}
+	if calls == 0 {
+		t.Fatal("recovery never synced the directory before reporting success")
+	}
+	if report.Sources[0].Conflicts != 1 || !report.Sources[0].Partial {
+		t.Fatalf("recovery sync failure was not a partial conflict: %+v", report.Sources[0])
+	}
+	if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 2 {
+		t.Fatalf("recovery sync failure committed a round: epoch=%d err=%v", epoch, err)
+	}
+	if raw := mustRead(t, filepath.Join(root, "A.strm")); !strings.Contains(raw, "seed.example.invalid/d/Movies/A.mkv") {
+		t.Fatalf("recovery did not restore the previous owned content: %q", raw)
+	}
+
+	recovered, err := New(lister, store, seed).Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("recovery retry run: %v", err)
+	}
+	if recovered.Sources[0].Skipped != 1 || recovered.Sources[0].Updated != 0 {
+		t.Fatalf("retry after sync failure did not converge to a skip: %+v", recovered.Sources[0])
+	}
+	if epoch, err := store.NextEpoch("/Movies"); err != nil || epoch != 3 {
+		t.Fatalf("retry after sync failure did not commit: epoch=%d err=%v", epoch, err)
+	}
+	if names := localStagingNames(t, root); len(names) != 0 {
+		t.Fatalf("recovery retry left staging residue: %v", names)
+	}
+}
 
 // F-14: each target must enumerate a prepared root with its own directory
 // cursor. A residual for a later target in the same directory must still be
@@ -34,7 +218,10 @@ func TestRecoverDetectsResidualOnNonFirstTargetInPreparedRoot(t *testing.T) {
 	if err := fs.Publish(root, "B.strm", oldB); err != nil {
 		t.Fatalf("publish B: %v", err)
 	}
-	residual := newStagingName("B.strm", oldB, newB)
+	// A residual that matches the deterministic prefix/suffix but does not carry
+	// the expected double-hash body can never be reclaimed, so it stays a
+	// conservative conflict and still proves the non-first target was enumerated.
+	residual := stagingPrefix("B.strm") + "unrecognized" + updateStagingSuffix
 	if err := os.WriteFile(filepath.Join(root, residual), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +356,7 @@ func TestRecoverDetectsResidualsAcrossPreparedTargetsAndSources(t *testing.T) {
 		}
 	}
 	last := cases[len(cases)-1]
-	residual := newStagingName(filepath.Base(last.rel), old, newer)
+	residual := stagingPrefix(filepath.Base(last.rel)) + "unrecognized" + updateStagingSuffix
 	if err := os.WriteFile(filepath.Join(last.root, residual), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
