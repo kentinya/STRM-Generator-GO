@@ -1,6 +1,16 @@
 # 进度
 
-## 当前状态（2026-10-18）
+## 当前状态（2026-10-19，B 独立审查）
+
+Task 2.1 **PASS**，审查范围 `a8c2d62369a21e8d9a0c2cefec2af09927fb3286..cec07017113c9b8e2d313cc592cc22d98011b097`，纯报告后继 `8263f5d45325d3d4c5da29d04e8a53c5fa435a27`。B 独立治理、Go 两包 169 测试、Python 81、额外 review-only overlay 2 测试，以及固定隔离 OpenList 8 场景／11 测试通过；缓存 TTL 1 分钟、60.2 秒后普通列表自然更新。核对 12 项候选输入与 4 个二进制哈希，复用匹配的完整 T4：race 244 测试／8 包、双架构与旧 CLI 9/9 等。实际门禁 14 项全 exit 0；完成报告的 13 项是计数笔误，已纠正。
+
+证据索引 `artifacts/validation-evidence/task-2.1-b-simple-get-20261019/INDEX.md`；原始 Developer 新候选与首次失败继续保留。AC-1..6 仅对无持久状态的两次 Get 判定及 refresh:false 列表通过。WebDav 自挂载文件 Get 在缓存更新前后仍未读到，隐藏／虚拟视图／同码反例仍属用户接受局限，不声称已辨别真实不存在。
+
+Slice 2 仍 ACTIVE；逐项重评 RO-1..RO-6 后，只有远端判定及真实服务证据部分完成，配置清理、三轮计数、本地删除、移动、旧库映射／正常恢复与预览仍缺失。没有 Closure Packet 或 A 最终 PASS。下一步由 B 基于当前实际实现规划完整 Mirror 清理及恢复 Task；不改变 Slice／Roadmap／稳定需求。/d/、固定插件解析、Jellyfin／代理、ARM64 实机及规模 NOT RUN。未修改产品代码、未推送。
+
+Next Action: B PLANS THE NEXT COHERENT TASK WITHIN SLICE 2
+
+## 前次 Task 2.1 合同适配（历史，2026-10-18）
 
 用户要求 B 同步 Task。B 已核对真实代码和合同 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea`，决定 **Task 2.1 合法原地调整继续，不重规划**。Task 保持 FIX REQUIRED／High／T4，Task Base `a8c2d62369a21e8d9a0c2cefec2af09927fb3286` 不变，Contract Checkpoint 更新为上述 A 合同。新 TASK.md 已替换旧强刷执行清单、AC、错误／缓存测试计划，记录旧新断言与 B-1 映射；旧计划／报告／审查原文保留于 `57ea31b88a0dde95e486f8bac11ebe9e473f74ea:TASK.md`。
 

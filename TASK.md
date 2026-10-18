@@ -5,7 +5,7 @@
 ```text
 Task ID: 2.1
 Parent Slice: 2
-Status: READY FOR B REVIEW
+Status: PASS
 Task Base: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
 Contract Checkpoint: 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
 Difficulty: High
@@ -161,7 +161,7 @@ PASS 后逐项重评 Slice RO-1..RO-6，不以本 Task 判定能力替代配置�
   - 文档：`docs/development-environment.md`（新场景与实测语义）、`docs/architecture.md`
     CURRENT、`docs/test-matrix.md` 状态、`docs/compatibility.md` 实证层。未新增文件，
     `dev/environment-spec.json` 无需变更。
-- Tests and Results / Evidence：最终检查点 13 项门禁全部 exit 0：治理、`mod download`／
+- Tests and Results / Evidence：最终检查点 14 项门禁全部 exit 0：治理、`mod download`／
   `verify`、`quality.py`（Python 81 项、gofmt、vet、test、build）、独立 gofmt、race
   `-race ./...`（244 测试／8 包，0 fail／skip）、`-count=1 ./...`、Linux amd64／arm64 构建、
   testhooks 构建、隔离 CLI 9/9、集成测试二进制、固定隔离 OpenList v4.2.7 全 8 场景
@@ -187,9 +187,40 @@ PASS 后逐项重评 Slice RO-1..RO-6，不以本 Task 判定能力替代配置�
 ## B Review Result
 
 ```text
-Reviewed: new implementation NOT STARTED; prior review preserved in history
-Decision: FIX REQUIRED
-Contract Adaptation: continue Task 2.1 under 57ea31b88a0dde95e486f8bac11ebe9e473f74ea; no replanning
+Reviewed: a8c2d62369a21e8d9a0c2cefec2af09927fb3286..cec07017113c9b8e2d313cc592cc22d98011b097
+Docs-only Handoff: 8263f5d45325d3d4c5da29d04e8a53c5fa435a27 (TASK.md only)
+Decision: PASS
+P0/P1 Blockers: NONE FOUND within Task 2.1
+Contract Adaptation: Task 2.1 accepted under 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
 Slice Required Outcomes all satisfied: NO
-Next: Developer implements the revised Task 2.1, runs new T4 and real-service gates, then returns for independent B review
+Next: B plans the remaining complete Mirror/cleanup/recovery behavior within Slice 2
 ```
+
+2026-10-19 B 独立审查完整 Task Base..实现 Head，包含旧实现及其后新合同修正；核对入口
+工作区干净、治理通过及报告后继仅改 TASK.md。没有以旧强刷候选或旧失败记录代替新合同验收。
+
+- **独立验证：** openlist／reconciler 未缓存回归 169 测试／2 包通过；Python 81 项通过；
+  重建集成测试二进制并运行固定 v4.2.7 Local／WebDav 全 8 场景、11 测试，0 fail／skip。
+  缓存 TTL 1 分钟，61 次普通列表轮询、60.2 秒后自然更新。全部准备、取证和分页列表 false。
+  另用仅位于 artifacts 的 Go overlay 独立通过 2 项检查：第一页 200 项后第二页 null／total:0
+  必须拒绝；根请求返回时 deadline 已结束必须中止且不查目标；普通非 APIError 的目标失败
+  在父 context 有效时按未读到处理。未修改产品实现或已提交测试。
+- **证据复用：** Developer 新候选 12 项源码／文档及 4 个二进制 SHA-256 逐项一致，
+  cec0701..8263f5d 仅 TASK.md 改变。复用新候选依赖校验、quality、race（244 测试／8 包，
+  0 fail／skip）、未缓存全包、双架构／testhooks 构建及旧 CLI 9/9 原始证据；实际 gates.tsv
+  为 14 项 exit 0，B 据此纠正上文报告的 13 项笔误。没有因角色不同机械重复完整门槛。
+- **AC-1..AC-6：PASS。** 路径与两次 Get、源根保护、各种目标未读到、无跨调用状态、
+  取消与单请求超时、列表结构／界限和真实服务语义均满足。WebDav 目录缓存自然更新成立，
+  文件 Get 在更新前后仍未读到；没有将它写成文件再出现可读或权威识别成功。隐藏项拒绝、
+  后备目录已删但挂载根可读、虚拟祖先掩盖父驱动故障，按已接受规则分类并保留局限。
+- **RO 全量重评：** RO-1 未满足（清理仍拒绝、开关及阈值未接入）；RO-2 部分满足
+  （根／取消／遍历门槛已有，连续缺失未接入）；RO-3 部分满足（远端规则完成，本地删除
+  未交付）；RO-4 未满足（旧路径退出未交付）；RO-5 未满足（精确映射、旧库迁移和清理
+  恢复未交付）；RO-6 部分满足（固定服务实证完成，清理预览／摘要未交付）。不交 Closure
+  Packet，不改 Slice ACTIVE 或替 A 签最终 PASS。
+
+本机证据索引：`artifacts/validation-evidence/task-2.1-b-simple-get-20261019/INDEX.md`，
+包含精确命令／cwd、退出码／耗时、原始日志、复用哈希、独立 overlay 与 RO 映射；真实服务
+版本及原始响应见子目录 `real-openlist/summary.json`。旧首次失败及 Developer 新候选证据继续
+保留。本轮没有生产服务／媒体操作。真实 /d/、固定插件实际解析、Jellyfin／代理、ARM64 实机
+和规模 NOT RUN。证据仅在本机 Git 忽略目录，不能声称远端可读。
