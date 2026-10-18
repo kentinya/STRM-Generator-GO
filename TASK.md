@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.1
 Parent Slice: 1
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -275,3 +275,24 @@ internal/config/config.go:107-111,270-273,290-293 以配置目录而非批准的
 - **Remaining / Risk：** 本 Task 不执行已拥有文件的内容更新；Mirror 删除／移动清理、serve／定时、发布镜像与性能保证未实现。真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能均 **NOT RUN**；夹具证据不替代外部兼容／播放证据。无生产服务、媒体或配套项目改动。
 - **Head SHA：** `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`。
 - **交接：** 当前 Task 状态为 **READY FOR B REVIEW**。这是 Developer 交付报告，不是独立 B 审查 PASS，也不表示 Slice 完成。
+
+## B Review Result — 2026-10-18 (Independent Review)
+
+```text
+Reviewed: 951aaeeeca966e8ef79e8ac9500827ce27d0f035..6423698f3b4ccb2a3c8250486033ebb5352b8ed0
+Decision: FIX REQUIRED
+Slice Required Outcomes all satisfied: NOT ASSESSED (Task did not PASS)
+Next: DEVELOPER FIXES TASK 1.1 IN PLACE
+```
+
+- **审查范围与已复核证据：** 核对完整 Task Base..Implementation Head 的代码、测试、依赖和交付报告；独立运行 `bash scripts/go-local test ./...`、`bash scripts/go-local vet ./...`、当前发布二进制构建、`git diff --check`，并用独立 testhooks 二进制运行隔离 CLI。`first_generation`、`repeat_and_compare`、`ownership_and_paths`、`api_and_limits`、`dry_run_boundaries`、`multiprocess`、`source_identity`、`database_uri` 均通过；证据目录为 `artifacts/validation-evidence/task-1.1-b-review-20261018-02/`。既有 `task-1.1-fix-20261018-05` 的完整 quality／race／双架构交叉构建证据与当前实现输入匹配，可复用但不替代本次独立 CLI 审查。
+- **F-9 / P1：中断恢复验收存在不可重复的时序缺陷（AC-7／R-06／R-07／R-09）。** 第一次完整独立复跑在 `fault_recovery` 失败：轮内已观察到部分 `ownership` 后发送 `SIGSTOP`，进程实际可能已经发布下一个 STRM、尚未登记其归属；随后重启按安全不变量报告 `existing file not owned by this source` 并非零退出。第二次只运行 `fault_recovery` 通过，证明当前断言受调度时序影响。程序未盲目认领孤儿文件的行为本身是正确的，但该验收不能作为稳定 PASS 证据。
+- **必须在同一 Task 内修正：**
+  1. 将“归属成功后中断”改为确定性屏障：仅在成功 `RecordOwnership` 返回后暂停/终止，使用仅 testhooks 构建可见的受控注入或等效受版本控制的隔离机制；发布二进制不得暴露安全旁路或环境开关。
+  2. 保留并明确验证两个窗口：已发布但登记失败的文件重启后必须保持未归属冲突、不得自动认领；已登记文件在完整轮提交前中断时重启应能跳过已拥有文件并提交同一 epoch。两者分别检查 STRM、ownership、rounds、退出码和锁释放。
+  3. 先运行聚焦故障恢复并至少重复验证确定性，再执行完整 T4 门槛；新证据使用新的 `task-1.1-b-review-fix-<run-id>/` 子目录，保留本次首次失败及通过重跑，不覆盖历史证据。
+  4. 修正后的候选重新交 `READY FOR B REVIEW`；在此之前不规划 Task 1.2、不移动 Slice 状态、不宣称任何 RO 已重新满足。
+
+### B 结论
+
+当前实现对未登记 STRM 的保守冲突处理没有发现越权写入；阻断点是 AC-7 证据与测试注入的时序不稳定，不能凭一次通过或历史报告签发 PASS。Slice 1 保持 ACTIVE，Implementation Head 仍为 `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`。
