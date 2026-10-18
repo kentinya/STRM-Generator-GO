@@ -5,7 +5,7 @@
 ```text
 Task ID: 2.1
 Parent Slice: 2
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
 Contract Checkpoint: 57ea31b88a0dde95e486f8bac11ebe9e473f74ea
 Difficulty: High
@@ -141,12 +141,48 @@ PASS 后逐项重评 Slice RO-1..RO-6，不以本 Task 判定能力替代配置�
 
 ## Developer Completion Report
 
-新合同修正尚未实施／交付，完成报告 PENDING。旧实现检查点 `2fc3f6f06b6bc02ec9503e373cb031fc438f0346` 与旧证据仅为历史，不满足本计划。
+按 B 调整后的新合同原地修正并交付；旧强刷实现与旧证据仅为历史，不构成本 Task 通过。
 
-- Changed Files / Implemented：PENDING
-- Tests and Results / Evidence：PENDING（新候选完整 T4 与真实 Get／缓存实证尚未运行）
-- Decisions / Risks / Remaining Required Outcomes：本 Task 仅判定；计数／删除／恢复闭环未交付。
-- Head SHA：新规则修正 NOT SET；旧候选身份如上。
+- Changed Files / Implemented：
+  - `internal/openlist/absence.go`：`Confirmer` 改为至多两次精确 Get（源根、目标），
+    状态为 present／missing／unknown，原因码有界且不含私密信息；每次请求前后检查调用方
+    context，整次取消／deadline 优先中止，父 context 有效的单请求超时按阶段归入源根不可读
+    或目标未读到。新增导出的 `openlist.CheckSourceRoot` 作为唯一源根门槛。
+  - `internal/openlist/openlist.go`：删除 `ListFresh` 与 refresh 开关、`IsPermissionDenied`／
+    `StatusCode`、`Entry.Virtual` 与 Get 的 provider 否决；`List` 每页显式 `refresh:false`；
+    `IsNotFound` 保持废弃且无调用。
+  - `internal/reconciler/syncer.go`：源轮次改用同一 `CheckSourceRoot` 门槛（失败保留、取消
+    区分），未接入计数或删除。
+  - 测试与运行器：重写 `absence_test.go`（路径与深度、源根全部门槛变体含虚拟视图、目标
+    各类错误／超时／无效响应／名称不符、取消屏障、重读、并发、读取上限与列表轨迹断言）、
+    `openlist_integration_test.go`、`scripts/run_openlist_absence_integration.py` 与
+    `tests/test_run_openlist_absence_integration.py`（场景 `refresh_permission` 改为
+    `read_only_identity`，缓存改短 TTL 自然到期，全部准备／轮询／取证列表显式 `refresh:false`）。
+  - 文档：`docs/development-environment.md`（新场景与实测语义）、`docs/architecture.md`
+    CURRENT、`docs/test-matrix.md` 状态、`docs/compatibility.md` 实证层。未新增文件，
+    `dev/environment-spec.json` 无需变更。
+- Tests and Results / Evidence：最终检查点 13 项门禁全部 exit 0：治理、`mod download`／
+  `verify`、`quality.py`（Python 81 项、gofmt、vet、test、build）、独立 gofmt、race
+  `-race ./...`（244 测试／8 包，0 fail／skip）、`-count=1 ./...`、Linux amd64／arm64 构建、
+  testhooks 构建、隔离 CLI 9/9、集成测试二进制、固定隔离 OpenList v4.2.7 全 8 场景
+  （11 个 Go 集成测试，0 skip）、`git diff --check`。证据索引
+  `artifacts/validation-evidence/task-2.1-simple-get-final-m8SE4t/INDEX.md`（含门禁退出码／
+  耗时、二进制 SHA-256、源码清单摘要与真实服务原始观测）；实现检查点提交后逐字核对文件
+  哈希一致。开发期间首轮真实服务失败（removed_parent、nested_mount_masking 的夹具预期与
+  实测驱动行为不符）保留在早期 probe 目录，按实测探测后修正夹具与断言；详细驱动事实见
+  INDEX.md 观测清单，不是产品缺陷粉饰。
+- Decisions / Risks / Remaining Required Outcomes：真实固定版本实测并作为用户接受局限
+  记录：Local 挂载后备目录被删后其挂载根仍读取为目录（该源继续、目标未读到计缺失）；禁用
+  存储的挂载根不可读（保留）；WebDav 自挂载缓存自然到期后目录可读但文件 Get 始终不可读
+  （受限身份隐藏项同码 403）；嵌套挂载虚拟祖先可读并掩盖父驱动故障。判定器不发列表、不查
+  祖先、不跨调用缓存；`cleanup.enabled: true` 仍在任何写入前被拒绝。本 Task 只交付远端一次
+  判定：缺失计数、完整轮、本地归属／删除、移动、旧库迁移、dry-run 预览与清理恢复未交付，
+  RO-2／RO-3 删除部分／RO-4／RO-5／RO-6 预览仍未满足。真实 `/d/` 播放、固定插件实际解析、
+  Jellyfin／代理、ARM64 实机与规模仍 NOT RUN。未自签 B／A 产品 PASS。
+- Head SHA：实现检查点 `cec07017113c9b8e2d313cc592cc22d98011b097`；门禁运行后再无产品、
+  测试、运行器或文档输入变化，本节仅更新 Task 状态与报告。
+- Evidence Run：`artifacts/validation-evidence/task-2.1-simple-get-final-m8SE4t/`（本机
+  Git 忽略路径，不是远端可读证据）。
 
 ## B Review Result
 
