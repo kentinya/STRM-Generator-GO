@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.2
 Parent Slice: 1
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
 Contract Checkpoint: bfdceed5b3c564ca92aef47035dcced314f24d45
 Difficulty: High
@@ -151,21 +151,22 @@ quality.py 包含非 race 的 Go／Python 检查；race、arm64 交叉构建、�
 
 ## Developer Completion Report
 
-- Changed Files / Implemented:
-  - `internal/securepath/securepath_linux.go`: replaced `Dir.ReadDirNames` (shared-cursor and unbounded `Readdirnames(-1)`) with `Dir.OpenDirReader`, which `openat`s `"."` relative to the bound descriptor with `O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW` to obtain an independent open file description; open errors are returned upward and the caller closes it. Other `Duplicate` uses are unchanged.
-  - `internal/reconciler/fs.go`: `findStagingFiles` now streams an independent reader in fixed 128-entry batches, retains at most two matching names (a second proves ambiguity), and treats any read error as an error rather than "absent". `newStagingName` now encodes SHA-256 prefixes of both the previous owned content and the new content (`stagingHashes` replaces `stagingOldHash`). `Recover` gains an explicit provably-ours path: with reliable ownership and exactly one regular residual, a name/target/staging hash match in either exchange order reclaims only the stale residual and lets normal comparison converge; unprovable residuals, unowned targets and symlink/special entries stay conservative.
-  - `internal/reconciler/recover_convergence_test.go` (new) and `internal/reconciler/fs_test.go`: F-14 real-assembly regression, bounded enumeration, two-residual ambiguity, closed-directory error, multi-target/subdirectory/source enumeration, dry-run then real run, and pre-/post-exchange convergence with unchanged and changed desired.
-  - `scripts/run_isolated_sync_integration.py`: `fault_recovery` adds h18 (release-binary restart with a different desired URL after an exchange SIGKILL) plus a stable re-run.
+- Changed Files / Implemented (F-15/F-16 fix, same Task 1.2, Task Base unchanged):
+  - `internal/reconciler/fs.go`: `Recover` treats a single regular residual under the deterministic staging name with a reliably owned target that still matches the name-encoded previous content hash as this generator's own interrupted pre-exchange staging (zero-length, partial or complete); it drops only the residual and lets normal comparison decide. Every successful exchange/remove path now flushes through the existing `syncDirectory` seam and propagates directory-sync errors (non-zero, partial, no round). `Update` gains inert-by-default `beforeStagingWrite`/`afterStagingWrite` hook points and `writeTempFile` writes `stagingWriteData(data)`.
+  - `internal/reconciler/fs_staging_hook_default.go` / `fs_staging_hook_integration.go` (new): inert release hooks; the `strmgen_testhooks` build can truncate a staging write (`STRMGEN_TEST_STAGING_PARTIAL_BYTES`) and pause at the staging-created and partial-write windows for deterministic SIGKILL process verification. The release build contains no environment switch.
+  - `internal/reconciler/recover_convergence_test.go`: added `TestInterruptedPartialStagingRecoveryConverges` (real SQLite store + Syncer seed; Update itself creates staging; 0/17 bytes x same/changed desired; old bytes/mtime/ownership/round preserved; retry converges and commits) and `TestRecoveryDirectorySyncFailureDoesNotCommit` (injected recovery dir-sync failure surfaces, seam invoked, no commit, later run converges). F-14 enumeration fixtures now use an unrecognizable staging name so the residual stays a genuine conflict.
+  - `internal/reconciler/fs_test.go`: `TestRecoverAmbiguousResidualIsConflictAndLeavesEverything` converted, per B's F-15 authorization, into an explicit external-intervention diagnostic of the new single-writer boundary; old name/trigger kept, no arbitrary-writer preservation claimed.
+  - `scripts/run_isolated_sync_integration.py`: `fault_recovery` adds h19 (zero-length staging residual SIGKILL) and h20 (17-byte partial staging residual SIGKILL), each restarted with the release binary and followed by a stable skip.
 - Tests and Results / Evidence:
-  - First failure recorded before the fix: `TestRecoverDetectsResidualOnNonFirstTargetInPreparedRoot` → `recover B = <nil>, want ErrStagingPresent`; log `artifacts/validation-evidence/task-1.2-convergence-20261018-dev/pre-fix/f14-first-failure.log`.
-  - Full T4 on head `14119b8`: governance PASS, mod download/verify PASS, `quality.py` PASS, race `./...` PASS (8 product packages, 0 failures), amd64/arm64/testhooks builds PASS, isolated `--scenario all` PASS (9/9), `git diff --check` clean. Evidence index `artifacts/validation-evidence/task-1.2-convergence-20261018-TkmsKb/index.json`.
-  - CLI three scenarios run individually before T4: `repeat_and_compare`, `dry_run_boundaries`, `fault_recovery` all PASS.
-  - Real OpenList, fixed plugin parsing and Jellyfin/ARM64 execution: NOT RUN (cross build is not ARM64 execution).
+  - Pre-fix first failure (F-15/F-16): `TestInterruptedPartialStagingRecoveryConverges` 4/4 FAIL and `TestRecoveryDirectorySyncFailureDoesNotCommit` FAIL; log `artifacts/validation-evidence/task-1.2-convergence-20261018-dev2/pre-fix/f15-f16-first-failure.log`.
+  - Post-fix focused pass: `.../task-1.2-convergence-20261018-dev2/post-fix/f15-f16-pass.log`; reconciler and five-package feedback gates PASS.
+  - Full T4 on implementation head `248a609eb70dbb8591091463ed51c5146d7c378a`: governance PASS, `mod download`/`mod verify` PASS, `quality.py` PASS (48 Python checks + Go vet/test/build), race `./...` PASS (188 pass events, 0 fail; CGO via `artifacts/dev-env/cc/bin/cc`), amd64/arm64/testhooks builds PASS, isolated `--scenario all` PASS (9/9, incl. h19/h20), `git diff --check` clean. Evidence index `artifacts/validation-evidence/task-1.2-convergence-20261018-dev2/final/index.json` (source/binary SHA-256 recorded).
+  - Real OpenList, fixed plugin parsing, Jellyfin/proxy and ARM64 execution: NOT RUN (cross build is not ARM64 execution).
 - Decisions / Risks / Remaining Required Outcomes:
-  - Decision: extended the deterministic staging name to encode both content hashes. This is neither ownership semantics nor new persistent state; it makes interrupted-update proof unambiguous in both exchange orders. Flagged for B review.
-  - Gate hygiene: added untracked `artifacts/validation-evidence/go.mod` so the mandated `./...` gate excludes B's untracked `overlay-inputs` review scratch; no B evidence file was modified.
-  - Remaining: real OpenList / fixed plugin parsing / Jellyfin evidence and final B independent verification.
-- Head SHA: 14119b8389fdc76aa35df5ed7ba3e297810c11c5
+  - Decision: the pre-exchange incomplete residual is identified by (reliable ownership + exactly one regular deterministic-name residual + target still matching the name-encoded old hash), not by a full new-content hash. This follows A's 2026-10-18 convergence contract and B's F-15 authorization; arbitrary forged same-name bytes are no longer claimed preserved, and genuine unowned, ambiguous, non-regular and path protections are retained (`TestRecoverTwoResidualsIsConflictAndPreservesAll`, `TestRecoverRefusesUnownedStagingWithoutDeleting`, `TestRecoverRestoresForeignDisplacedContent`).
+  - Decision: all `Recover` mutation paths reuse the existing sync seam; no new persistent recovery state, ownership semantics or media-version state was introduced.
+  - Remaining: real OpenList / fixed plugin parsing / Jellyfin evidence and B independent verification of the new candidate.
+- Head SHA: 248a609eb70dbb8591091463ed51c5146d7c378a
 
 ## B Review Result
 
