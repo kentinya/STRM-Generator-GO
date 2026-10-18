@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.2
 Parent Slice: 1
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -120,3 +120,15 @@ Next: DEVELOPER IMPLEMENTS TASK 1.2
 - B 修正了上一 Task 固定最终命令中遗漏的 `--fault-binary` 与 testhooks 构建步骤；该命令事实已在本 Task 的 T4 模板中固定。
 
 Task 1.1 的详细实施计划、F-1..F-9 修正记录和首次失败证据保留在可达 Git 提交 `15d749b3f151e94a6fb5e9850e6e21d7101aa603` 及本机 evidence 目录；不在当前 Task 重复复制历史流水账。
+
+## Developer Completion Report — 2026-10-18
+
+- **Status：** READY FOR B REVIEW（交 B 独立审查；本报告不是 B PASS，也不表示 Slice 完成）。
+- **Implementation Head：** `6eb4db67837ca8d3a65e1ce23bac6ea13b2592b9`（父提交 `6d683e85f4b1681dbe17a99af12c11ffa544a63a`）。只改实现、测试与隔离驱动；未改合同、Roadmap 或稳定需求。
+- **Changed Files：** `cmd/strmgen/main.go`；`internal/reconciler/{fs.go,fs_test.go,syncer.go,syncer_test.go}`；`internal/securepath/securepath_linux.go`；`internal/strm/strm.go`；新增 `internal/reconciler/{fs_update_hook_default.go,fs_update_hook_integration.go,fs_update_after_hook_default.go,fs_update_after_hook_integration.go}`；`scripts/run_isolated_sync_integration.py`；`tests/test_run_isolated_sync_integration.py`。`go.mod`／`go.sum` 未变。
+- **Implemented：** 移除仅报告不写入的 `NeedsUpdate` 分支，`handleFile` 在 `Update` 决策时真正原子替换已拥有 STRM。`LocalFS.Update` 在同目录临时文件写入／`fsync`／关闭后，用 `securepath.Dir.Exchange`（`renameat2` `RENAME_EXCHANGE`）交换目标与临时文件，再逐字节校验被换出的旧目标等于更新前读取的已拥有字节；不等则交换回去并返回 `ErrTargetChanged`，保留外部字节、绝不 `unlink` 旧目标作为补偿。发布前重新确认目标是已拥有普通文件（符号链接／特殊文件／缺失均保守失败）。成功替换后删除旧内容并 `fsync` 目录，保留原 ownership 映射，不新建任何版本表。`handleFile` 区分 `updated`／`skipped`／`conflict`／`errors`，更新失败非零且 `partial=true`；一个 source 仅当遍历、更新、归属全部成功才提交完整 round。dry-run 复用同一比较和冲突判断，只计 `updated` 预览，不写文件、数据库、sidecar、目录或轮次。报告新增 `updated=`，移除 `needs_update=`。受控故障与恢复只经 `strmgen_testhooks` 构建（`STRMGEN_TEST_UPDATE_*`），发布二进制不含任何 `STRMGEN_TEST` 字符串。
+- **Tests and Results / Evidence：** 本机权威证据目录 `artifacts/validation-evidence/task-1.2-final/`（非远端可读），源码 SHA `6eb4db67837ca8d3a65e1ce23bac6ea13b2592b9`，构建自干净已提交 HEAD。治理 PASS；`mod download`／`mod verify` PASS；`quality.py`（gofmt／vet／Go test／build＋Python 47 项回归）PASS；`-race -count=1 ./...` PASS（test-level pass=155、fail=0、skip=0）；Linux amd64／arm64 CGO=0 `-trimpath` 与 testhooks amd64 构建 PASS（SHA-256 amd64 `3f4f6d12…`、arm64 `90ae5ac1…`、testhooks `c097434c…`）；发布二进制 `STRMGEN_TEST` 计数 0，testhooks 计数 5；`run_isolated_sync_integration.py --scenario all` 9/9 场景 PASS；`git diff --check` PASS；提交后治理与 Python 回归 PASS。
+- **新增／加强测试：** Go 层 `TestURLChangeUpdatesOwnedFileAndCommits`、`TestSHAChangeUpdatesOnlyAffectedFile`、`TestIncomparableSizeChangeUpdates`、`TestUpdateFailurePreservesTargetAndRound`、`TestTargetReplacedBeforeExchangeIsPreserved`、`TestDryRunReportsUpdateWithoutWriting`，以及 `fs_test.go` 的原子替换、外部替换保留、符号链接／FIFO／超长拒绝、写入／同步／关闭／交换各阶段失败保留目标并清理临时文件。隔离驱动新增：真实 URL／SHA-1／不可比 Size 更新、dry-run 更新预览后真实应用、更新临时写入失败与重试、更新后 `SIGKILL` 由发布二进制重启完成原 epoch、交换前外部替换竞态保留外部字节。
+- **首次失败与修正：** 首轮 `fault_recovery` 的“更新写入失败”子用例误用了新的 API server，导致 source identity 变化被报为 `conflicts=1`（`errors=0`）。定位为测试夹具错误而非产品缺陷；改为复用同一 server、仅改 `public_url`（identity 不含 public URL），修正后 `errors=1`、旧目标保留、重试成功。另将 `Update` 中交换回滚失败的分支改为保留 `tmpName` 外部字节、不删除，避免回滚失败时误删外部内容；两处均在最终 T4 全量重跑通过。
+- **Decisions / Risks / Remaining Required Outcomes：** 使用 `RENAME_EXCHANGE`（已在本环境实证支持）保证替换期间目标永不缺失，并在交换后校验旧目标以检测外部替换；这是本 Task 的关键安全决策。`ErrTargetChanged` 与“交换回滚失败”都保持保守失败、不登记成功轮、不伪造 ownership。RO-4 的已拥有文件内容替换与原子恢复证据本 Task 已提供，最终是否满足由 B 复核。真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机与性能仍 **NOT RUN**；夹具与交叉编译证据不替代外部兼容／播放证据。Mirror 清理、serve／定时、发布镜像仍属后续 Slice。
+- **Head SHA：** `6eb4db67837ca8d3a65e1ce23bac6ea13b2592b9`。

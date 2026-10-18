@@ -3,7 +3,8 @@
 ## 当前状态（2026-10-18）
 
 - Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
-- B 已独立复审 Task 1.1 并判定 PASS；F-9 已用仅 testhooks 可见的确定性归属屏障修正，发布二进制无测试环境开关。当前规划 Task 1.2「已拥有 STRM 内容更新与原子恢复」，状态为 PLANNED，Task Base 为 `15d749b3f151e94a6fb5e9850e6e21d7101aa603`；Slice 仍 ACTIVE，未形成 Slice PASS 或 Closure Packet。
+- Task 1.1 经 B 独立复审 PASS；Task 1.2「已拥有 STRM 内容更新与原子恢复」已由 Developer 实施并交为 READY FOR B REVIEW，Implementation Head 为 `6eb4db67837ca8d3a65e1ce23bac6ea13b2592b9`。Task 1.2 把仅报告不写入的 `NeedsUpdate` 替换为真实原子更新（同目录临时文件 + `RENAME_EXCHANGE`，交换后校验旧目标，外部替换则回滚保留外部字节），报告新增 `updated=`，dry-run 只预览。B 独立审查 PENDING，不预设 Task／Slice 通过。
+- Task 1.2 权威 T4 证据位于本机 `artifacts/validation-evidence/task-1.2-final/`（race 155 pass、隔离 CLI 9/9、故障恢复含更新写入失败重试、更新后 SIGKILL 重启恢复、交换前外部替换竞态、双架构交叉构建与 testhooks 构建）。首轮 `fault_recovery` 因夹具误用新 API server 出现 `conflicts=1` 断言失败，定位为测试夹具错误并修正后全量重跑通过；`Update` 回滚失败分支改为保留外部字节不删除。
 - 前一候选 T4 证据位于本机 `artifacts/validation-evidence/task-1.1-fix-20261018-05/`（race 134 pass）；Task 1.1 F-9 修正的权威 T4 证据位于 `artifacts/validation-evidence/task-1.1-b-review-fix-20261018-02/`（race 142 pass、隔离 CLI 9/9、故障恢复聚焦 3/3）。`task-1.1-fix-20261018-04/` 保留一项首轮断言失败及修正前后证据，不覆盖、不隐藏。
 - SIGKILL 恢复场景观察到一个未引用的 `.strmgen-*.tmp`；已验证已有 STRM／归属／完整轮次恢复断言，恢复文档要求先核实而非盲目清理。真实外部 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍为 NOT RUN；无生产服务、媒体或配套仓库测试。
 - 历史 B 独立复审证据位于 `artifacts/validation-evidence/task-1.1-b-review-20261018-02/`：首次完整隔离复跑在归属中断恢复处失败，随后单独 `fault_recovery` 重跑通过；失败由 SIGSTOP 落在“发布后、归属登记前”窗口导致，程序按合同正确保持未归属冲突，但驱动断言不稳定。该问题已在同一 Task 内改为确定性注入，并由后续 T4 证据闭环。
