@@ -3,10 +3,11 @@
 ## 当前状态（2026-10-18）
 
 - Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
-- B 对前一候选的 FIX REQUIRED 已由 Developer 在同一 Task 内修正；本次独立 B 复审在 `fault_recovery` 中发现中断注入时序不稳定，当前 Task 状态回为 FIX REQUIRED，Task Base／Contract Checkpoint 未变。实现检查点 `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`；Slice 仍 ACTIVE，未形成 Slice PASS 或 Closure Packet。
+- B 对前一候选的 FIX REQUIRED 已由 Developer 在同一 Task 内修正；本次独立 B 复审在 `fault_recovery` 中发现中断注入时序不稳定，Developer 已在同一 Task 内以确定性屏障修正并重新送审，当前 Task 状态为 READY FOR B REVIEW，Task Base／Contract Checkpoint 未变。实现检查点 `15d749b3f151e94a6fb5e9850e6e21d7101aa603`；Slice 仍 ACTIVE，未形成 Slice PASS 或 Closure Packet。
 - 最终 T4 证据位于本机 `artifacts/validation-evidence/task-1.1-fix-20261018-05/`：治理、mod download／verify、quality、race（134 test pass）、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all`（9/9）及 diff check 均 PASS。`task-1.1-fix-20261018-04/` 保留一项首轮断言失败及修正前后证据，不覆盖、不隐藏。
 - SIGKILL 恢复场景观察到一个未引用的 `.strmgen-*.tmp`；已验证已有 STRM／归属／完整轮次恢复断言，恢复文档要求先核实而非盲目清理。真实外部 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍为 NOT RUN；无生产服务、媒体或配套仓库测试。
 - 本次 B 独立复审新证据位于 `artifacts/validation-evidence/task-1.1-b-review-20261018-02/`：首次完整隔离复跑在归属中断恢复处失败，随后单独 `fault_recovery` 重跑通过；失败由 SIGSTOP 落在“发布后、归属登记前”窗口导致，程序按合同正确保持未归属冲突，但驱动断言不稳定。需在 Task 1.1 内修正为确定性注入并重新送审。
+- 2026-10-18：Developer 在同一 Task 内修正 F-9：新增仅 `strmgen_testhooks` 构建可见的 `afterOwnershipRecord` 确定性屏障，进程在 `RecordOwnership` 成功后写标记并 `SIGSTOP`，驱动不再轮询；发布二进制为无环境开关的空实现（`strings` 核对无 `STRMGEN_TEST*`）。`fault_recovery` 聚焦重跑 5/5、隔离 CLI 9/9、race 142 pass 全 PASS，实现检查点 `15d749b3f151e94a6fb5e9850e6e21d7101aa603`；Task 交回 READY FOR B REVIEW，Slice 仍 ACTIVE，无 Slice PASS 或 Closure Packet。
 
 ## 开发准备
 

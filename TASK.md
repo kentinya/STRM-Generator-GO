@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.1
 Parent Slice: 1
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
 Difficulty: High
@@ -296,3 +296,18 @@ Next: DEVELOPER FIXES TASK 1.1 IN PLACE
 ### B 结论
 
 当前实现对未登记 STRM 的保守冲突处理没有发现越权写入；阻断点是 AC-7 证据与测试注入的时序不稳定，不能凭一次通过或历史报告签发 PASS。Slice 1 保持 ACTIVE，Implementation Head 仍为 `6423698f3b4ccb2a3c8250486033ebb5352b8ed0`。
+
+## Developer Completion Report — F-9 Fix Candidate (2026-10-18)
+
+- **Changed Files：** `internal/reconciler/syncer.go`、新增 `internal/reconciler/syncer_hook_default.go`（`!strmgen_testhooks` 空实现）与 `internal/reconciler/syncer_hook_integration.go`（`strmgen_testhooks` 确定性屏障）；`scripts/run_isolated_sync_integration.py`（`Harness.start` 支持 `binary` 覆盖，`fault_recovery` 的归属中断子例改为确定性屏障）；`tests/test_run_isolated_sync_integration.py`（新增 3 项源码守卫回归）；`dev/environment-spec.json`（新增两个 hook 文件到 required_files）；`internal/README.md`、`docs/architecture.md`、`docs/development-environment.md`（同步 hook 事实）。未改 `go.mod`／`go.sum`、合同、Roadmap、稳定需求或 T4 等级。
+- **Implementation Checkpoint：** `15d749b3f151e94a6fb5e9850e6e21d7101aa603`，父提交 `3a5e4f1956b18d81e088d59f99402f6cfc134e6e`。
+- **Implemented（仅 F-9）：**
+  1. `Syncer.handleFile` 在 `RecordOwnership` 成功后调用 `afterOwnershipRecord(rel)`；发布构建为 `!strmgen_testhooks` 的空函数，无环境变量、无 `os`／`syscall` 依赖。
+  2. `strmgen_testhooks` 构建中，仅当 `STRMGEN_TEST_OWNERSHIP_HOLD` 等于当前相对路径时，先写 `STRMGEN_TEST_OWNERSHIP_MARKER` 再对自身发 `SIGSTOP`。因此进程停在唯一可复现窗口：该归属行已持久、下一目标未发布、完整轮未提交。
+  3. 驱动 `fault_recovery` 的归属中断子例改用该屏障（`--fault-binary` 必填，缺失即失败），不再轮询 `SIGSTOP`；断言恰有 1 条 `ownership`、0 条 `rounds`、恰一个 `O00000.strm`。随后 `SIGKILL` 后改用**发布二进制**重启，断言 `skipped=1`、`created=1999`、共 2000 条归属、`rounds[0].epoch==1`、2000 个 STRM。
+  4. 两个窗口仍分别验证：已发布未登记（`ownerfail` 子例，重启保持 `conflicts=1`、0 归属）；已登记未提交（本次屏障子例，重启跳过并提交同一 epoch）。
+- **Tests / Results / Evidence：** 本机 `artifacts/validation-evidence/task-1.1-b-review-fix-20261018-01/`（被 Git 忽略，非远程可读）。`fault_recovery` 确定性：新屏障聚焦重跑 5/5 PASS（`focused-fault-01..05/`）。完整 T4：`check_governance.py` PASS；`mod download`／`mod verify` PASS；`quality.py` PASS（Python 44 项，含 3 项新守卫，及 Go gofmt／vet／test／build）；`-race -count=1 ./...` PASS（test-level pass=142／fail=0／skip=0）；Linux amd64／arm64 CGO=0 `-trimpath` 构建 PASS（SHA-256 `93e4db…`、`b4552f…`）；testhooks amd64 构建 SHA-256 `00ba79…`，仅用于两个受控故障窗口，不作为发布产物；隔离 CLI `--scenario all` 9/9 PASS；`git diff --check` PASS。提交后治理／diff-check／quality 重跑 PASS（消费文档门槛）。发布二进制经 `strings` 核对不含任何 `STRMGEN_TEST*` 开关。
+- **首次失败与修正：** B 复审记录（`task-1.1-b-review-20261018-02/`）的首次完整复跑 `fault_recovery` 失败、单独重跑通过，即 F-9 时序缺陷的原始证据；本次未覆盖该历史。修正后不再依赖调度时序。
+- **Remaining / Risk：** 本 Task 不执行已拥有文件内容更新；Mirror 删除／移动、serve／定时、发布镜像与性能未实现。真实 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍 **NOT RUN**；合成夹具与交叉编译不替代外部证据。无生产服务、媒体或配套项目改动。
+- **Head SHA：** `15d749b3f151e94a6fb5e9850e6e21d7101aa603`。
+- **交接：** 本报告不是独立 B 审查 PASS，也不表示 Slice 完成；Task 交为 **READY FOR B REVIEW**，Slice 1 保持 ACTIVE。
