@@ -55,7 +55,7 @@ Planner / Reviewer: B
 
 | ID | 可核对结果 |
 |---|---|
-| AC-1 可追溯构建 | amd64 与 arm64 Linux 产品产物均由匹配源码／依赖构建、`CGO_ENABLED=0`；运行镜像不含源码／测试钩子／凭证；构建身份、架构、digest 可核对。 |
+| AC-1 可追溯构建 | amd64 本机可加载运行镜像与 arm64 OCI 产物均由匹配源码／依赖构建、`CGO_ENABLED=0`；运行镜像不含源码／测试钩子／凭证；构建身份、架构、digest 可核对。 |
 | AC-2 最小权限与秘密 | 容器以非 root 执行；token 只来自运行时环境；镜像 config／layer、Compose 渲染文件、stdout／stderr、证据索引均无 token；配置以只读方式挂载。 |
 | AC-3 数据边界 | 输出根、DB 及 SQLite sidecar、临时写区和固定锁目录映射到专用持久／临时挂载；运行中数据库／STRM 位于预期宿主 artifacts 目录，无越界写入。 |
 | AC-4 生命周期恢复 | 首轮立即运行；Compose/Docker 正常 stop 观察 cancelled 非零、资源退出和锁释放；同一挂载重启只产生预期完整 round，稳定输出不改写、ownership 不重复。 |
@@ -69,9 +69,10 @@ Planner / Reviewer: B
 先核对 Task 身份并执行 `python3 scripts/check_governance.py`，再按修改执行：
 
 ```bash
-python3 -m unittest tests.test_run_container_integration -v
-python3 scripts/run_container_integration.py --image <task-3.2-image> --output-dir artifacts/validation-evidence/task-3.2-dev/container
-docker compose -f deploy/compose.yaml config --quiet
+python3 -m unittest discover -s tests -p 'test_run_container_integration.py' -v
+docker buildx build --platform linux/amd64 --load --tag strmgen:task-3.2-amd64 .
+python3 scripts/run_container_integration.py --image strmgen:task-3.2-amd64 --output-dir artifacts/validation-evidence/task-3.2-dev/container
+STRMGEN_UID=1001 STRMGEN_GID=1001 OPENLIST_TOKEN=strmgen-fixture-only docker compose -f deploy/compose.yaml config --quiet
 ```
 
 构建／Compose 文件路径以 Developer 实际提交为准；不得将不存在的场景报告为通过。开发期间只跑受影响包／脚本和新增隔离场景，不反复重跑全量 T4。
@@ -91,15 +92,16 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 bash scripts/go-local build -trimpath -o a
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 bash scripts/go-local build -trimpath -o artifacts/task-3.2/bin/strmgen-arm64 ./cmd/strmgen
 bash scripts/go-local build -tags strmgen_testhooks -trimpath -o artifacts/task-3.2/bin/strmgen-testhooks-amd64 ./cmd/strmgen
 python3 -m unittest discover -s tests -p 'test_*.py' -v
-docker buildx build --platform linux/amd64,linux/arm64 --output type=oci,dest=artifacts/task-3.2/strmgen.oci.tar .
-docker compose -f deploy/compose.yaml config --quiet
-python3 scripts/run_container_integration.py --image <task-3.2-image> --output-dir "$TASK_EVIDENCE/container"
+docker buildx build --platform linux/amd64 --load --tag strmgen:task-3.2-amd64 .
+docker buildx build --platform linux/arm64 --output type=oci,dest=artifacts/task-3.2/strmgen-arm64.oci.tar .
+STRMGEN_UID=1001 STRMGEN_GID=1001 OPENLIST_TOKEN=strmgen-fixture-only docker compose -f deploy/compose.yaml config --quiet
+python3 scripts/run_container_integration.py --image strmgen:task-3.2-amd64 --output-dir "$TASK_EVIDENCE/container"
 python3 scripts/run_serve_integration.py --binary artifacts/task-3.2/bin/strmgen-amd64 --fault-binary artifacts/task-3.2/bin/strmgen-testhooks-amd64 --output-dir "$TASK_EVIDENCE/serve-regression"
 python3 scripts/run_isolated_sync_integration.py --binary artifacts/task-3.2/bin/strmgen-amd64 --fault-binary artifacts/task-3.2/bin/strmgen-testhooks-amd64 --scenario all --output-dir "$TASK_EVIDENCE/sync-regression"
 git diff --check
 ```
 
-若镜像生成在本机构建器上需要分架构 load，Developer 可为最终 OCI 导出等价地逐架构 build，但必须保留两个目标架构的独立 digest／manifest 证据；不能降级为只 build 当前主机架构。不得调用生产配置或公开发布镜像。ARM64 实机仍 NOT RUN。
+固定以本机加载的 amd64 镜像执行容器集成，以 arm64 OCI manifest／digest 证明第二目标产物；不能降级为只 build 当前主机架构。不得调用生产配置或公开发布镜像。ARM64 实机仍 NOT RUN。
 
 ### B 独立最终门禁
 
@@ -130,7 +132,8 @@ Decision: PASS
 Task 3.1 Outcomes: AC-1..AC-6 PASS; implementation evidence matched candidate b18caba and recorded binary hashes
 Independent replay: PASS; `artifacts/validation-evidence/task-3.1-b-review/sigint/` records a fresh SIGINT during an in-flight isolated round, exit=1/cancelled, no round or ownership committed, then post-signal sync acquired the shared lock and completed
 Full gates: PASS by matching evidence at artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md; no full T4 rerun
-Slice Required Outcomes all satisfied: NO; RO-4 container package and RO-6 container lifecycle/mount evidence remain for Task 3.2
+Slice Required Outcomes: RO-1 PASS; RO-2 PASS; RO-3 PASS; RO-4 PENDING Task 3.2; RO-5 PASS; RO-6 PARTIAL (scheduler evidence PASS, container build/mount/lifecycle evidence pending Task 3.2)
+Slice Required Outcomes all satisfied: NO
 Outstanding: real OpenList, plugin parsing, Jellyfin/proxy, Docker image/Compose, ARM64 runtime, scale and formal publication NOT RUN
 Next: Developer may implement planned Task 3.2 after its planning checkpoint is committed
 ```
