@@ -178,12 +178,32 @@ OpenList 身份、配置与 token 仅以脱敏标识记录、命令／cwd、退�
 映射。日志不包含真实 token、Cookie、签名 URL 或私有完整路径。
 
 ```text
-Implementation Head: NOT SET
-Developer Completion Report: PENDING
-Developer Evidence Index: PENDING
+Implementation Head: b18caba6fd786bfe589f6ac29c2a2e779a5a1628
+Developer Completion Report: READY FOR B REVIEW
+Developer Evidence Index: artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md
 B Reviewed Range: NOT SET
 B Decision: PENDING
 P0/P1 Blockers: PENDING
-Remaining RO: RO-1..RO-6 PENDING (RO-4 deployment/package deferred to Task 3.2)
-Next Action: Developer implements Task 3.1 after governance
+Remaining RO: RO-1／RO-2／RO-3／RO-5 待 B 重评；RO-4 部署／构建包延期至 Task 3.2；RO-6 调度证据已交付、真实外部联调／Docker／ARM64 实机 NOT RUN
+Next Action: B REVIEWS TASK 3.1
 ```
+
+## Developer 完成报告
+
+按活动 Task 3.1 实现并交 **READY FOR B REVIEW**，不自判 PASS。
+
+- 实现：`internal/scheduler` 有界调度（单 timer、无每 tick goroutine、无积压、
+  busy／failure／cancelled／fatal 分类）；`internal/config` 已验证 `IntervalMinutes`／
+  `Interval`（缺省 60、仅正整数、拒绝非整数与分钟到 duration 溢出，且在任何锁／输出／DB
+  动作前失败）；`cmd/strmgen` 将单轮装配抽为 `runRound` 供 `sync` 与 `serve` 共用同一
+  `AcquireLockFor`、输出根准备、store 生命周期与 `Syncer.Run`；`serve` 首轮立即执行、
+  固定间隔触发、busy-skip 不进入 Reconciler、单轮失败继续、SIGINT／SIGTERM 非零
+  cancelled 退出并释放锁。`cmd/strmgen/serve_hook_integration.go` 仅为 testhooks 构建
+  提供间隔缩短；发布二进制无隐藏环境开关。未改 Slice 1／2 业务规则、依赖、需求或原方案。
+- 文件：`internal/scheduler/scheduler.go`、`scheduler_test.go`；`internal/config/config.go`、
+  `config_test.go`；`cmd/strmgen/main.go`、`main_test.go`、`serve_hook_default.go`、
+  `serve_hook_integration.go`；`scripts/run_serve_integration.py`、
+  `tests/test_run_serve_integration.py`；`dev/environment-spec.json`、`config.example.yaml`、
+  README、AGENTS、架构、环境、测试矩阵、进度。
+- 验证（详见证据索引）：治理、`mod download`／`verify`、`quality.py`、race（290 pass／0 fail／0 skip／9 包）、`-count=1` 全量（同计数）、Linux amd64／arm64 与 testhooks 构建、隔离 serve 驱动 6/6、既有隔离 sync 回归 11/11、`gofmt`、`vet`、`git diff --check` 全部 exit 0。首次 race 运行在 scheduler 测试辅助发现 data race，修复后重跑通过（事实保留）。
+- 风险与未运行：真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、Docker 镜像／Compose、ARM64 实机、规模与正式发布均 NOT RUN；RO-4 部署／发布包延期至 Task 3.2。B 需独立关键复现首轮／间隔、忙碌跳过、SIGTERM／SIGINT 取消、失败后继续、配置前置失败与既有 sync 回归。
