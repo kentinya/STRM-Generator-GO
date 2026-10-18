@@ -118,7 +118,12 @@
     "internal/securepath/securepath_linux.go",
     "internal/securepath/securepath_linux_test.go",
     "scripts/run_isolated_sync_integration.py",
-    "tests/test_run_isolated_sync_integration.py"
+    "tests/test_run_isolated_sync_integration.py",
+    "internal/openlist/absence.go",
+    "internal/openlist/absence_test.go",
+    "internal/openlist/openlist_integration_test.go",
+    "scripts/run_openlist_absence_integration.py",
+    "tests/test_run_openlist_absence_integration.py"
   ],
   "cc": {
     "version": "0.14.1",

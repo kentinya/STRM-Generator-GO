@@ -102,3 +102,65 @@ Slice 2 的目标 T4 与缺失确认真实 OpenList 实证见当前合同和测�
 验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 
 本仓库原先无 Git；用户提供身份后只在本仓库配置 Git 身份，开发准备文件已提交在本地 main。未配置远程、未推送。当前 Slice／Task 生命周期与审查结论以 [SLICE.md](../SLICE.md) 和 [TASK.md](../TASK.md) 为准；旧验证和审查内容保留为历史记录，不覆盖新候选证据。
+
+## Task 2.1 真实 OpenList 缺失确认实证
+
+本 Task 不开放清理，只验证远端“存在／已确认不存在／无法确认”的确认能力。运行器
+`scripts/run_openlist_absence_integration.py` 自建专用容器、驱动 `openlist_integration`
+构建标签下的 Go 集成测试二进制，不在 Python 侧重写判断算法。
+
+固定身份（可追溯到 `dev/environment-spec.json` 的 OpenList 源码 SHA）：
+
+```text
+image      openlistteam/openlist@sha256:11b490123d57f88c84ecda46285e1921869cf511da3e5bb4062f183e7e1200b7
+revision   3b28270a4066ea52943a69ecddd850d83f7e8bdc (org.opencontainers.image.revision)
+version    v4.2.7
+```
+
+运行器在启动前校验镜像的 revision／version 标签；不匹配即以 `BLOCKED` 非零退出，
+不会漂移到 `latest`。它只创建／停止带 `strmgen.task=2.1` 标签的自有容器，从不
+接管同名之外的既有容器。
+
+```bash
+mkdir -p artifacts/task-2.1/bin
+bash scripts/go-local test -c -tags openlist_integration \
+  -o artifacts/task-2.1/bin/openlist-integration.test ./internal/openlist
+TASK_EVIDENCE="$(mktemp -d artifacts/validation-evidence/task-2.1-final-XXXXXX)"
+python3 scripts/run_openlist_absence_integration.py \
+  --test-binary artifacts/task-2.1/bin/openlist-integration.test \
+  --output-dir "$TASK_EVIDENCE/real-openlist"
+```
+
+`--output-dir` 必须在 `artifacts/validation-evidence/` 下且为新空目录；复用或越界一律
+拒绝。`--scenario` 接受 `all` 或逗号分隔的子集，可用值必须与 `SCENARIOS` 一致，未知
+名称直接报错。缺少 Docker、镜像标签不匹配、服务未就绪等前置条件不足时返回 3 并写
+`summary.json` 的 `blocked` 字段，不静默跳过；Go 测试出现 `SKIP` 也按失败处理。
+
+每个场景独占一个容器、数据目录与媒体目录：
+
+| 场景 | 覆盖 |
+|---|---|
+| `exact_names` | 精确大小写、中文与 `#`／`%`／空格／引号、无写入副作用 |
+| `pagination` | 250 项目录第二页中的精确存在与缺失 |
+| `empty_directory` | 真实 `content:null,total:0` 形状被接受且未被当作错误 |
+| `removed_parent` | 源内父目录删除经祖先链确认；源根离线为“无法确认” |
+| `refresh_permission` | 只读 token 刷新被 403 拒绝，结论为无法确认 |
+| `cached_driver` | WebDav 挂载回环到自身 DAV 端点并设 60 分钟缓存：旧缓存条目与刷新后新出现条目均以刷新事实为准 |
+| `nested_mount_masking` | 父存储禁用后仍可列出的虚拟挂载祖先不得作为否定依据 |
+| `hidden_entries` | metadata `hide` 过滤使条目从列表消失时不得判为不存在 |
+
+容器以镜像自带的非特权 `openlist` 用户运行，因此运行器只对本次专用的数据／媒体
+目录放开写权限。生成的 admin 密码只存在于进程内，不写入任何证据文件；`summary.json`
+与各 `go-test.log` 记录镜像身份、夹具、请求结果与 Go 结论，不含 token、Cookie、签名
+URL 或私有完整路径。停止容器后保留证据目录。
+
+已实测的固定版本语义（源码对照见 [compatibility](compatibility.md)）：空目录序列化为
+`content:null,total:0`；缺失对象、驱动故障与虚拟挂载视图都返回 HTTP 200 + 应用码 500；
+嵌套挂载存在时，父驱动故障会让列表只剩虚拟项而不报错；只读身份被拒绝刷新；`hide`
+过滤会从列表中静默移除条目且在直接读取时返回应用码 403。因此确认以“真实存储根 +
+逐级刷新完整列表 + 精确名称缺失”为主证据，直接读取仅用于发现可见性过滤或列表与
+读取矛盾。
+
+本 Task 不改变生产 CLI：`cleanup.enabled: true` 仍在任何输出／数据库变更前被拒绝，
+`sync`／`sync --dry-run` 行为与 Slice 1 回归一致。`/d/` 播放、固定插件解析、
+Jellyfin／代理、ARM64 实机与规模仍为 NOT RUN。

@@ -160,13 +160,19 @@ func TestMissingTotalFails(t *testing.T) {
 }
 
 func TestMissingContentFailsButEmptyArraySucceeds(t *testing.T) {
+	// The pinned OpenList build serializes a real empty directory as
+	// {"content": null, "total": 0} (measured against the fixed image; see
+	// artifacts/validation-evidence/task-2.1-*/). Only that exact shape is
+	// accepted: every other null, missing or mistyped content stays an error so a
+	// truncated or partially paginated response can never look empty.
 	for _, tc := range []struct {
 		name    string
 		data    any
 		wantErr bool
 	}{
 		{name: "missing", data: map[string]any{"total": 0}, wantErr: true},
-		{name: "null", data: map[string]any{"content": nil, "total": 0}, wantErr: true},
+		{name: "null with zero total", data: map[string]any{"content": nil, "total": 0}, wantErr: false},
+		{name: "null with non-zero total", data: map[string]any{"content": nil, "total": 3}, wantErr: true},
 		{name: "wrong type", data: map[string]any{"content": "", "total": 0}, wantErr: true},
 		{name: "empty array", data: map[string]any{"content": []any{}, "total": 0}, wantErr: false},
 	} {

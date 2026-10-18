@@ -5,7 +5,7 @@
 ```text
 Task ID: 2.1
 Parent Slice: 2
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
 Contract Checkpoint: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
 Difficulty: High
@@ -139,10 +139,27 @@ PASS 后逐项重评 Slice RO-1..RO-6，不以确认能力替代完整轮、归�
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：NOT STARTED。
-- Tests and Results / Evidence：产品与真实 OpenList 确认 NOT RUN；规划治理／环境检查不代表产品 PASS。
-- Decisions / Risks / Remaining Required Outcomes：待实现；RO-1..RO-6 未全部满足，清理仍拒绝。
-- Head SHA：NOT SET
+- Changed Files / Implemented：新增 `internal/openlist/absence.go` 实现一次确认的有界判断
+  （`AbsenceStatus` 零值为“无法确认”、有限原因码、完整验证链）；`openlist.go` 增加
+  `ListFresh`／共享分页实现、结构化 `APIError.Code`／`HTTPStatus`、`IsPermissionDenied`，
+  `Entry.Virtual` 与 `Get` 的 `provider` 解析，并把 `IsNotFound` 明确废弃为不适合作缺失依据；
+  新增 `internal/openlist/openlist_integration_test.go`（`openlist_integration` 标签）与
+  `scripts/run_openlist_absence_integration.py` 固定隔离运行器、`tests/test_run_openlist_absence_integration.py`；
+  `docs/development-environment.md` 补运行说明与固定版本语义；`dev/environment-spec.json` 登记新文件。
+- Tests and Results / Evidence：最终 T4 候选全部 12 项门禁 PASS（治理、mod download／verify、
+  quality、`-race ./...` 221 测试 0 skip、linux amd64／arm64 构建、testhooks 构建、
+  integration 测试二进制、隔离 CLI 9/9、真实 OpenList 8/8 场景 9 个集成测试 0 skip、
+  `git diff --check`）。证据索引见 `artifacts/validation-evidence/task-2.1-final-ftETbR/INDEX.md`，
+  首次失败与修复见同目录 `first-failures/README.md`。
+- Decisions / Risks / Remaining Required Outcomes：确认为“真实存储根 + 逐级刷新完整列表 +
+  精确名称缺失”，直接读取仅用于发现可见性过滤或列表矛盾；实测固定版本对缺失对象、驱动
+  故障与虚拟挂载视图返回同一应用码，且嵌套挂载会掩盖父驱动故障，因此单一 `get`／`list`
+  成功都不作为缺失依据。旧合成假设“所有 null content 无效”按实测收窄为
+  `null + total==0 + 第一页`。本 Task 不开放清理：`cleanup.enabled: true` 仍在任何输出／
+  数据库变更前被拒绝，RO-1（配置／入口）、RO-2（完整轮与缺失计数）、RO-3 的本地删除部分、
+  RO-4（移动闭环）、RO-5（持久化与恢复）、RO-6 的预览部分均未实现；真实 `/d/` 播放、
+  固定插件解析、Jellyfin／代理、ARM64 实机与规模仍 NOT RUN。
+- Head SHA：`33e91f832d30a615dd439da4c34359f29db77fc2`（提交前候选；实际检查点见后继提交）
 
 ## B Review Result
 

@@ -37,9 +37,39 @@ const (
 type APIError struct {
 	Op     string
 	Detail string
+	// Code is the OpenList application code from the response envelope, or 0
+	// when the failure happened before an envelope was decoded. It is a
+	// structural field: callers must branch on it rather than on message text,
+	// which is free-form and may describe any driver failure.
+	Code int
+	// HTTPStatus is the transport status, 0 when no response was received.
+	HTTPStatus int
 }
 
 func (e *APIError) Error() string { return e.Op + ": " + e.Detail }
+
+// StatusCode returns the application code when present, else the HTTP status.
+func (e *APIError) StatusCode() int {
+	if e.Code != 0 {
+		return e.Code
+	}
+	return e.HTTPStatus
+}
+
+// openListPermissionDenied is the application code OpenList returns when a
+// metadata rule refuses the requesting user access to a path.
+const openListPermissionDenied = 403
+
+// IsPermissionDenied reports whether the failure is a structured permission
+// refusal. It is used only to keep a confirmation conservative: a path the
+// requesting identity cannot see must never be reported as absent.
+func IsPermissionDenied(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode() == openListPermissionDenied
+	}
+	return false
+}
 
 // Entry is one directory entry with optional metadata.
 type Entry struct {
@@ -49,7 +79,16 @@ type Entry struct {
 	SHA1    string // lowercase 40 hex chars, empty when unavailable/invalid
 	HasSHA  bool
 	Anomaly string // limited reason when optional metadata is unusable
+	// Virtual marks a directory that OpenList reports only because a nested
+	// storage is mounted below it. Such a path is not backed by the parent
+	// driver and must never anchor an absence conclusion.
+	Virtual bool
 }
+
+// providerUnknown is the provider value OpenList returns for a directory that
+// is not backed by a real storage object (a virtual mount ancestor, or the
+// synthetic root). It is the only signal the API exposes for this distinction.
+const providerUnknown = "unknown"
 
 // Client is a bounded OpenList API client.
 type Client struct {
@@ -108,14 +147,14 @@ func (c *Client) do(ctx context.Context, endpoint string, request any) (json.Raw
 		return nil, &APIError{Op: endpoint, Detail: "response exceeds byte limit"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &APIError{Op: endpoint, Detail: fmt.Sprintf("http status %d", resp.StatusCode)}
+		return nil, &APIError{Op: endpoint, Detail: fmt.Sprintf("http status %d", resp.StatusCode), HTTPStatus: resp.StatusCode}
 	}
 	var env apiEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, &APIError{Op: endpoint, Detail: "invalid JSON envelope"}
+		return nil, &APIError{Op: endpoint, Detail: "invalid JSON envelope", HTTPStatus: resp.StatusCode}
 	}
 	if env.Code != 200 {
-		return nil, &APIError{Op: endpoint, Detail: fmt.Sprintf("application code %d", env.Code)}
+		return nil, &APIError{Op: endpoint, Detail: fmt.Sprintf("application code %d", env.Code), Code: env.Code, HTTPStatus: resp.StatusCode}
 	}
 	if len(env.Data) == 0 || string(env.Data) == "null" {
 		return nil, &APIError{Op: endpoint, Detail: "missing data payload"}
@@ -133,7 +172,15 @@ func (c *Client) Get(ctx context.Context, remotePath string) (*Entry, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, &APIError{Op: "/api/fs/get", Detail: "invalid object shape"}
 	}
-	return raw.toEntry()
+	entry, err := raw.toEntry()
+	if err != nil {
+		return nil, err
+	}
+	// Only a Get response distinguishes a real storage object from a virtual
+	// mount ancestor. "unknown" also covers the synthetic root object, which is
+	// exactly the virtual view we must not trust, so it is treated the same.
+	entry.Virtual = entry.IsDir && raw.Provider == providerUnknown
+	return entry, nil
 }
 
 type rawEntry struct {
@@ -142,8 +189,12 @@ type rawEntry struct {
 	Size     json.RawMessage `json:"size"`
 	HashInfo json.RawMessage `json:"hash_info"`
 	Hashinfo json.RawMessage `json:"hashinfo"`
+	Provider string          `json:"provider"`
 }
 
+// toEntry converts one raw object. The `provider` field is only present on
+// Get responses; list entries carry "unknown" and are therefore never treated
+// as virtual (virtual detection for a directory listing uses a per-path Get).
 func (r *rawEntry) toEntry() (*Entry, error) {
 	if r.Name == "" {
 		return nil, &APIError{Op: "entry", Detail: "missing name"}
@@ -236,10 +287,23 @@ func normalizeSHA1(value string) (string, bool) {
 	return strings.ToLower(value), true
 }
 
-// List walks every page of a remote directory. A directory is only reported
-// complete when all pages succeed, the total stays consistent and the final
-// page terminates exactly at the declared total.
+// List walks every page of a remote directory using the server-side cache.
+// A directory is only reported complete when all pages succeed, the total
+// stays consistent and the final page terminates exactly at the declared
+// total.
 func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
+	return c.list(ctx, remotePath, false)
+}
+
+// ListFresh walks every page of a remote directory forcing a server-side
+// refresh on every page. Absence may only be concluded from a fresh, complete
+// traversal: a cached page can predate the change being confirmed. A failed
+// refresh is returned as an error and never falls back to a cached List.
+func (c *Client) ListFresh(ctx context.Context, remotePath string) ([]Entry, error) {
+	return c.list(ctx, remotePath, true)
+}
+
+func (c *Client) list(ctx context.Context, remotePath string, refresh bool) ([]Entry, error) {
 	var all []Entry
 	seen := map[string]struct{}{}
 	var expectedTotal *int64
@@ -250,7 +314,7 @@ func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "page limit exceeded"}
 		}
 		data, err := c.do(ctx, "/api/fs/list", map[string]any{
-			"path": remotePath, "page": page, "per_page": perPage, "refresh": false,
+			"path": remotePath, "page": page, "per_page": perPage, "refresh": refresh,
 		})
 		if err != nil {
 			return nil, err
@@ -259,20 +323,29 @@ func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
 			Content json.RawMessage `json:"content"`
 			Total   json.RawMessage `json:"total"`
 		}
+		var total int64
 		if err := json.Unmarshal(data, &parsed); err != nil {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "invalid list shape"}
 		}
-		if len(parsed.Content) == 0 || bytes.Equal(bytes.TrimSpace(parsed.Content), []byte("null")) {
-			return nil, &APIError{Op: "/api/fs/list", Detail: "missing or invalid content"}
+		if len(parsed.Content) == 0 {
+			return nil, &APIError{Op: "/api/fs/list", Detail: "missing content"}
 		}
-		var content []rawEntry
-		if err := json.Unmarshal(parsed.Content, &content); err != nil || content == nil {
-			return nil, &APIError{Op: "/api/fs/list", Detail: "content is not an array"}
-		}
-		var total int64
 		if len(parsed.Total) == 0 || bytes.Equal(bytes.TrimSpace(parsed.Total), []byte("null")) ||
 			json.Unmarshal(parsed.Total, &total) != nil || total < 0 {
 			return nil, &APIError{Op: "/api/fs/list", Detail: "missing or invalid total"}
+		}
+		// A real empty directory is serialized as content:null,total:0 by the
+		// fixed OpenList build (verified against the pinned image version). That
+		// exact shape is the only accepted null: null content with a non-zero
+		// total, or null content on any later page, stays an error so a truncated
+		// or partially paginated response can never look like an empty directory.
+		var content []rawEntry
+		if bytes.Equal(bytes.TrimSpace(parsed.Content), []byte("null")) {
+			if total != 0 || page != 1 {
+				return nil, &APIError{Op: "/api/fs/list", Detail: "null content for a non-empty directory"}
+			}
+		} else if err := json.Unmarshal(parsed.Content, &content); err != nil || content == nil {
+			return nil, &APIError{Op: "/api/fs/list", Detail: "content is not an array"}
 		}
 		if expectedTotal == nil {
 			expectedTotal = &total
@@ -325,6 +398,14 @@ func (c *Client) List(ctx context.Context, remotePath string) ([]Entry, error) {
 
 // IsNotFound reports whether an error is a definite remote 404. Callers must
 // not treat other failures as absence.
+//
+// Deprecated: IsNotFound is unsuitable as an absence signal. The pinned
+// OpenList build answers a missing object with HTTP 200 and application code
+// 500, and also reports driver failures and virtual mount views the same way,
+// so no error text can distinguish "absent" from "unknown". Use Confirmer,
+// which establishes absence from a fresh complete listing of a real parent
+// directory. This helper remains only for callers that merely need to shape a
+// diagnostic and must never gate a deletion on it.
 func IsNotFound(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {

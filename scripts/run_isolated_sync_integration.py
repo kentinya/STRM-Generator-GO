@@ -676,7 +676,14 @@ def scenario_api_and_limits(h, results):
     run_case("badshape", {"/Movies": [{"name": "x", "is_dir": False, "size": 1}]},
              _override_list({"content": [{"name": "A.mkv", "size": 1, "hash_info": None}], "total": 1}))
     run_case("contentmissing", {"/Movies": []}, _override_list({"total": 0}))
-    run_case("contentnull", {"/Movies": []}, _override_list({"content": None, "total": 0}))
+    # The pinned OpenList build serializes a real empty directory as
+    # {"content": null, "total": 0}. That exact shape is now a complete empty
+    # listing (see internal/openlist); every other null remains an error, which
+    # the next case covers.
+    run_case("contentnull-zero-total", {"/Movies": []},
+             _override_list({"content": None, "total": 0}), expect_exit=0, expect_rounds=1)
+    run_case("contentnull-nonzero-total", {"/Movies": []},
+             _override_list({"content": None, "total": 3}))
     run_case("contentwrongtype", {"/Movies": []},
              _override_list({"content": {"name": "A.mkv"}, "total": 1}))
     # Early empty page before total was reached.
