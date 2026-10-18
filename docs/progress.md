@@ -1,6 +1,21 @@
 # 进度
 
-## 当前状态（2026-10-19，Slice 2 A Final 完成）
+## 当前状态（2026-10-19，Slice 3 ACTIVE）
+
+Slice 1 与 Slice 2 均 PASS / CLOSED；Slice 2 的 A 最终审查范围和分层证据保留在其
+关闭检查点。A 已激活 Slice 3「定时与部署」，Base 固定为
+`ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Implementation Head 为 `NOT SET`，当前
+没有活动实施 Task。
+
+本 Slice 的 Required Outcomes 是 `serve` 首轮立即执行与固定间隔、有界 tick、手动／
+定时共享互斥、忙碌跳过、取消不提交、重启恢复、Docker 隔离挂载及 Linux amd64／arm64
+构建。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机、规模
+与正式发布仍 NOT RUN；下一步由 B 在 ACTIVE 合同提交后规划首个 Task。当前没有产品
+实现、测试或独立 B／A 产品 PASS，不能把本合同激活写成能力验收。
+
+Next Action: B PLANS THE FIRST TASK WITHIN SLICE 3
+
+## Slice 2 关闭状态（历史，2026-10-19）
 
 Task 2.1 与 Task 2.2 均经独立 B **PASS**；Task 2.2 的完整实现报告与证据索引保留于可达历史，产品 Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`。A 已审查完整 Base..Implementation Head，Slice 2 的 RO-1..RO-6 均满足，状态为 **PASS / CLOSED**。
 

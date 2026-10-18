@@ -2,13 +2,13 @@
 
 ## CURRENT
 
-Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要。
+Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」已 ACTIVE，Base 固定为关闭协调检查点 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，尚无产品 Implementation Head。当前可运行入口仍为 `cmd/strmgen` 的 `sync` 与 `sync --dry-run`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要；`serve`／定时属于当前合同，尚未实现。
 
 `internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list/get、分页和应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供路径／稳定 URL、版本 1 协议及 URL → SHA-1 → Size 比较；`internal/storage` 用 SQLite 记录最小归属、精确远端／本地路径映射、完整轮次与连续缺失次数，不保存媒体指纹。`internal/reconciler` 以有界目录工作池完成生成／更新／跳过、同目标冲突、观察清零、源根／目标 Get 缺失确认、已提交阈值消费和绑定目录句柄内的安全删除；首次发布使用同目录临时文件加不覆盖 link，已拥有更新使用确定性双哈希暂存名及 `RENAME_EXCHANGE`，删除使用相对 unlink 加父目录 sync。Linux `securepath` 通过绑定目录句柄和相对操作限制输出及 DB 父目录访问。
 
-恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。
+恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。Slice 3 的 serve 必须复用这一取消／恢复边界。
 
-正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 `SLICE.md`；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时、发布镜像未实现。
+正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 Slice 2 关闭检查点；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时和发布镜像属于当前 ACTIVE Slice 3，尚未实现。
 
 现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时、发布镜像仍未实现，以下 TARGET 不表示独立审查或 Slice 验收。
 
@@ -24,7 +24,7 @@ Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782
 
 未归属文件、归属丢失与确实无法解释的路径／类型冲突保守保留；合法 STRM、名字、哈希或 OS UID 本身不建立归属。已有可靠归属的可再生成内容出现可识别偏差，不等于必须丢弃旧 ownership 重建。无条件保护任意外部注入的所有字节不是本架构目标，也不能把同一干预转为静态 legacy 状态重新要求。扫描期间变化依现有比较规则后续纠正，不每次写入前查远端、不引入远端锁。
 
-CURRENT 与 TARGET 的剩余差距是调度部署、真实外部联调及规模实测；本地单轮生成／更新／Mirror 清理／正常中断恢复已在 Slice 1／2 接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
+CURRENT 与 TARGET 的剩余差距是本 ACTIVE Slice 3 的调度部署、真实外部联调及规模实测；本地单轮生成／更新／Mirror 清理／正常中断恢复已在 Slice 1／2 接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
 
 ```text
 CLI / YAML / env
@@ -37,7 +37,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
                             +-----> storage (归属 / 路径 / 成功轮次 / 缺失次数)
 ```
 
-`cmd/strmgen` 装配入口；`internal/openlist` 处理传输／API语义，不管理删除；`pathmap` 与协议比较保持纯函数；`strm` 封装同目录原子替换与本地读取；`storage` 记录最小持久事实；`reconciler` 决定完整轮和清理资格；`scheduler` 复用相同同步入口。配置与日志装配在活动 Task 确定。
+`cmd/strmgen` 装配入口；`internal/openlist` 处理传输／API语义，不管理删除；`pathmap` 与协议比较保持纯函数；`strm` 封装同目录原子替换与本地读取；`storage` 记录最小持久事实；`reconciler` 决定完整轮和清理资格；Slice 3 将由活动 Task 决定 `scheduler` 如何复用相同同步入口、共享锁和取消 context。配置与日志装配在活动 Task 确定。
 
 目录增量遍历使用有界队列／工作池，处理完一个分页或目录就释放完整对象；SQLite 提供索引与分批查询。OpenList 服务端可能先加载整个目录，这不等于生成器本地内存有界已获验证；客户端必须验证分页与响应限制。
 

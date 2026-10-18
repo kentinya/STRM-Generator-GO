@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 2 A Final 证据保留于 [SLICE.md](../SLICE.md) 和可达历史。环境 smoke 不代表后续 Slice 通过；后续 Slice 尚未激活。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1 与 Slice 2 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2 均有独立 B PASS；Slice 3「定时与部署」已 ACTIVE，当前没有实施 Task。环境 smoke 不代表 Slice 3 通过；其 Docker、停止恢复和双架构门槛须按合同取得独立证据。
 
 ## 安装与检查
 
@@ -46,7 +46,7 @@ export OPENLIST_TOKEN=...   # 必须与配置 openlist.token_env 一致
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
 ```
 
-相对 `sources[].output` 与 `database.path` 都按**启动工作目录**解析，而不是配置文件目录。启动目录、配置文件以及 token 环境变量必须正确；日志不显示 token、完整远端根或数据库／输出的私有完整路径。生产二进制仅支持一次性 `sync`／`sync --dry-run`；`serve` 与清理尚未实现，`cleanup.enabled: true` 会在同步写入前被拒绝。
+相对 `sources[].output` 与 `database.path` 都按**启动工作目录**解析，而不是配置文件目录。启动目录、配置文件以及 token 环境变量必须正确；日志不显示 token、完整远端根或数据库／输出的私有完整路径。生产二进制当前仅支持一次性 `sync`／`sync --dry-run`；`serve` 属于 Slice 3 ACTIVE 合同，尚未实现，`cleanup.enabled: true` 的现有 Mirror 语义不因调度合同改变。
 
 真实同步须能遍历现有输出祖先，对目标输出位置有创建目录和文件的权限，并能读取已拥有 STRM；数据库父目录需允许创建／读写 SQLite 文件。现有符号链接和非目录路径组件会被拒绝，不能以软链接把数据库、输出根或其父目录映射到其他位置。预览不创建输出或数据库；如果使用已有 WAL 库，程序在数据库父目录建立私有只读快照并正常清理。
 
@@ -54,7 +54,7 @@ export OPENLIST_TOKEN=...   # 必须与配置 openlist.token_env 一致
 
 数据库是文件归属与完整轮次的唯一持久证据。数据库丢失、损坏或无法访问时，不能自动认领输出目录中的既有 STRM；丢失 DB 后再次同步会把无记录文件报告为未归属冲突并保留，损坏／不可读 DB 会先失败。恢复应优先使用可信备份；如无法恢复，管理员必须逐项核实文件归属，不能让工具自动重建所有权或据此删除未知文件。失败轮不会提交完整轮次；已成功发布并登记的文件可在重试时跳过，已发布但登记失败的文件仍是未归属冲突。
 
-同目录 `.strmgen-*.tmp` 正常错误路径会尽力清理；SIGKILL、断电或系统崩溃可能遗留临时 STRM 写文件。WAL 模式 dry-run 的 `.strmgen-ro-*` 快照目录也可能在进程未正常关闭时残留。SQLite `-wal`／`-shm`／`-journal` sidecar 由 SQLite 管理，不应在数据库进程仍可能运行时手工删除。对任何残留先确认进程状态、路径、所有者及内容来源；不对未知文件做盲目批量删除。当前不实现 Mirror 清理。
+同目录 `.strmgen-*.tmp` 正常错误路径会尽力清理；SIGKILL、断电或系统崩溃可能遗留临时 STRM 写文件。WAL 模式 dry-run 的 `.strmgen-ro-*` 快照目录也可能在进程未正常关闭时残留。SQLite `-wal`／`-shm`／`-journal` sidecar 由 SQLite 管理，不应在数据库进程仍可能运行时手工删除。对任何残留先确认进程状态、路径、所有者及内容来源；不对未知文件做盲目批量删除。Mirror 清理已在 Slice 2 接受；Slice 3 只增加调度／部署，不改变其恢复边界。
 
 ## 隔离 OpenList 夹具
 
@@ -97,7 +97,7 @@ docker compose -f dev/compose.yaml stop
 
 Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引保留于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`：治理、`mod download`／`mod verify`、`quality.py`、race、Linux amd64／arm64 CGO=0 构建、隔离 CLI `--scenario all` 和 `git diff --check`。完整历史 Task 计划保留于 `315cc6fd22798c4c085f990fb2d223ce313811cf:TASK.md`。驱动的每个 `--output-dir` 必须位于仓库 `artifacts/validation-evidence/` 下且为新空目录；旧候选及首次失败证据不可覆盖。完整故障场景还需传 `--fault-binary`，该二进制以 `-tags strmgen_testhooks` 构建，示例见 README。hook 仅用于确定性发布／归属／staging 写入／交换及 round 前中断；测试二进制不可用于生产。发布二进制不含 hook 环境开关，并用于实际重启验证。
 
-Slice 2 的目标 T4 与缺失确认真实 OpenList 实证见当前合同和测试矩阵，准确命令及夹具由 B 在激活提交后规划；已有 CLI 驱动尚不覆盖 Mirror 删除，不把 Slice 1 的 9/9 直接作为清理证据。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin。
+Slice 2 的 T4 与缺失确认真实 OpenList 实证见其关闭检查点；Slice 3 的调度／部署准确命令及夹具由 B 在 ACTIVE 合同提交后规划。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin；交叉构建不替代 ARM64 实机运行。
 
 验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 
