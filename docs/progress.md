@@ -12,11 +12,12 @@ B 审查完整 Task 3.2 范围 `8fc3a3ad8a720e9ca4c832967fdf39874581beff..2131b5
 `stop_grace_period: 60s`）、`deploy/config.example.yaml`、`deploy/.env.example`、
 `docs/deployment.md`、`scripts/run_container_integration.py` 与对应 Python 测试。
 
-Developer 与 B 本轮均执行了治理、新增容器驱动单元测试 13 项、amd64 `--load` 构建、
-arm64 OCI 构建、Go 290 项普通／race 全量、Python 110 项、隔离容器驱动 6/6（镜像静态检查
-与非 root 身份、最小 sync 与挂载／token、serve 首轮＋正常停止＋重启、双容器同输出同锁
-竞争 busy-skip、Compose 生命周期、arm64 OCI manifest／ELF 核对），以及 serve 6/6、sync
-11/11 回归。Developer 证据索引为 `artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md`；
+Developer 的候选证据包含治理、新增容器驱动单元测试 13 项、amd64 `--load` 构建、arm64 OCI
+构建、Go 290 项普通／race 全量、Python 110 项、隔离容器驱动 6/6，以及 serve 6/6、sync
+11/11 回归。B 独立复核重新执行治理、依赖／质量门禁、Go 普通／race 全量、候选双架构镜像
+构建和新的隔离容器驱动 6/6（镜像静态检查与非 root 身份、最小 sync 与挂载／token、serve
+首轮＋正常停止＋重启、双容器同输出同锁竞争 busy-skip、Compose 生命周期、arm64 OCI
+manifest／ELF 核对）。Developer 证据索引为 `artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md`；
 B 独立复核为 `artifacts/validation-evidence/task-3.2-b-review-20261019/`。
 
 RO-1..RO-6 均满足，已提交 Slice Closure Packet；真实 OpenList、无签名 `/d/`、固定插件解析、
