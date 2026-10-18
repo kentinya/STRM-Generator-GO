@@ -3,8 +3,9 @@
 ## 当前状态（2026-10-18）
 
 - Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
-- Task 1.1 经 B 独立复审 PASS；Task 1.2「已拥有 STRM 内容更新与原子恢复」已由 Developer 实施并交为 READY FOR B REVIEW，Implementation Head 为 `6eb4db67837ca8d3a65e1ce23bac6ea13b2592b9`。Task 1.2 把仅报告不写入的 `NeedsUpdate` 替换为真实原子更新（同目录临时文件 + `RENAME_EXCHANGE`，交换后校验旧目标，外部替换则回滚保留外部字节），报告新增 `updated=`，dry-run 只预览。B 独立审查 PENDING，不预设 Task／Slice 通过。
-- Task 1.2 权威 T4 证据位于本机 `artifacts/validation-evidence/task-1.2-final/`（race 155 pass、隔离 CLI 9/9、故障恢复含更新写入失败重试、更新后 SIGKILL 重启恢复、交换前外部替换竞态、双架构交叉构建与 testhooks 构建）。首轮 `fault_recovery` 因夹具误用新 API server 出现 `conflicts=1` 断言失败，定位为测试夹具错误并修正后全量重跑通过；`Update` 回滚失败分支改为保留外部字节不删除。
+- Task 1.1 经 B 独立复审 PASS；Task 1.2「已拥有 STRM 内容更新与原子恢复」候选 `6eb4db67837ca8d3a65e1ce23bac6ea13b2592b9` 经本次独立 B 审查为 **FIX REQUIRED**。候选已接通真实更新／`updated=` 和 dry-run 预览，但交换后的回滚／清理与中断恢复存在 P1 阻断；Task Base、合同与 T4 不变，在同一 Task 内修正。
+- B 用仅加入暂停／显式放行屏障的 Go overlay 确定性复现：F-10 回滚会将第二个外部目标换入 tmp 并删除；F-11 交换校验前 SIGKILL 后，发布二进制重启错误地跳过新目标、提交 round 2，陌生原目标留在隐藏 tmp。F-12 要求补齐目录 fsync、发布／回滚失败与更新路径信号窗口证据。详情和步骤见 TASK.md；原始复现见 `artifacts/validation-evidence/task-1.2-b-review-20261018-03/`，独立已有场景 3/3 与聚焦包／构建 PASS 证据见 `task-1.2-b-review-20261018-02/`。未将受控插桩写成未插桩二进制命中窗口。
+- Task 1.2 原候选 T4 证据保留在本机 `artifacts/validation-evidence/task-1.2-final/`（race 原始 JSON 为 147 个测试、8 个包通过，0 fail／skip；原报告的 155 混计包事件；隔离 CLI 9/9、双架构交叉构建与 testhooks 构建通过）。这些旧用例未覆盖本次失败窗口。首轮夹具错误及 B 的构建身份／屏障准备失败均保留原始记录；没有 Task 1.2 PASS 或 Closure Packet。
 - 前一候选 T4 证据位于本机 `artifacts/validation-evidence/task-1.1-fix-20261018-05/`（race 134 pass）；Task 1.1 F-9 修正的权威 T4 证据位于 `artifacts/validation-evidence/task-1.1-b-review-fix-20261018-02/`（race 142 pass、隔离 CLI 9/9、故障恢复聚焦 3/3）。`task-1.1-fix-20261018-04/` 保留一项首轮断言失败及修正前后证据，不覆盖、不隐藏。
 - SIGKILL 恢复场景观察到一个未引用的 `.strmgen-*.tmp`；已验证已有 STRM／归属／完整轮次恢复断言，恢复文档要求先核实而非盲目清理。真实外部 OpenList／无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机及性能仍为 NOT RUN；无生产服务、媒体或配套仓库测试。
 - 历史 B 独立复审证据位于 `artifacts/validation-evidence/task-1.1-b-review-20261018-02/`：首次完整隔离复跑在归属中断恢复处失败，随后单独 `fault_recovery` 重跑通过；失败由 SIGSTOP 落在“发布后、归属登记前”窗口导致，程序按合同正确保持未归属冲突，但驱动断言不稳定。该问题已在同一 Task 内改为确定性注入，并由后续 T4 证据闭环。

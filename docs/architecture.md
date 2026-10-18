@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-开发准备基线（合同、需求、架构、夹具、Python 工具与 Go 1.27.2 固定 SDK）已交付。Slice 1 的 Task 1.1 有 `cmd/strmgen` 的 `sync` 与 `sync --dry-run` 实现；`internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list／get 与分页、应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供纯路径／协议转换与比较；`internal/storage` 用 modernc.org/sqlite 记录最小归属与完整轮次；`internal/reconciler` 实现有界目录遍历、同目标冲突检测、原子发布（同目录临时文件 + 不覆盖 link）、已拥有 STRM 的原子内容更新（同目录临时文件 + `RENAME_EXCHANGE`，交换后校验旧目标、外部替换则回滚保留外部字节）和固定运行时 flock；`internal/securepath` 使用 Linux 目录句柄和相对操作绑定输出根及数据库父目录。Task 1.2 已把 `NeedsUpdate` 只报告路径替换为真实更新，报告新增 `updated=`；实施候选交为 READY FOR B REVIEW，当前 Task／B 审查状态见 TASK.md，代码存在不等于 Task 验收通过。Mirror 清理、serve／定时、发布镜像仍未实现。
+开发准备基线（合同、需求、架构、夹具、Python 工具与 Go 1.27.2 固定 SDK）已交付。Slice 1 的 Task 1.1 有 `cmd/strmgen` 的 `sync` 与 `sync --dry-run` 实现；`internal/config` 严格解析 YAML 并校验输出根／URL；`internal/openlist` 实现有界 list／get 与分页、应用层错误处理；`internal/pathmap` 与 `internal/strm` 提供纯路径／协议转换与比较；`internal/storage` 用 modernc.org/sqlite 记录最小归属与完整轮次；`internal/reconciler` 实现有界目录遍历、同目标冲突检测、原子发布（同目录临时文件 + 不覆盖 link）、内容更新候选（同目录临时文件 + `RENAME_EXCHANGE`，交换后校验旧目标及回滚）和固定运行时 flock；`internal/securepath` 使用 Linux 目录句柄和相对操作绑定输出根及数据库父目录。Task 1.2 已把 `NeedsUpdate` 只报告路径替换为真实更新，报告新增 `updated=`；B 独立审查为 FIX REQUIRED：回滚／defer 会删除再次出现的外部目标，交换校验前中断后重启可错误提交成功轮，故障门槛还需补齐（F-10..F-12）。当前源码不是已获验收的安全原子更新，详细证据与修正范围见 TASK.md。Mirror 清理、serve／定时、发布镜像仍未实现。
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 

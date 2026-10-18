@@ -2,7 +2,7 @@
 
 [V4.3 原方案](<../STRM Generator Go.md>) 原样保留，内容身份固定在 [环境规范](../dev/environment-spec.json)。配套项目只读 STRM；本项目维护 STRM。两者共享文件协议，不共享状态库、调度器或内部接口。
 
-开发准备基线已交付：中文需求／架构／合同、固定 Go 工具链、API 夹具、质量检查、CI 与交接。用户随后要求激活 Slice 1「安全的单轮生成闭环」，当前以其 ACTIVE 合同限定范围；首个实施单元见 [Task 1.1](../TASK.md)。Task 1.1 已有 `sync`／`sync --dry-run` 的产品代码与隔离测试并经 B 审查 PASS；Task 1.2 实现已拥有 STRM 的原子内容更新与恢复，实施候选交为 READY FOR B REVIEW。不能把有可执行文件或实施候选视作 Task 或 Slice 验收通过。
+开发准备基线已交付：中文需求／架构／合同、API 夹具、质量检查、CI、固定 Go 工具链与交接。用户随后要求激活 Slice 1「安全的单轮生成闭环」，当前以其 ACTIVE 合同限定范围；当前实施单元见 [TASK.md](../TASK.md)。Task 1.1 的 `sync`／`sync --dry-run` 基线已获 B PASS；Task 1.2 已接通已拥有 STRM 的内容更新，但 B 发现交换回滚会删除再次出现的外部文件、交换校验前中断恢复错误及故障证据缺口，当前为 FIX REQUIRED，须在同一 Task 内修正。不能把有可执行文件或实施候选视作 Task 或 Slice 验收通过。
 
 产品范围：OpenList list／get 元数据；稳定 `/d/` URL；版本化 STRM；目录镜像；增量比较与原子更新；SQLite 最小归属／轮次；经过完整成功对账的安全清理；单轮互斥、有界目录并发；手动／预览／定时；Linux amd64／arm64 容器与二进制；最终一致性和分层验收。
 
