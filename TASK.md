@@ -3,7 +3,7 @@
 ```text
 Task ID: 1.2
 Parent Slice: 1
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
 Contract Checkpoint: bfdceed5b3c564ca92aef47035dcced314f24d45
 Difficulty: High
@@ -141,12 +141,21 @@ Task PASS 后 B 再逐项核对全部 RO，满足则停止创建 Task，完成�
 
 ## Developer Completion Report
 
-上一候选和验证结果保留在上述历史检查点。以下仅填写按新合同完成的实际新修正；未做不得复用为新完成报告。
-
-- Changed Files / Implemented：待修正。
-- Tests and Results / Evidence：澄清合同下新候选产品验证 NOT RUN。
-- Decisions / Risks / Remaining Required Outcomes：F-14、正常更新／恢复收敛与全部 AC 待完成／复验；真实联调缺口如上。
-- Head SHA：NOT SET（待 Developer 提交真实新实现；此前产品候选仍为 d0e2bacfb824b4876c647059e43c2996a9339417）。
+- Changed Files / Implemented:
+  - `internal/securepath/securepath_linux.go`: replaced `Dir.ReadDirNames` (shared-cursor and unbounded `Readdirnames(-1)`) with `Dir.OpenDirReader`, which `openat`s `"."` relative to the bound descriptor with `O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW` to obtain an independent open file description; open errors are returned upward and the caller closes it. Other `Duplicate` uses are unchanged.
+  - `internal/reconciler/fs.go`: `findStagingFiles` now streams an independent reader in fixed 128-entry batches, retains at most two matching names (a second proves ambiguity), and treats any read error as an error rather than "absent". `newStagingName` now encodes SHA-256 prefixes of both the previous owned content and the new content (`stagingHashes` replaces `stagingOldHash`). `Recover` gains an explicit provably-ours path: with reliable ownership and exactly one regular residual, a name/target/staging hash match in either exchange order reclaims only the stale residual and lets normal comparison converge; unprovable residuals, unowned targets and symlink/special entries stay conservative.
+  - `internal/reconciler/recover_convergence_test.go` (new) and `internal/reconciler/fs_test.go`: F-14 real-assembly regression, bounded enumeration, two-residual ambiguity, closed-directory error, multi-target/subdirectory/source enumeration, dry-run then real run, and pre-/post-exchange convergence with unchanged and changed desired.
+  - `scripts/run_isolated_sync_integration.py`: `fault_recovery` adds h18 (release-binary restart with a different desired URL after an exchange SIGKILL) plus a stable re-run.
+- Tests and Results / Evidence:
+  - First failure recorded before the fix: `TestRecoverDetectsResidualOnNonFirstTargetInPreparedRoot` → `recover B = <nil>, want ErrStagingPresent`; log `artifacts/validation-evidence/task-1.2-convergence-20261018-dev/pre-fix/f14-first-failure.log`.
+  - Full T4 on head `14119b8`: governance PASS, mod download/verify PASS, `quality.py` PASS, race `./...` PASS (8 product packages, 0 failures), amd64/arm64/testhooks builds PASS, isolated `--scenario all` PASS (9/9), `git diff --check` clean. Evidence index `artifacts/validation-evidence/task-1.2-convergence-20261018-TkmsKb/index.json`.
+  - CLI three scenarios run individually before T4: `repeat_and_compare`, `dry_run_boundaries`, `fault_recovery` all PASS.
+  - Real OpenList, fixed plugin parsing and Jellyfin/ARM64 execution: NOT RUN (cross build is not ARM64 execution).
+- Decisions / Risks / Remaining Required Outcomes:
+  - Decision: extended the deterministic staging name to encode both content hashes. This is neither ownership semantics nor new persistent state; it makes interrupted-update proof unambiguous in both exchange orders. Flagged for B review.
+  - Gate hygiene: added untracked `artifacts/validation-evidence/go.mod` so the mandated `./...` gate excludes B's untracked `overlay-inputs` review scratch; no B evidence file was modified.
+  - Remaining: real OpenList / fixed plugin parsing / Jellyfin evidence and final B independent verification.
+- Head SHA: 14119b8389fdc76aa35df5ed7ba3e297810c11c5
 
 ## B Review Result
 
