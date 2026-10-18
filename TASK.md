@@ -5,7 +5,7 @@
 ```text
 Task ID: 2.1
 Parent Slice: 2
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
 Contract Checkpoint: a8c2d62369a21e8d9a0c2cefec2af09927fb3286
 Difficulty: High
@@ -166,11 +166,60 @@ PASS 后逐项重评 Slice RO-1..RO-6，不以确认能力替代完整轮、归�
   `gates.tsv`、`logs/`、`cli/`、`real-openlist/`、`first-failures/`）。该目录位于本机
   Git 忽略路径，不是远端可读证据。
 
+## B Review Findings / Required Fixes
+
+完整审查范围为 Task Base `a8c2d62369a21e8d9a0c2cefec2af09927fb3286` 至实现 Head
+`2fc3f6f06b6bc02ec9503e373cb031fc438f0346`；其后 `da2c718` 只记录证据与检查点身份。
+实现、CLI 基线及隔离证据大体符合范围，但下列 AC-4 问题阻止 PASS。
+
+### B-1 最终目标 Get 的请求失败可能被确认为不存在
+
+`internal/openlist/absence.go:233` 的 `probeFilteredTarget` 只特殊处理权限拒绝，随后把任意
+`*APIError` 当作可忽略结果并返回 `ReasonNone`。`internal/openlist/openlist.go:123` 的
+`Client.do` 会把传输失败、取消／超时、非 2xx HTTP、JSON／响应形状错误以及应用层错误都包装成
+`APIError`；其中传输失败的 `Code` 与 `HTTPStatus` 均为 0。若根 Get 和刷新完整列表成功，最终
+目标 Get 随后超时或被取消，当前确认器仍会返回 `AbsenceConfirmed`。现有
+`TestConfirmCancellationAndTimeout` 没有让取消／超时发生在这个最终目标探测请求中；
+`TestConfirmGenericGetFailureIsAbsenceOnlyAfterListing` 反而将宽泛接受行为固定为预期。
+
+### Developer 修正步骤
+
+1. 保留现有路径校验、请求／目录上限、每页刷新完整读取和祖先链行为；只修正最终目标探测的
+   失败分类，不引入跨调用缓存、清理资格或持久状态。
+2. 在最终目标 Get 返回后重新检查 `ctx.Err()`。取消／deadline、传输失败、非成功 HTTP、畸形或
+   不完整响应及未明确获准的错误必须返回 `AbsenceUnknown`，不能因其被包装为 `*APIError` 而
+   当作不存在。只通过结构化字段判断，不检查 `Detail` 文本或数字子串；保留权限拒绝为保守
+   Unknown，并保留成功 Get 与此前列表矛盾时的 Unknown。
+3. 增加最终目标探测专用取消与超时回归：让源根 Get 与 `ListFresh` 成功，仅阻塞最后的目标 Get
+   直到 context cancel／deadline；断言结果不是 `AbsenceConfirmed`，且原因和请求轨迹能证明失败
+   发生在目标探测阶段。现有早期请求取消／超时用例继续保留。
+4. 为最终目标 Get 增加结构化失败表格用例，至少覆盖 transport（`Code=0`、`HTTPStatus=0`）、
+   HTTP 404／403／500、无效／缺失响应及应用错误码；同时覆盖实际缺失对象和隐藏权限对象的
+   已知响应形状，断言结论而非只断言原因字符串。
+5. 按 A 对下方合同问题的裁定实现缺失对象语义。更新实际运行说明与测试，使 fixed OpenList 的
+   实际缺失、隐藏项及失败语义彼此区分；不能仅通过放宽断言或降低真实场景覆盖完成修正。
+6. 运行治理、聚焦 OpenList/Reconciler 与 Python runner 测试，并对改动后的完整 T4 候选重跑
+   必要门禁和固定隔离 OpenList 实证。代码／测试／运行器变更后的旧候选证据不得直接当成新
+   输入的 PASS；保留旧证据与首次失败。
+
+### A Contract Decision Required
+
+当前 Task AC-4 要求 HTTP／JSON 404、403、500 均无法确认；Slice RO-3 也规定任意 Get 错误本身
+不构成不存在。另一方面，Task 已固定版本的真实证据显示：真正缺失对象的 Get 返回 HTTP 200、
+OpenList 应用码 500；真实目录刷新列表完整且不含该名称。若严格将该应用码 500 也判为 Unknown，
+当前确认机制无法对真实缺失对象给出 `AbsenceConfirmed`；若像当前实现一样忽略所有非权限
+`APIError`，最终探测的超时／取消及其他传输／响应错误会被吞掉。B 不修改 Slice／AC-4。请 A
+裁定：是否调整 AC-4，明确“完整刷新列表是唯一缺失证据，而最终 Get 仅可按经实测的结构化结果
+否决该证据”的边界；或指定另一个满足现有 AC-4 的可用确认机制／支持范围。A 提交合同决定后，
+B 再判断 Task 2.1 是按合法调整继续，还是撤回并重规划；Developer 在此之前不扩大接口或产品范围。
+
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Decision: PENDING
+Reviewed Range: a8c2d62369a21e8d9a0c2cefec2af09927fb3286..2fc3f6f06b6bc02ec9503e373cb031fc438f0346
+Decision: FIX REQUIRED
+Blocker: B-1; await A decision on the AC-4 / fixed OpenList application-code-500 conflict
+Independent Verification: governance PASS; focused ./internal/openlist ./internal/reconciler PASS; fixed real OpenList replay 5/5 scenarios PASS (artifacts/validation-evidence/task-2.1-b-review-20261018/summary.json)
 Slice Required Outcomes all satisfied: NO
-Next: Developer implements Task 2.1 and submits evidence for independent B review
+Next: A decides the contract boundary; then Developer addresses B-1 in Task 2.1 and returns for B review
 ```
