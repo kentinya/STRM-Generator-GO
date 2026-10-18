@@ -1,8 +1,16 @@
 # 进度
 
-## Slice 3 Closure Packet（2026-10-19，READY FOR A REVIEW）
+## Slice 3 A Final Review（2026-10-19，FIX REQUIRED）
 
-Task 3.2 已经独立 B **PASS**，Slice 3 现交 `READY FOR A REVIEW`（A 尚未作最终决定）。
+A 审查完整范围 `ca9f91e10a0fc6c28679b5827f453e632eb9854a..2131b54bcec1cd43769d239a30456b4a8607f4aa`，核对 Task 3.1／3.2 B 结论及本机原始 T4 证据。发现两项 P1：共享 `config.Load` 对所有命令拒绝 `sync.interval_minutes: 0`，回退 Slice 3 要求保持的 `sync` 配置行为；Compose 将运行时 `OPENLIST_TOKEN` 插值到 `docker compose config` 输出，且容器验收器断言该 token 出现在渲染结果，违反 Task 3.2 AC-2。Slice 3 保持原 Base／Implementation Head，不关闭；RO-1、RO-4、RO-6 待修正与复验。
+
+治理检查 `python3 scripts/check_governance.py` exit 0。未运行新的产品验证；A 复核使用已提交候选及 B 的独立门禁、容器复现和原始证据。真实 OpenList、无签名 `/d/`、固定插件解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
+
+Next Action: B PLANS AN IN-SLICE CORRECTION; Developer waits for the plan checkpoint and governance pass
+
+## Slice 3 Closure Packet（B submitted 2026-10-19; A review FIX REQUIRED）
+
+Task 3.2 已经独立 B **PASS**，B 曾提交 Closure Packet；A 已审查并返回 `FIX REQUIRED`，该候选尚未关闭 Slice。
 B 审查完整 Task 3.2 范围 `8fc3a3ad8a720e9ca4c832967fdf39874581beff..2131b54bcec1cd43769d239a30456b4a8607f4aa`，
 并复用匹配的 Task 3.1 调度／同步证据。交付：仓库根 `Dockerfile`（`golang:1.27.2`
 与 `alpine:3.20` 均按 digest 固定，构建层在 `$BUILDPLATFORM` 以 `CGO_ENABLED=0`
@@ -20,10 +28,10 @@ Developer 的候选证据包含治理、新增容器驱动单元测试 13 项、
 manifest／ELF 核对）。Developer 证据索引为 `artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md`；
 B 独立复核为 `artifacts/validation-evidence/task-3.2-b-review-20261019/`。
 
-RO-1..RO-6 均满足，已提交 Slice Closure Packet；真实 OpenList、无签名 `/d/`、固定插件解析、
+Closure Packet 提交时 B 评估 RO-1..RO-6 均满足；A 的完整范围审查识别两项 P1，当前不接受 RO 全通过。真实 OpenList、无签名 `/d/`、固定插件解析、
 Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
 
-Next Action: A REVIEWS SLICE 3 CLOSURE PACKET
+Next Action: B PLANS AN IN-SLICE CORRECTION
 
 ## Task 3.1 B 独立审查（2026-10-19，PASS）
 
@@ -74,7 +82,7 @@ NOT RUN；部署镜像／Compose／双架构发布包属后续 Task 3.2。
 
 Next Action: B REVIEWS TASK 3.1
 
-## 当前状态（2026-10-19，Slice 3 ACTIVE）
+## Slice 3 ACTIVE 状态（历史快照，2026-10-19）
 
 Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 最终审查范围和分层证据保留在其
 关闭检查点。A 已激活 Slice 3「定时与部署」，Base 固定为

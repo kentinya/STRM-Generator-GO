@@ -1,6 +1,6 @@
 # 测试矩阵
 
-下表是目标验证矩阵，不是通过清单；Slice 1 与 Slice 2 均 PASS / CLOSED，Slice 3「定时与部署」已 ACTIVE。Slice 2 的完整证据与 A 决定保留于其关闭检查点；Task 2.1／2.2 均有独立 B PASS，Task 2.2 的 T4 证据索引为 `artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md`（本机证据）。工具层与环境 smoke 不代替产品验收，测试结果不跨层自动继承。
+下表是目标验证矩阵，不是通过清单；Slice 1 与 Slice 2 均 PASS / CLOSED，Slice 3 的 Task 3.1／3.2 均经独立 B PASS，但 A 最终审查为 FIX REQUIRED，待原 Slice 内修正。Slice 2 的完整证据与 A 决定保留于其关闭检查点；Task 2.1／2.2 均有独立 B PASS，Task 2.2 的 T4 证据索引为 `artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md`（本机证据）。工具层与环境 smoke 不代替产品验收，测试结果不跨层自动继承。
 
 | 范围 | 关键风险／验证 | 等级／阶段 |
 |---|---|---|
@@ -17,7 +17,7 @@
 | OpenList Get／缓存实证 | 固定隔离版本／驱动的源根存在／缺失、目标存在／未读到、父目录删除、相同错误响应与缓存滞后；所有列表含分页不强刷；隐藏／虚拟挂载／缓存文件读取反例属用户接受局限，不冒充已辨别成功 | Slice 2 RO-6 必要实证；Task 2.1 已独立 B PASS，仅远端判定层；实际 CLI 清理由 Task 2.2 验证 |
 | 调度／并发 | 手动与serve／多进程排他、有界 tick 与工作池、忙碌跳过、停止不提交完整轮、恢复下一轮 | Slice 3 RO-2／RO-3，T4 race＋多进程集成；Task 3.1 B PASS，含 scheduler 单元、隔离 serve 驱动及独立 SIGINT 复现 |
 | 性能 | 十万／百万、宽目录／深目录、512MB限制、RSS／队列／吞吐、失败和恢复 | Slice 4真实测量 |
-| 发布 | Linux amd64／arm64构建、Docker权限、token／输出／DB／锁挂载、停止／重启与包恢复 | Slice 3 RO-4／RO-6；Task 3.2 经独立 B PASS，Dockerfile／Compose／双架构镜像与隔离容器驱动覆盖非特权、token 环境注入、只读配置、输出／DB／sidecar／锁挂载、首轮、停止／重启、双容器共享锁；本机 amd64 容器实测，arm64 仅 OCI manifest／ELF 核对，ARM64 实机留 Slice 4；Slice Closure Packet 待 A 审查 |
+| 发布 | Linux amd64／arm64构建、Docker权限、token／输出／DB／锁挂载、停止／重启与包恢复 | Task 3.2 的 Dockerfile／Compose／双架构镜像与隔离容器验收经 B PASS；A Final 因 Compose 渲染暴露 token 判 RO-4／RO-6 FIX REQUIRED，未关闭 Slice。本机 amd64 容器实测，arm64 仅 OCI manifest／ELF 核对，ARM64 实机留 Slice 4 |
 | 联调 | 生成→Jellyfin扫描→插件解析／按需探测→正确播放；URL换址同哈希；目录移动重新入库 | Slice 4固定隔离版本 |
 
 真实插件行为须检查当次与重启后的播放地址、必要媒体流和探测计数，分别注明原生／代理链。同步成功不等于播放成功。清理安全须检查最终文件／库状态，不能仅依据日志计数。

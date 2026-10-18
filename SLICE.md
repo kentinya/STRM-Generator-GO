@@ -3,7 +3,7 @@
 ```text
 Slice ID: 3
 Owner: A
-Status: READY FOR A REVIEW
+Status: FIX REQUIRED
 Base SHA: ca9f91e10a0fc6c28679b5827f453e632eb9854a
 Implementation Head: 2131b54bcec1cd43769d239a30456b4a8607f4aa
 ```
@@ -134,24 +134,26 @@ Slice Final 仍审查固定 Base..Implementation Head 全范围；P2 的部署�
 ## Closure Packet
 
 ```text
-Packet Status: READY FOR A REVIEW
+Packet Status: REVIEWED - FIX REQUIRED
 Slice Base: ca9f91e10a0fc6c28679b5827f453e632eb9854a
 Reviewed Implementation Head: 2131b54bcec1cd43769d239a30456b4a8607f4aa
 Task Index: Task 3.1 PASS (ee5001646d4239755606c28b61f340d795ee7014..b18caba6fd786bfe589f6ac29c2a2e779a5a1628); Task 3.2 PASS (8fc3a3ad8a720e9ca4c832967fdf39874581beff..2131b54bcec1cd43769d239a30456b4a8607f4aa)
-Required Outcomes: RO-1 PASS; RO-2 PASS; RO-3 PASS; RO-4 PASS; RO-5 PASS; RO-6 PASS
+Required Outcomes: B submitted RO-1..RO-6 PASS; A review found RO-1, RO-4 and RO-6 FIX REQUIRED
 Final Evidence: artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md; artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md; artifacts/validation-evidence/task-3.2-b-review-20261019/
 Invariants: PASS; existing sync/mirror/dry-run/ownership/path/lock/round boundaries retained; deployment uses runtime token, read-only config, explicit persistent mounts, and shared lock object for multi-container output
 Known limitations / deferred: Slice 4 external integration, ARM64 runtime, scale and release
-Documentation coordination: current status, architecture, README, test matrix, progress and roadmap synchronized; A closure decision pending
-A Final Review: PENDING
-Next Action: A REVIEWS SLICE 3 CLOSURE PACKET
+Documentation coordination: current FIX REQUIRED status and A blockers synchronized; no closure performed
+A Final Review: FIX REQUIRED (2026-10-19)
+Next Action: B PLANS AN IN-SLICE CORRECTION
 ```
 
 ## A Final Review
 
 ```text
-Reviewed Range: NOT SET
-Decision: PENDING
-P0/P1 Blockers: PENDING
-Next Action: A REVIEWS SLICE 3 CLOSURE PACKET
+Reviewed Range: ca9f91e10a0fc6c28679b5827f453e632eb9854a..2131b54bcec1cd43769d239a30456b4a8607f4aa
+Decision: FIX REQUIRED
+P0/P1 Blockers:
+- P1 / RO-1: `internal/config.validate` rejects `sync.interval_minutes: 0` for every command, although the Base accepted zero and Slice 3 requires positive validation for `serve`; `sync` and `sync --dry-run` therefore no longer preserve existing configuration behavior.
+- P1 / RO-4, RO-6 / Task 3.2 AC-2: Compose interpolates `OPENLIST_TOKEN` into `docker compose config` output, and the container acceptance driver asserts that the token appears there. This contradicts the no-token rendered-config/output acceptance and exposes real runtime values to terminal or command-output capture.
+Next Action: B PLANS AN IN-SLICE CORRECTION; Developer implements only after the plan checkpoint and governance pass
 ```

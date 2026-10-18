@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」已 READY FOR A REVIEW，Base 固定为关闭协调检查点 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，B 审查到 `2131b54bcec1cd43769d239a30456b4a8607f4aa`。当前可运行入口为 `cmd/strmgen` 的 `sync`、`sync --dry-run` 与 `serve --config <file>`，配置错误退出 2，运行错误／冲突／忙碌退出 1，并输出脱敏摘要；Task 3.1／3.2 均经独立 B PASS，后者包含 Linux amd64／arm64 `CGO_ENABLED=0` 产品镜像、单实例 Compose 与隔离容器验收（非特权身份、环境 token、只读配置、输出／DB／sidecar／临时写／固定锁挂载、正常停止／重启、双容器共享锁竞争）。A Closure Review 尚未作出结论。
+Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」Base 为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Implementation Head 为 `2131b54bcec1cd43769d239a30456b4a8607f4aa`；Task 3.1／3.2 均经独立 B PASS，但 A 最终审查判定 FIX REQUIRED，阻断为 sync 零间隔兼容回归与 Compose 渲染 token 暴露。当前可运行入口为 `cmd/strmgen` 的 `sync`、`sync --dry-run` 与 `serve --config <file>`；Slice 3 未关闭，待 B 规划原 Slice 内修正。
 
 `internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 
@@ -12,9 +12,9 @@ Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782
 
 恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。Slice 3 的 serve 必须复用这一取消／恢复边界。
 
-正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 Slice 2 关闭检查点；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时和发布镜像已由 Task 3.1／3.2 实现并经 B PASS，Slice 3 Closure Packet 等待 A 审查。
+正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 Slice 2 关闭检查点；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；真实部署生成／无签名 `/d/`、固定插件实际解析、Jellyfin／代理、ARM64 实机、性能及正式发布仍 NOT RUN。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时和发布镜像已由 Task 3.1／3.2 实现并经 B PASS，Slice 3 当前因 A 的两项 P1 阻断为 FIX REQUIRED。
 
-现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。`sync.interval_minutes` 缺省 60，仅接受正整数；0、负数、非整数及分钟到 `time.Duration` 的转换溢出都在锁、输出根、数据库或远端请求前 exit 2。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时与部署镜像／Compose 已由 Task 3.1／3.2 实现并经独立 B PASS，当前 Slice Closure Packet 等待 A 审查，以下 TARGET 不表示独立 A 验收。
+现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。`sync.interval_minutes` 缺省 60；Slice 合同只要求 `serve` 拒绝零／负数／非整数／溢出间隔，但当前共享 `config.Load` 也拒绝 `sync` 的零间隔配置，违反既有 sync 行为，A 已判 FIX REQUIRED。分钟到 `time.Duration` 的转换溢出须在锁、输出根、数据库或远端请求前由 serve 配置验证。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时与部署镜像／Compose 已由 Task 3.1／3.2 实现并经独立 B PASS，但 Slice 3 因 A Final 的两项 P1 阻断为 FIX REQUIRED；以下 TARGET 不表示独立 A 验收。
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
@@ -28,7 +28,7 @@ Slice 1 与 Slice 2 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782
 
 未归属文件、归属丢失与确实无法解释的路径／类型冲突保守保留；合法 STRM、名字、哈希或 OS UID 本身不建立归属。已有可靠归属的可再生成内容出现可识别偏差，不等于必须丢弃旧 ownership 重建。无条件保护任意外部注入的所有字节不是本架构目标，也不能把同一干预转为静态 legacy 状态重新要求。扫描期间变化依现有比较规则后续纠正，不每次写入前查远端、不引入远端锁。
 
-CURRENT 与 TARGET 的剩余差距是本 ACTIVE Slice 3 的调度部署、真实外部联调及规模实测；本地单轮生成／更新／Mirror 清理／正常中断恢复已在 Slice 1／2 接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
+CURRENT 与 TARGET 的剩余差距是 Slice 3 修正后的调度部署、真实外部联调及规模实测；本地单轮生成／更新／Mirror 清理／正常中断恢复已在 Slice 1／2 接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
 
 ```text
 CLI / YAML / env
