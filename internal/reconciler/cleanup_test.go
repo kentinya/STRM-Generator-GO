@@ -498,6 +498,35 @@ func TestFixedBoundaryMismatchIsRetained(t *testing.T) {
 	}
 }
 
+func TestReappearanceClearsEvidenceBeforeLaterFailure(t *testing.T) {
+	// An observed source file clears the old missing evidence immediately, even
+	// when the same target then fails local processing and the round does not
+	// commit.
+	lister := standardTree()
+	root := t.TempDir()
+	store := newStore(t)
+	seedStandard(t, lister, store, root)
+	removeRemote(lister, "Sample.mkv")
+	if report := runSource(t, lister, store, root, cleanupOptions()); countFor(t, store, "Sample.strm") != 1 {
+		t.Fatalf("baseline count: %+v", report.Sources[0])
+	}
+	lister.dirs["/Movies"] = append(lister.dirs["/Movies"], media("Sample.mkv", 10737418240, shaA))
+	delete(lister.getErr, "/Movies/Sample.mkv")
+	if err := os.WriteFile(filepath.Join(root, "Sample.strm"), []byte("garbage-not-a-strm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := New(lister, store, cleanupOptions()).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil || !report.Sources[0].Partial || report.Sources[0].Conflicts == 0 {
+		t.Fatalf("invalid owned target must fail the round: %+v err=%v", report.Sources[0], err)
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 0 {
+		t.Fatalf("accepted reappearance did not clear the count before failure: %d", got)
+	}
+	if epoch, _ := store.NextEpoch("/Movies"); epoch != 3 {
+		t.Fatalf("failed round advanced the epoch: %d", epoch)
+	}
+}
+
 func TestNewPathFailureDoesNotCleanupOldPath(t *testing.T) {
 	lister := standardTree()
 	root := t.TempDir()

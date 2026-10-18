@@ -1228,6 +1228,25 @@ def scenario_source_identity(h, results):
     connection.close()
     legacy_cfg = legacy.config("legacy-key", api_legacy, [("/Movies", root_legacy)], db_legacy)
     legacy_before = snapshot_tree(root_legacy)
+    legacy_bytes = db_legacy.read_bytes()
+    # A dry-run against the Slice 1 database must not migrate the schema or
+    # change any byte; the unknown mapping stays unknown and the preview only
+    # reports the existing conflict.
+    legacy_dry = legacy.run(legacy_cfg, dry_run=True)
+    check(legacy_dry.returncode == 1 and "conflicts=1" in legacy_dry.stdout,
+          f"legacy dry-run: {legacy_dry.returncode} {legacy_dry.stdout} {legacy_dry.stderr}")
+    check(snapshot_tree(root_legacy) == legacy_before, "legacy dry-run changed the output")
+    check(db_legacy.read_bytes() == legacy_bytes, "legacy dry-run changed the database bytes")
+    legacy_conn = sqlite3.connect(str(db_legacy))
+    try:
+        legacy_version = legacy_conn.execute("PRAGMA user_version").fetchone()[0]
+        legacy_columns = [row[1] for row in legacy_conn.execute("PRAGMA table_info(ownership)")]
+    finally:
+        legacy_conn.close()
+    check(legacy_version == 0 and "remote_path" not in legacy_columns and "missing_round" not in legacy_columns,
+          f"legacy dry-run migrated the schema: version={legacy_version} columns={legacy_columns}")
+    # The write run upgrades transactionally, preserves the old row and never
+    # trusts the old plain remote key as proof of ownership.
     legacy_result = legacy.run(legacy_cfg)
     check(legacy_result.returncode == 1 and "conflicts=1" in legacy_result.stdout,
           f"legacy remote key was trusted: {legacy_result.returncode} {legacy_result.stdout}")
@@ -2470,6 +2489,9 @@ def scenario_mirror_recovery(h, results):
     })
     check(wait_for_marker(proc, marker), "pre-unlink gate never recorded")
     proc.send_signal(signal.SIGTERM)
+    # Give the runtime time to deliver SIGTERM and cancel the context while the
+    # process is still polling; the gate only releases the window afterwards.
+    time.sleep(1.0)
     gate.write_text("continue")
     proc.communicate(timeout=30)
     check(proc.returncode != 0, "cancelled cleanup exited zero")
@@ -2507,25 +2529,29 @@ def scenario_mirror_recovery(h, results):
     observed["delete_ownership_recovery"] = recovered.returncode
     hh.cleanup()
 
-    # Cross-file partial completion: the first target is fully removed, the
-    # second unlink is not durably synced, the round stops and reports both.
+    # Cross-file partial completion: the first targets are attempted in order,
+    # the second unlink is not durably synced, the round stops before the
+    # third target and reports every unlink that actually happened.
     hh, dirs, root, db, cfg = qualify("delete-partial", files=[
         {"name": "A.mkv", "is_dir": False, "size": 10, "hash_info": {"sha1": "a" * 40}},
         {"name": "B.mkv", "is_dir": False, "size": 20, "hash_info": {"sha1": "b" * 40}},
+        {"name": "C.mkv", "is_dir": False, "size": 30, "hash_info": {"sha1": "c" * 40}},
     ])
     failed = hh.run(cfg, extra_env={"STRMGEN_TEST_DELETE_AFTER_UNLINK_FAIL_TARGET": "B.strm"},
                     binary=h.fault_binary)
     check(failed.returncode == 1 and "deleted=2" in failed.stdout and "partial=true" in failed.stdout,
           f"cross-file partial: {failed.stdout} {failed.stderr}")
-    check(not (root / "A.strm").exists() and not (root / "B.strm").exists(),
-          "cross-file partial did not report the actual unlinks")
+    check(not (root / "A.strm").exists() and not (root / "B.strm").exists() and (root / "C.strm").exists(),
+          "cross-file partial did not stop before the third target")
     details = ownership_details(db)
-    check("A.strm" not in details and "B.strm" in details and details["B.strm"][0] == 3,
+    check("A.strm" not in details and "B.strm" in details and details["B.strm"][0] == 3
+          and "C.strm" in details and details["C.strm"][0] == 3,
           f"cross-file partial ownership: {details}")
     recovered = hh.run(cfg)
-    check(recovered.returncode == 0 and "reclaimed=1" in recovered.stdout,
+    check(recovered.returncode == 0 and "reclaimed=1" in recovered.stdout and "deleted=1" in recovered.stdout,
           f"cross-file recovery: {recovered.stdout} {recovered.stderr}")
-    check("B.strm" not in ownership_details(db), "cross-file recovery left a row")
+    check("B.strm" not in ownership_details(db) and "C.strm" not in ownership_details(db),
+          "cross-file recovery left a row")
     observed["cross_file_partial"] = failed.returncode
     observed["cross_file_recovery"] = recovered.returncode
     hh.cleanup()
