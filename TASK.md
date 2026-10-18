@@ -5,17 +5,17 @@ Task ID: 1.2
 Parent Slice: 1
 Status: FIX REQUIRED
 Task Base: 15d749b3f151e94a6fb5e9850e6e21d7101aa603
-Contract Checkpoint: 951aaeeeca966e8ef79e8ac9500827ce27d0f035
+Contract Checkpoint: 66facd2ecf02fcd8f296e4026025ab1468a731af
 Difficulty: High
 Test Level: T4
 Planner / Reviewer: B
 ```
 
-范围 authority：已提交的 `951aaeeeca966e8ef79e8ac9500827ce27d0f035:SLICE.md`。Slice 1 仍 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；本 Task 不修改合同、Roadmap 或稳定需求。
+范围 authority：已提交的 `66facd2ecf02fcd8f296e4026025ab1468a731af:SLICE.md`（2026-10-18 A 按用户授权修订单写者边界）。Slice 1 仍 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；Task Base 不变。B 已判本 Task 可合法原地调整，不新建 Task；Developer 不自行修改合同、Roadmap 或稳定需求。末尾“B 合同后调整决定”是当前执行清单；此前审查／修复建议按当时合同保留，尤其“Contract Checkpoint 不变”及“待 A 决策”不再作为当前指令。
 
 ## Goal
 
-在 Task 1.1 的首次创建、可信归属、比较、互斥和恢复基础上，实现已拥有 STRM 的安全内容更新：当 URL、有效 SHA-1 或可比较 Size 表明需要变化时，同目录原子替换文件；更新失败、进程中断或目标竞态时保留可证明事实，重启后可安全重试或跳过，不覆盖未拥有文件，不新增媒体版本状态表。
+在 Task 1.1 基础上，按需求 SW-1..SW-6 的本地单写者前提实现已拥有 STRM 的安全内容更新：URL／有效 SHA-1／可比较 Size 需要变化时同目录原子替换；检查可直接验证的输出／状态写者条件，保留生成器自身故障与中断恢复、可观测异常及未归属文件保护。修正独立有界目录扫描与不明恢复事实跨进程保留；不追求任意不合作写者的按 inode 条件操作，不新增媒体版本状态表。
 
 ## Task 1.1 PASS 基线
 
@@ -25,7 +25,7 @@ Planner / Reviewer: B
 
 ## Scope
 
-允许修改 `cmd/strmgen`、`internal/reconciler`、`internal/strm`、`internal/storage` 及其 Go 测试，必要的隔离夹具、CLI 驱动、文档和质量工具；`internal/securepath` 仅允许支持本 Task 的已绑定目录相对安全替换与对应测试。不得改动原方案、需求、Slice 合同、Roadmap 或固定 T4 等级。
+允许修改 `cmd/strmgen`、`internal/reconciler`、`internal/strm`、`internal/storage` 及其 Go 测试，必要的隔离夹具、CLI 驱动、文档和质量工具；`internal/securepath` 可支持本 Task 的绑定句柄属性检查、相对安全替换、独立有界枚举及对应测试。复用这些接口，不另建权限管理器或发现状态机。不得改动原方案、A 已提交的需求／Slice 合同／Roadmap 或 T4 等级。
 
 ### 1. 保留既有比较语义
 
@@ -39,7 +39,7 @@ Planner / Reviewer: B
 
 1. 复用当前全局互斥、已绑定输出根和相对目录句柄；更新不使用未约束的绝对路径 `rename` 或可覆盖未拥有目标的通用写入。
 2. 在目标同目录创建唯一临时文件，限制原始字节数、UTF-8 和协议长度；完整写入、同步文件、关闭后才进入发布步骤。
-3. 发布前重新确认目标仍是已拥有的普通 STRM；目标变成陌生文件、符号链接、特殊文件或出现不可证明的竞态时保守失败，保留原目标或外部目标。
+3. 按 SW-3 在修改前校验使用对象的已知属主／写权限，发布前重新确认目标为已拥有的普通 STRM。可观测的陌生内容／类型／路径异常保守失败并保留证据；不声称抵御违反单写者前提的任意 syscall 间隙替换。已有检查不因修订而全部删除。
 4. 使用目录句柄上的原子替换操作；任何临时写入、同步、关闭、替换或目录同步失败都返回非零，不登记错误成功轮，不删除旧文件作为补偿。
 5. 成功替换后保留原 ownership 映射；更新不创建 URL／SHA-1／Size 独立版本表，也不改变 source identity 或 epoch 规则。
 6. 临时文件残留只作为可观测恢复事实处理，不在重启时盲目删除未知文件；测试须检查目标内容、ownership、rounds、锁释放和可重试性。
@@ -53,7 +53,7 @@ Planner / Reviewer: B
 
 ### 4. 覆盖崩溃与竞态闭环
 
-1. 增加 Go／CLI 回归：临时写失败、文件同步失败、发布失败、目标在检查后出现或替换、SIGTERM／SIGKILL 发生在替换前后、归属／round 提交窗口中断。
+1. Go／CLI 覆盖临时写失败、文件同步失败、发布失败、SW-3 已知条件拒绝、启动已有不明／类型／路径冲突、SIGTERM／SIGKILL 发生在替换前后、归属／round 提交窗口中断。保留已通过的可观测替换检查；不再把不合作外部写者最终检查后替换作为绝对安全门槛，具体映射见末尾。
 2. 每个故障用例都检查旧 STRM 或新 STRM 的完整性、陌生目标不被覆盖、ownership 与 rounds 不提前伪造、锁可释放、下一轮能安全跳过／重试／保持冲突。
 3. 生产二进制不得包含测试 hook；受控故障只允许使用明确 build tag 的 testhooks 二进制，发布二进制必须完成至少一次真实恢复重启。
 4. 仍使用有界目录队列和 HTTP 响应，不引入全库媒体状态列表、每文件 goroutine 或远程版本锁。
@@ -64,10 +64,11 @@ Planner / Reviewer: B
 - [ ] **AC-2 SHA-1／Size 更新**：有效 SHA-1 不同或 SHA-1 不可比且有效 Size 不同时更新；相同 SHA-1 的 Size 异常跳过并记录；信息不足不误判。
 - [ ] **AC-3 无变化与陌生文件**：URL／SHA-1／Size 无变化时零写；未归属、无效、符号链接和特殊目标不覆盖、不认领、不删除。
 - [ ] **AC-4 原子失败**：临时写入、同步、关闭、替换、目录同步任一失败都不留下半个目标；旧目标、ownership 和完整 round 状态符合恢复规则，重试可继续。
-- [ ] **AC-5 发布竞态**：目标在检查后出现或变成不安全类型时，更新非零且保留外部字节；不写入陌生目标，不产生错误 ownership 或成功 round。
+- [ ] **AC-5 单写者与发布边界**：满足 SW-1..SW-6；可直接验证的属主／组或其他可写条件／属性异常在相应修改前拒绝，退出非零且不推进 round；隔离消费者实际可读但不能写目标／暂存，生成器共享同一锁。保留预先存在和已检测出的不安全对象，不承诺任意绕过边界写者的最终检查后窗口绝对安全。A 实质修订与测试映射见末尾。
 - [ ] **AC-6 中断恢复**：替换前、替换后但 round 提交前、ownership 操作窗口的 SIGTERM／SIGKILL 均有实测；重启按 STRM 和可信 ownership 得到确定的跳过、重试或冲突，不自动认领。
 - [ ] **AC-7 dry-run**：已有归属、需更新、冲突和故障输入的预览均无文件、数据库、sidecar、目录和 round 副作用，且退出码／摘要准确。
 - [ ] **AC-8 交付事实**：Go 回归、Python 回归、race、双架构交叉构建、发布二进制恢复、testhooks 故障场景和 diff check 有匹配原始证据；真实外部联调仍单独标记 NOT RUN。
+- [ ] **AC-9 独立恢复枚举**：同一 prepared root 内多个文件／重复查询／dry-run 与真实重启稳定检出非首个目标残留；目录枚举独立游标、固定批次且不缓存全目录；EOF 与错误区分，错误不推进 round。
 
 ## Required Tests
 
@@ -94,13 +95,13 @@ python3 scripts/run_isolated_sync_integration.py --binary "$TASK12_RUN_DIR/bin/s
 git diff --check
 ```
 
-以上 run-id 是下一次修正候选的示例；每次候选／重跑选新的目录，不覆盖已有证据或二进制。B 仅修正已被占用的输出路径，完整 T4 门槛与原 AC 均不降低。
+以上 run-id 仅为格式示例，已使用过；下一候选可选未占用的 `task-1.2-single-writer-20261018-01`。每次重跑选新目录，不覆盖已有证据或二进制。完整 T4 门槛保留；AC-5 的含义由已提交 A 单写者合同实质修订，不能称作原条件已通过。新权限／恢复覆盖须实际加入 Go／CLI，不以更新文档替代。
 
 `quality.py` 覆盖非 race 的 Go／Python 检查；testhooks 只用于受控故障，不是发布产物。CGO race、arm64 构建和真实 OpenList／插件／Jellyfin 运行分别报告，不互相替代。
 
 ### B 独立验证
 
-独立复现 URL／SHA-1／Size 更新、无变化零写、dry-run，以及 F-10 的检查后清理竞态、F-11 的合法外部 STRM 中断恢复、F-13 的暂存对象替换。核对目标与全部残留文件的身份／字节、ownership、rounds、退出码、锁释放和发布二进制重启；检查 F-12 的逐项原始证据。可复用输入相同的完整 T4 证据，不用重复运行全部相同输入；不得用旧用例通过替代新窗口。
+独立复现 URL／SHA-1／Size 更新、无变化零写、dry-run、SW-3 条件拒绝／只读消费者、F-14 prepared root 多目标扫描，以及静止的既有不明恢复状态至少三次发布重启；核对全部目标／残留、ownership／round、退出码与锁。F-10／F-13 旧最终检查后反例保留为旧合同 FAIL／新合同越界限制证据，不改写 PASS；可观测异常及无外部写者的发布／回滚／清理故障仍核对。F-12 矩阵与完整 T4 保留，改输入后用新候选证据；权限夹具不等于生产权限已生效。
 
 ### 证据要求
 
@@ -111,6 +112,7 @@ git diff --check
 - 不实现 Mirror 删除／移动旧路径清理、连续缺失确认、serve／定时、正式容器发布或性能承诺。
 - 不运行 ffprobe，不下载媒体，不操作 Jellyfin／代理／插件内部接口或其数据库。
 - 不新增媒体版本状态机、远程版本锁、全库对象快照或独立 URL／SHA-1／Size 表。
+- 不实现针对同 UID／root／任意不合作外部写者的文件系统仲裁、按 inode CAS、自动 chmod／chown／ACL／挂载修复或通用原地再认领；不以确认开关代替真实单写者部署。
 - 不把合成 OpenList、交叉编译或 testhooks 证据写成真实 OpenList、插件解析、Jellyfin 播放或 ARM64 实机通过。
 
 ## B Review Result — Task 1.1 PASS (2026-10-18)
@@ -461,3 +463,42 @@ Developer 在同一 Task 按次序处理：
 ### 5. 交接顺序
 
 失败回归 → F-14／F-11 合同内修正 → A 决策及必要合同检查点 → 统一发布／回滚／清理协议 → 聚焦 CLI → 完整 T4 → B 独立复审。全部留在 Task 1.2，可分普通本地提交，不按内部 helper 或测试另拆 Task。设计／治理 PASS 不等于产品 PASS；可执行候选使用新的匹配证据目录。
+
+## B 合同后调整决定（2026-10-18，当前执行清单）
+
+### 判定与准入
+
+- A 已按用户“授权 A 权限，限制外部写者”提交合同 `66facd2ecf02fcd8f296e4026025ab1468a731af`，明确 SW-1..SW-6。B 判定：**Task 1.2 合法调整后继续原地修正**，不是重新规划或产品 PASS。原 Task Base／Slice Base、High／T4 不变；只把 Contract Checkpoint 指向上述已提交修订。新范围仍是同一已拥有更新／失败恢复闭环，不能按权限字段、目录 helper 或测试拆 Task。
+- 本轮未修改产品／测试源码；没有新的 Implementation Head 或产品测试通过结论。最新实现仍是 `d0e2bacfb824b4876c647059e43c2996a9339417`，Task 保持 FIX REQUIRED。A Final Review 仍 PENDING，无 Closure Packet。
+- 先前检查前常规治理 PASS。A 合同尚未提交时治理正确拒绝工作区合同；提交 A 后又正确拒绝旧 Task checkpoint。B 此次更新 checkpoint 后常规治理恢复 PASS，才允许 Developer 按本清单进入 IN PROGRESS；不修改治理程序来绕过这两个边界。相关原始日志见本机 `artifacts/validation-evidence/slice-1-single-writer-contract-20261018-01/`。
+
+### 旧／新合同验收映射（B 显式测试计划调整）
+
+| 发现／用例 | 新合同处理 | 必须保留／补充的覆盖 |
+|---|---|---|
+| F-10：最后证明后，由外部进程换名再 unlink，包括不同存活 inode 的反例 | 任意不合作写者窗口不再是新 AC-5 的绝对安全门槛；保留旧 FAIL 证据，不称已修复／通过 | 可观测不明对象不清理；无外部写者的成功清理、写／sync／close／exchange／remove／目录 sync 失败与回滚完整性；只读消费者无法换名／删暂存 |
+| F-13：最终检查后、真实 exchange 前换入外部 staging | 同属新合同排除的写者；不再强求按 inode CAS | 现有提前 staging 替换被检测、目标类型拒绝等已通过回归继续保留；无外部写者只发布本次完整暂存，失败／取消不留半个目标；消费者无法改写 staging |
+| F-11：已存在的不明目标／残留被恢复操作消费，下一次运行复用旧 ownership | 启动时不明恢复事实保护仍是 AC-3／AC-6，继续 FIX REQUIRED | 初始夹具一次放好 legacy／外部合法 STRM 与残留；后续不再外部写入，至少三次发布重启始终冲突、全部不明字节保留、ownership 不扩张、round 不推进；另测 desired 改变及 dry-run 后真实运行 |
+| F-14：prepared root 共用枚举游标，后续根文件漏检 | 与外部写者无关，继续 FIX REQUIRED／AC-9 | 同根多目标、重复查询、子目录／多 source、非首个文件残留、dry-run／重启、扫描错误与有界内存 |
+| F-12：生成器内部系统调用故障与信号窗口 | 原门槛保留，不因单写者排除 | 普通中断完整恢复、发布二进制重启、锁释放、DB／round 与完整 T4；屏障不等于目录 fsync 的持久化证明 |
+
+F-10／F-13 的旧 B 结论保留在可达审查检查点；overlay 源／驱动与日志仍仅在 ignored evidence 本机保留，不声称已远端交接。记录为旧合同 FAIL／新合同越界限制，不必为了让必跑门槛全绿而新建一个必然失败的普通回归。已提交、已通过的安全检查测试不批量删除。若保留越界复现作为可选诊断，必须独立标注，不计为产品 PASS，也不能用 skip 藏进正式 T4；正常必跑回归继续检验新合同内的行为。
+
+下列现有不明恢复用例允许改“必须无 staging／只有 A.strm”为“保留必要证据、连续三次冲突／外部字节保留／round 不推进”：`TestRecoverRestoresForeignDisplacedContent`、`TestForeignInterruptedUpdateRecoveryConflicts`、`TestValidForeignInterruptedUpdateRecoveryConflicts`，以及 CLI `update_before_verification_foreign`／`update_before_verification_valid_foreign`。可将插入外部内容的阶段明确为 legacy 初始状态准备；后续重启不再写入。不能把这些未知初始状态也宣布为越界后删除测试。普通 `TestInterruptedUpdateRecoveryRedoesUpdate`／更新 SIGKILL 重试、未归属目标、dry-run、符号链接／FIFO 与回滚失败等原要求继续保留。
+
+### Developer 按顺序实施（不另开 Task）
+
+1. **记录基线并固定应修失败。** 运行常规治理；记录本修订 Task checkpoint 和实际开发起点。先加入 F-14 prepared root 重复／多目标回归及 F-11 静止不明状态三次重启回归，保存当前失败。新权限测试区分“程序拒绝危险输入”和“消费者 OS 写操作被拒绝”，不能混成一个 mock 断言。
+2. **复用句柄增加单写者已知条件校验。** 在 securepath 提供小型、可复用的句柄／FileInfo 属性检查：实际运行 UID 属主、group／other 不可写、预期对象类型；缺失属性或检查错误不默认安全。返回脱敏错误类别，不提供 chmod／chown、ACL 修复、确认配置开关或独立权限状态表。不把 OS UID 检查当 ownership。
+3. **接入实际修改入口，不只 main 调一次。** PrepareRoots／openRoot／openParent 在修改相应根或目标前检查将使用的目录；Update 在创建 staging 前检查已拥有普通目标，暂存创建后检查其属性，Recover 在任何 exchange／remove 前检查已存在相关对象。不明归属先保留，不为检查写入探测文件。覆盖直接 LocalFS 调用及 CLI 的已绑定路径；缺失根／DB 的 dry-run 检查最近既有安全父目录但不创建，真实创建逐层检查新对象。其他文件已成功写入不回滚，不合规 source 不提交完整 round。
+4. **状态与锁也守住已知条件。** storage.Open 在新建 DB／SQL schema 或 sidecar 写入前检查父目录与已有 DB／相关 sidecar 的类型／属主／写权限，OpenReadOnly 在 WAL 私有快照前检查其既有写入父目录。复用当前安全路径／snapshot 流程，不改 SQLite schema 或 dry-run 零写定义。lock.go 已检查目录属主和组／其他可写，补齐已有锁文件的同类条件及回归；锁文件不删除，所有 CLI 仍用原固定共享命名空间，不新增任意锁路径覆盖。
+5. **修正 F-14。** 保留先前第 2 节方案：从绑定目录相对 openat 点目录取得独立 open file description；每批例如 128 名称，最多保留两个匹配，完整 EOF 后才判 0／1；错误／达到限额保守失败，关闭自己 fd。不 Seek 共享 fd，不绝对路径重开，不 Readdirnames(-1)，不预加载全目录；同根／子目录／多 source 都用真实装配测试。
+6. **修正 F-11 与恢复说明。** 不明归属分支在任何修改前返回 ErrStagingPresent，保留跨进程见证；逐项检查 target==desired／staging==desired／provenOld，内容相同／名字哈希不能单独授权消费未知残留。普通可信来源中断按 SW-1..SW-4 恢复，并保留回滚、目录 sync 及重试证据；修改注释中“哈希／检查绑定对象，外部对象永不被删除”的无条件承诺。若既有可识别不明状态与正常恢复仍不可区分，提交最小状态对给 A，不用新表或把所有恢复永久冲突来绕过。
+7. **落实隔离权限证据与用户说明。** 在仓库 artifacts 专用夹具用不同消费者 UID／有效只读访问证明：读合法 STRM 成功，创建目标、原地改写、unlink、rename／覆盖、替换暂存均被 OS 拒绝。说明旧已开可写 fd、硬链接及可写别名不得绕过部署边界；这不是全系统扫描要求，也不声称 chmod 能撤销旧可写 fd。只操作夹具，不修改宿主账户、生产权限、挂载或服务。程序拒绝用例覆盖 root／target parent／已拥有文件／DB parent／DB／已有 sidecar／lock 的错误 UID 与 group／other 可写，属性读取失败、深层父目录和 dry-run 缺失根；每项看文件、DB／sidecar、round 与退出码，不能只看日志。
+8. **形成候选再完整验证。** 聚焦五包与新 CLI 场景按顺序运行；权限子进程失败必须记录，不以 root 可写的 Access 检查替代不同消费者验证。环境不具备身份切换／只读证据时标 NOT RUN／BLOCKED，不自定放行。全部应修失败闭环后执行原完整 T4；报告真实 Head、新 run-id、命令／退出码／全部状态、首次失败、旧新合同映射及剩余外部联调，再交 READY FOR B REVIEW。Developer 不签 B PASS 或 A Final PASS。
+
+### 文档与验收边界
+
+本修订带来的是一个受约束写者环境下可交付的更新闭环，不是产品已防住不合作进程。启动检查只能拒绝已知不合规属性，不能宣称审计过所有 ACL／挂载／同 UID 进程。README／架构 CURRENT 要明确哪些检查已实现、哪些部署义务需管理员落实；不保留已失效的无条件安全宣称。新权限／部署夹具也不替代真实 OpenList／无签名 /d/、固定插件解析、Jellyfin／代理或 ARM64 实机证据。
+
+Task 继续 FIX REQUIRED，所有 AC 均须在新候选上重新核对；F-10／F-13 的旧绝对保证不再适用，但权限前提落实、F-11／F-14、普通故障恢复与各 RO 仍未完成。Slice 1 保持 ACTIVE，不新建 Task 或 Closure Packet，不宣布 Slice 关闭。

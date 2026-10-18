@@ -2,6 +2,8 @@
 
 ## 当前状态（2026-10-18）
 
+- A 合同检查点为 `66facd2ecf02fcd8f296e4026025ab1468a731af`；B 随后判 Task 1.2 合法调整、继续原地修正，已同步活动 Task checkpoint／Scope／AC／旧新测试映射与逐步实施清单。Task Base、High／T4 和 FIX REQUIRED 不变，无产品改动或新 PASS。单写者合同提交后旧 Task checkpoint 曾被治理正确拒绝，B 更新后常规治理恢复 PASS；原方案 SHA-256 未变，Python 工具回归 48 项通过，产品新合同权限／恢复验证 NOT RUN。实现者下一步按 TASK 进入修正；不修改生产权限或服务。
+
 - 用户授权本会话行使 A 权限并限制外部写者：已批准需求 SW-1..SW-6 单写者部署合同，生成器独占输出／暂存／状态写入，消费者只读，生成器共享同一锁资源；范围贯穿轮次间与恢复。不承诺抵御同 UID／root 或任意不合作写者，不追认历史失败为 PASS。原方案、Slice Base／ACTIVE、SQLite 边界不变；本轮仅协调合同与文档，不修改生产权限或产品实现。A 合同提交后由 B 合法调整 Task 1.2 及具体测试映射，状态仍 FIX REQUIRED；已知权限条件、F-14、未知恢复事实跨重启保护与完整 T4 尚待实施验证。以下 B 记录是旧合同下的历史事实，失败证据保留。
 
 - 最新 B 独立复审（报告检查点 `e474e64`，候选 `d0e2bacfb824b4876c647059e43c2996a9339417`）：Task 1.2 继续 **FIX REQUIRED**，不新建 Task。原双替换／提前暂存替换／首次合法外部恢复通过；F-10 检查后按名清理仍删除不同存活 inode 的外部对象，F-11 第二次发布重启覆盖外部 STRM，F-13 最后证明后的替换仍误发布，新增 F-14 为根目录 dup 共享游标漏检后续文件残留并错误提交 round。聚焦五包、amd64 发布／testhooks 构建、三个既有 CLI 场景顺序执行通过；新反例失败证据在 `artifacts/validation-evidence/task-1.2-b-rereview-20261018-02/`。核对并复用 Developer T4：Python 48、race 163 测试／8 包、隔离 9/9、双架构；B 本轮未重跑完整 quality／race／arm64。详细技术修复清单见 TASK.md；Slice ACTIVE、无 Closure Packet，合同／Roadmap／需求不变。以下较早状态保留为历史。
