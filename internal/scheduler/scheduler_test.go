@@ -321,9 +321,12 @@ func TestCancelledBetweenTicksDoesNotStartRound(t *testing.T) {
 
 func TestFirstFlagMarksOnlyImmediateRound(t *testing.T) {
 	clock := newFakeClock()
+	var mu sync.Mutex
 	var flags []bool
 	round := func(_ context.Context, first bool) Result {
+		mu.Lock()
 		flags = append(flags, first)
+		mu.Unlock()
 		return Result{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -334,7 +337,10 @@ func TestFirstFlagMarksOnlyImmediateRound(t *testing.T) {
 	clock.advance(time.Minute)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if len(flags) >= 2 {
+		mu.Lock()
+		n := len(flags)
+		mu.Unlock()
+		if n >= 2 {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -344,8 +350,11 @@ func TestFirstFlagMarksOnlyImmediateRound(t *testing.T) {
 	}
 	cancel()
 	<-done
-	if !flags[0] || flags[1] {
-		t.Fatalf("first flags = %v, want [true false]", flags)
+	mu.Lock()
+	got := append([]bool(nil), flags...)
+	mu.Unlock()
+	if !got[0] || got[1] {
+		t.Fatalf("first flags = %v, want [true false]", got)
 	}
 }
 
