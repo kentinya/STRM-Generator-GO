@@ -2,6 +2,8 @@
 
 ## 当前状态（2026-10-18）
 
+- 用户授权本会话行使 A 权限并限制外部写者：已批准需求 SW-1..SW-6 单写者部署合同，生成器独占输出／暂存／状态写入，消费者只读，生成器共享同一锁资源；范围贯穿轮次间与恢复。不承诺抵御同 UID／root 或任意不合作写者，不追认历史失败为 PASS。原方案、Slice Base／ACTIVE、SQLite 边界不变；本轮仅协调合同与文档，不修改生产权限或产品实现。A 合同提交后由 B 合法调整 Task 1.2 及具体测试映射，状态仍 FIX REQUIRED；已知权限条件、F-14、未知恢复事实跨重启保护与完整 T4 尚待实施验证。以下 B 记录是旧合同下的历史事实，失败证据保留。
+
 - 最新 B 独立复审（报告检查点 `e474e64`，候选 `d0e2bacfb824b4876c647059e43c2996a9339417`）：Task 1.2 继续 **FIX REQUIRED**，不新建 Task。原双替换／提前暂存替换／首次合法外部恢复通过；F-10 检查后按名清理仍删除不同存活 inode 的外部对象，F-11 第二次发布重启覆盖外部 STRM，F-13 最后证明后的替换仍误发布，新增 F-14 为根目录 dup 共享游标漏检后续文件残留并错误提交 round。聚焦五包、amd64 发布／testhooks 构建、三个既有 CLI 场景顺序执行通过；新反例失败证据在 `artifacts/validation-evidence/task-1.2-b-rereview-20261018-02/`。核对并复用 Developer T4：Python 48、race 163 测试／8 包、隔离 9/9、双架构；B 本轮未重跑完整 quality／race／arm64。详细技术修复清单见 TASK.md；Slice ACTIVE、无 Closure Packet，合同／Roadmap／需求不变。以下较早状态保留为历史。
 - Slice 1 仍为 ACTIVE，Base 为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`；没有 Slice PASS 或 Closure Packet。
 - Task 1.1 经 B 独立复审 PASS；Task 1.2「已拥有 STRM 内容更新与原子恢复」修正候选 `f4383f2f59adedadc9252e465c64580570a3bbcf` 经本次独立 B 复审仍为 **FIX REQUIRED**。F-10 检查后按名清理仍会删除外部对象；F-11 恢复出的合法外部 STRM 被再次覆盖并提交 round；新增 F-13 暂存对象替换可导致误发布或失败清理误删。Task Base、合同与 T4 不变，继续原地修正。
