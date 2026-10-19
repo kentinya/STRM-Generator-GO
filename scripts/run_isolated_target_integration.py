@@ -71,11 +71,46 @@ _SECRET_RE = re.compile(r"(?i)\b(token|password|cookie|authorization|secret|acce
 REUSE_REASONS = {"FirstTrust", "Unchanged", "Sha1Matches"}
 PROBE_REQUIRED_REASONS = {"UrlChanged", "Sha1Changed", "SizeChanged", "MissingPrimaryStream", "NativeUrlMismatch"}
 
+# Every secret this process has seen, including ones derived at run time (the Jellyfin
+# token issued by ``AuthenticateByName``). A serialization or exception boundary must
+# scrub all of them: a credential with quotes or backslashes is escaped by JSON, so
+# comparing only the raw value lets the escaped form reach a file.
+_REGISTERED_SECRETS: list[str] = []
+
+
+def register_secret(value: str | None) -> None:
+    """Track a secret value (raw or derived) that must never be written or printed."""
+    if not value or len(value) < 4 or value in _REGISTERED_SECRETS:
+        return
+    _REGISTERED_SECRETS.append(value)
+
+
+def _secret_forms(value: str) -> tuple[str, ...]:
+    """Serialized shapes a value can take in evidence, text or a nested message."""
+    forms = {value}
+    escaped = json.dumps(value)[1:-1]
+    forms.update({escaped, repr(value)[1:-1], value.encode("unicode_escape").decode("ascii", "ignore")})
+    return tuple(form for form in forms if len(form) >= 4)
+
 
 def redact(text: str) -> str:
     """Remove URLs (which may carry signatures) and key=value secrets from a line."""
     text = _URL_RE.sub("<url>", str(text))
     return _SECRET_RE.sub(lambda m: m.group(1) + "=<redacted>", text)
+
+
+def scrub(text: str) -> str:
+    """Redact URLs/secret pairs and remove every registered secret in any serialized form.
+
+    Used on every boundary that can carry a value outside the evidence recorder: child
+    stdout/stderr, driver JSON ``error`` fields, exception messages and the top-level
+    ``FAIL`` line. Raw or JSON-escaped forms are both removed.
+    """
+    text = redact(text)
+    for value in _REGISTERED_SECRETS:
+        for form in _secret_forms(value):
+            text = text.replace(form, "<secret>")
+    return text
 
 
 def normalize_item_id(value: str) -> str:
@@ -98,7 +133,10 @@ def digest_tree(root: Path) -> str:
 
 
 class Failure(AssertionError):
-    pass
+    """Scenario failure whose text is always safe to print, including a nested child error."""
+
+    def __str__(self) -> str:  # noqa: D105 - the message is scrubbed on the way out
+        return scrub(super().__str__())
 
 
 def require(condition: bool, message: str) -> None:
@@ -107,13 +145,16 @@ def require(condition: bool, message: str) -> None:
 
 
 def secret_values(env: dict[str, str]) -> list[str]:
-    """Non-empty secret values that must never appear in evidence."""
-    return [env[key] for key in SECRET_ENV_KEYS if env.get(key)]
+    """Non-empty secret values (process environment and run-time derived) to scrub."""
+    values = [env[key] for key in SECRET_ENV_KEYS if env.get(key)]
+    values.extend(value for value in _REGISTERED_SECRETS if value not in values)
+    return values
 
 
 def assert_secret_free(payload: str, env: dict[str, str]) -> None:
+    """Refuse to write evidence containing a credential in any serialized form."""
     for value in secret_values(env):
-        if len(value) >= 4 and value in payload:
+        if any(form in payload for form in _secret_forms(value)):
             raise Failure("evidence would contain a process credential; refusing to write it")
 
 
@@ -144,6 +185,7 @@ def resolve_credentials(env: dict[str, str], *, require_playback: bool) -> Crede
     admin_user = env.get("JF_USER", "")
     admin_password = env.get("JF_PASSWORD", "")
     if admin_token:
+        register_secret(admin_token)
         authorization = f'{identifier}, Token="{admin_token}"'
     else:
         require(bool(admin_user) and bool(admin_password),
@@ -169,6 +211,9 @@ def authenticate_jellyfin(base_url: str, user: str, password: str, identifier: s
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.loads(response.read())
     require(bool(payload.get("AccessToken")), "Jellyfin authentication returned no token")
+    # The issued token is a run-time derived credential: register it so it is scrubbed
+    # from every later boundary even though it never appears in the process environment.
+    register_secret(payload["AccessToken"])
     return f'{identifier}, Token="{payload["AccessToken"]}"'
 
 
@@ -280,6 +325,19 @@ class Recorder:
         payload = json.dumps({"records": self.records}, indent=1, ensure_ascii=False)
         assert_secret_free(payload, self.secret_map)
         (self.output / "summary.json").write_text(payload, encoding="utf-8")
+
+    def failure(self, error: BaseException, **fields) -> None:
+        """Record the failing scenario. The field is scrubbed before the secrecy check."""
+        category = type(error).__name__
+        message = scrub(str(error))[:500]
+        try:
+            self.record("run_failure", category=category, message=message, **fields)
+        except Failure:
+            # The refusal path itself must still leave a truthful marker, never a value.
+            (self.output / "run_failure.json").write_text(
+                json.dumps({"scenario": "run_failure", "category": category,
+                            "message": "<withheld: would contain a credential>"}, indent=1),
+                encoding="utf-8")
 
 
 class DecisionLog:
@@ -417,12 +475,29 @@ def jellyfin_playback(jellyfin_url: str, driver: Path, playwright_root: str,
     env = dict(os.environ)
     env["STRM_CONFIG_PLAYWRIGHT_ROOT"] = playwright_root
     env["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
-    result = subprocess.run(
-        ["node", str(driver), "/dev/stdin"],
-        input=json.dumps(scenario, ensure_ascii=False),
-        capture_output=True, text=True, timeout=300, env=env,
-    )
-    return json.loads(result.stdout) if result.stdout.strip() else {"error": redact(result.stderr[-300:])}
+    try:
+        result = subprocess.run(
+            ["node", str(driver), "/dev/stdin"],
+            input=json.dumps(scenario, ensure_ascii=False),
+            capture_output=True, text=True, timeout=300, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        raise Failure("native playback driver timed out after 300s; no playback evidence") from None
+    except OSError as error:
+        raise Failure(f"native playback driver could not start ({type(error).__name__})") from None
+    if not result.stdout.strip():
+        raise Failure(f"native playback driver exited {result.returncode} without JSON output; "
+                      "a non-zero exit or an empty payload is not playback evidence")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise Failure("native playback driver returned non-JSON output") from None
+    if not isinstance(payload, dict):
+        raise Failure("native playback driver returned an unexpected payload shape")
+    if payload.get("error"):
+        # A driver error is a structured value: scrub it here so no boundary raises it raw.
+        return {"error": scrub(str(payload["error"]))[:300]}
+    return payload
 
 
 def library_items(target: Target, library_id: str) -> dict[str, dict]:
@@ -484,8 +559,13 @@ def playback_item(target: Target, driver: Path, playwright_root: str, browsers_p
 def scenario_native_playback(recorder: Recorder, target: Target, library_id: str,
                              driver: Path, playwright_root: str, browsers_path: str,
                              jellyfin_url: str, credentials: Credentials, names: list[str],
-                             log: DecisionLog) -> None:
-    """RO-4: scan the library and actually play the synthetic media natively."""
+                             log: DecisionLog) -> dict[str, str]:
+    """RO-4: scan the library and actually play the synthetic media natively.
+
+    Returns the mount-relative STRM name -> Jellyfin item id map that this run actually
+    scanned and played, so later decision rows can be linked to real items instead of any
+    item that happens to appear in the log.
+    """
     scan = refresh_library(target)
     mapping = library_items(target, library_id)
     wanted = [name[:-4] for name in names]
@@ -504,6 +584,7 @@ def scenario_native_playback(recorder: Recorder, target: Target, library_id: str
         decisions.append(log.require_reuse(mark, item["Id"]))
     recorder.record("ro4_native_playback", scan=scan, library_items=len(mapping),
                     played=played, plugin_decisions=decisions)
+    return {name: mapping[name]["Id"] for name in wanted}
 
 
 def rclone_env(env: dict[str, str]) -> dict[str, str]:
@@ -543,7 +624,7 @@ def rclone_copyto(env: dict[str, str], source: Path, key: str) -> None:
     result = subprocess.run(
         ["rclone", "copyto", str(source), f"{remote}:{bucket}/{key}"],
         env=rclone_env(env), capture_output=True, text=True, timeout=180)
-    require(result.returncode == 0, f"rclone copyto failed: {redact(result.stderr[-200:])}")
+    require(result.returncode == 0, f"rclone copyto failed: {scrub(result.stderr[-200:])}")
 
 
 def rclone_move(env: dict[str, str], source_key: str, dest_key: str) -> None:
@@ -552,7 +633,7 @@ def rclone_move(env: dict[str, str], source_key: str, dest_key: str) -> None:
     result = subprocess.run(
         ["rclone", "moveto", f"{remote}:{bucket}/{source_key}", f"{remote}:{bucket}/{dest_key}"],
         env=rclone_env(env), capture_output=True, text=True, timeout=180)
-    require(result.returncode == 0, f"rclone moveto failed: {redact(result.stderr[-200:])}")
+    require(result.returncode == 0, f"rclone moveto failed: {scrub(result.stderr[-200:])}")
 
 
 def scenario_url_change(recorder: Recorder, target: Target, binary: Path, config: Path,
@@ -564,7 +645,9 @@ def scenario_url_change(recorder: Recorder, target: Target, binary: Path, config
 
     The public URL is changed by rewriting the STRM through the generator config (a new
     ``public_url``), which is a legitimate label-preserving change: the URL changes while the
-    object identity and size stay the same.
+    object identity and size stay the same. This row is user-deferred, so it is not part of the
+    current gate; when it does run, a probe start is reported as an observation and no accepted/
+    rejected verdict is inferred from it.
     """
     original = config.read_text(encoding="utf-8")
     before = log.mark()
@@ -593,11 +676,20 @@ def scenario_url_change(recorder: Recorder, target: Target, binary: Path, config
         recorder.record("ro3_url_change", advanced=bool(outcome.get("advanced")),
                         accepted=accepted,
                         blocked=(not accepted),
-                        note="" if accepted else "URL change forced a native probe but the plugin did not accept the result (HTTP 500). Hand to A/B; not a generator defect.",
+                        note="" if accepted else "URL change forced a native probe; whether the "
+                                                 "plugin accepted the probe result is not "
+                                                 "classified by this runner",
                         decisions=[entry["line"] for entry in delta[-3:]])
     finally:
+        # Restore the shared config even when the scenario failed, without hiding the failure.
         config.write_text(original, encoding="utf-8")
-        run_cli(binary, config, token, cwd)
+        try:
+            run_cli(binary, config, token, cwd)
+        except OSError as error:
+            recorder.record("ro3_url_change_restore_failure", failed=True,
+                            detail=[f"sync: {type(error).__name__}"],
+                            note="config was rewritten back but the fixture sync could not run; "
+                                 "the fixture is NOT confirmed restored")
 
 
 def scenario_size_change(recorder: Recorder, target: Target, binary: Path, config: Path,
@@ -611,12 +703,13 @@ def scenario_size_change(recorder: Recorder, target: Target, binary: Path, confi
     The S3 driver exposes no hash, so the plugin must fall back to the effective Size. The
     synthetic object at the same key is replaced with a longer payload (local + remote), the
     generator rewrites the STRM size, and the next playback must trigger a fresh native probe.
+
+    The local media file and the remote object are restored in ``finally`` even when the scenario
+    fails, and a failed restore is reported instead of being swallowed.
     """
     source = media_dir / item_name
     original = source.read_bytes()
     before = log.mark()
-    bucket = env.get("RUSTFS_BUCKET", "slice4-media")
-    remote = env.get("RCLONE_REMOTE", "slice4")
 
     def upload() -> None:
         rclone_copyto(env, source, object_key(env, remote_root, item_name))
@@ -641,23 +734,42 @@ def scenario_size_change(recorder: Recorder, target: Target, binary: Path, confi
         recorder.record("ro3_size_change", advanced=bool(outcome.get("advanced")),
                         accepted=accepted,
                         blocked=(not accepted),
-                        note="" if accepted else "Size change forced a native probe but the plugin did not accept the result (HTTP 500). Hand to A/B; not a generator defect.",
+                        note="" if accepted else "Size change forced a native probe; whether the "
+                                                 "plugin accepted the probe result is not "
+                                                 "classified by this runner",
                         decisions=[entry["line"] for entry in delta[-3:]])
     finally:
+        # Restore the local synthetic source and the remote object whatever happened, and never
+        # let a restore problem be reported as if the scenario had merely failed on its own.
         source.write_bytes(original)
-        upload()
-        run_cli(binary, config, token, cwd)
+        restore_failures = []
+        try:
+            upload()
+        except Failure as error:
+            restore_failures.append(f"remote: {scrub(str(error))[:160]}")
+        try:
+            run_cli(binary, config, token, cwd)
+        except OSError as error:
+            restore_failures.append(f"sync: {type(error).__name__}")
+        if restore_failures:
+            recorder.record("ro3_size_change_restore_failure",
+                            failed=True, detail=restore_failures,
+                            note="fixture restoration failed after the size-change scenario; "
+                                 "the fixture is NOT restored and must be checked or rebuilt")
+            raise Failure("size-change fixture restore failed: " + "; ".join(restore_failures))
 
 
-def scenario_decision_rows(recorder: Recorder, log: DecisionLog, names: list[str], mark: int,
-                           hash_probe: dict) -> None:
-    """RO-3: assert the non-deferred decision rows with a bounded, input-linked window.
+def scenario_decision_rows(recorder: Recorder, log: DecisionLog, expected_items: dict[str, str],
+                           mark: int, hash_probe: dict) -> None:
+    """RO-3: assert the non-deferred decision rows against the items this run actually produced.
 
-    Every row is classified against evidence that exists now: the window of plugin log lines
-    written after ``mark`` (this run) and the actual STRM markers read from disk. A row whose
-    input cannot be produced by the target is recorded as BLOCKED with the concrete reason;
-    nothing is synthesized.
+    ``expected_items`` maps each expected mount-relative STRM name to the Jellyfin item id that
+    the library reported for it in this run. A row may only be classified from a window entry
+    that names *that* item: an unrelated item, a rotated log, or a decision recorded for some
+    other playback can never satisfy the stable row. A row whose input cannot be produced by the
+    target is recorded as BLOCKED with the concrete reason; nothing is synthesized.
     """
+    require(bool(expected_items), "no expected item was identified, so no decision row can be linked")
     window = log.since(mark)
     decisions = [entry for entry in window if entry["kind"] == "decision"]
     probes = [entry for entry in window if entry["kind"] == "probe"]
@@ -667,20 +779,30 @@ def scenario_decision_rows(recorder: Recorder, log: DecisionLog, names: list[str
     reasons = {entry["reason"] for entry in decisions}
     require(all(reason in REUSE_REASONS | PROBE_REQUIRED_REASONS for reason in reasons),
             f"unexpected plugin decision reasons: {sorted(reasons)}")
-    require(bool(reasons & REUSE_REASONS),
-            f"no reuse decision (one of {sorted(REUSE_REASONS)}) in the run window: {sorted(reasons)}")
-    played_items = {entry["item"] for entry in decisions}
-    require(len(played_items) >= len(names),
-            f"decisions covered {len(played_items)} item(s) in this window, expected at least {len(names)}")
+
+    linked: list[dict] = []
+    missing: list[str] = []
+    for name, item_id in sorted(expected_items.items()):
+        matches = [entry for entry in decisions if entry["item"] == normalize_item_id(item_id)]
+        reuse = sorted({entry["reason"] for entry in matches} & REUSE_REASONS)
+        if not reuse:
+            missing.append(name)
+            continue
+        linked.append({"name": name, "item": normalize_item_id(item_id), "reuse": reuse})
+    require(not missing,
+            f"the stable-URL row has no reuse decision for the expected item(s) {missing}; "
+            f"decisions in this window covered {sorted({entry['item'] for entry in decisions})}")
 
     rows = [
         {"row": "stable_url_same_fingerprint", "status": "PASS",
-         "observed": sorted(reasons & REUSE_REASONS),
-         "evidence": "plugin reuse decisions for the played items in this run window"},
+         "observed": linked,
+         "evidence": "plugin reuse decision per expected item, each linked to the item id this "
+                     "run scanned and played, inside the run's log window"},
         {"row": "url_changed", "status": "DEFERRED",
-         "observed": "native probe started, result not accepted (HTTP 500)",
-         "evidence": "ro3_url_change.json retains the original BLOCKED observation; "
-                     "user 2026-10-19 decision keeps this row non-blocking and it was not rerun"},
+         "observed": "not rerun this round (user 2026-10-19 decision); the retained original "
+                     "observation is a native probe start whose result the plugin did not accept",
+         "evidence": "artifacts/validation-evidence/task-4.1-fix2-20261019-215918/ retains the "
+                     "original BLOCKED observation; no cause was re-verified this round"},
         {"row": "same_url_same_sha1_size_changed", "status": "BLOCKED",
          "observed": hash_probe["observation"],
          "evidence": "the target driver reports no SHA-1 metadata, so the same-URL/same-SHA-1 "
@@ -690,14 +812,15 @@ def scenario_decision_rows(recorder: Recorder, log: DecisionLog, names: list[str
          "observed": hash_probe["observation"],
          "evidence": "same reason: no target SHA-1, no legitimate Sha1Changed input"},
         {"row": "hash_incomparable_effective_size_changed", "status": "DEFERRED",
-         "observed": "native probe started, result not accepted (HTTP 500)",
-         "evidence": "ro3_size_change.json retains the original BLOCKED observation; "
-                     "user 2026-10-19 decision keeps this row non-blocking and it was not rerun"},
+         "observed": "not rerun this round (user 2026-10-19 decision); the retained original "
+                     "observation is a native probe start whose result the plugin did not accept",
+         "evidence": "artifacts/validation-evidence/task-4.1-fix2-20261019-215918/ retains the "
+                     "original BLOCKED observation; no cause was re-verified this round"},
     ]
     recorder.record("ro3_decision_rows", window_entries=len(window),
                     decisions=len(decisions), probes=len(probes),
-                    reasons=sorted(reasons), items=len(played_items), rows=rows,
-                    hash_input=hash_probe)
+                    reasons=sorted(reasons), expected_items=len(expected_items),
+                    linked_items=len(linked), rows=rows, hash_input=hash_probe)
 
 
 def scenario_hash_input(recorder: Recorder, target: Target, remote_root: str, strm_dir: Path,
@@ -734,7 +857,13 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
                   credentials: Credentials, log: DecisionLog, item_name: str,
                   remote_root: str, env: dict[str, str], download_base: str,
                   media_dir: Path) -> None:
-    """RO-5/AC-6: remote path move, then generator, scan, playback and cleanup closure."""
+    """RO-5/AC-6: remote path move, then generator, scan, playback and cleanup closure.
+
+    The scenario tracks which mutating steps it has completed. If anything after the remote
+    move fails, the object is moved back so the fixture is left in its pre-scenario location;
+    the failure marker records the step, whether the object was restored, and whether the
+    restore itself failed. A failed restore is never hidden behind the original error.
+    """
     original = config.read_text(encoding="utf-8")
     source_key = object_key(env, remote_root, item_name)
     moved_dir = "Moved"
@@ -743,9 +872,14 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
     before_tree = digest_tree(strm_dir)
     before_original = read_strm(strm_dir / (item_name[:-4] + ".strm"))
     rounds: list[str] = []
+    step = "start"
+    object_moved = False
     try:
         # 1. Move the object inside the target mount and synchronize.
+        step = "remote move"
         rclone_move(env, source_key, moved_key)
+        object_moved = True
+        step = "move sync"
         code, stdout, _ = run_cli(binary, config, token, cwd)
         require(code == 0, f"move sync exit {code}")
         rounds.append(redact(stdout.strip().splitlines()[-1] if stdout.strip() else ""))
@@ -765,16 +899,17 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
         require(body == (media_dir / item_name).read_bytes(),
                 "moved /d/ bytes differ from the synthetic source")
         # 2. Jellyfin scan must load the moved STRM and native playback must work.
+        step = "moved scan"
         scan = refresh_library(target)
         mapping = library_items(target, library_id)
         require(moved_rel in mapping, "Jellyfin did not load the moved STRM")
         moved_item = mapping[moved_rel]
         # A moved path is a new Jellyfin identity, so its first playback needs a real native
-        # probe. Report that observation honestly: if the pinned plugin rejects its own probe
-        # result, the row is BLOCKED for the same external reason as the deferred change rows,
-        # and the generator/scan/cleanup closure below is still verified.
+        # probe. Report only what the log and the playback result actually show: a probe start
+        # alone does not prove the plugin rejected its own result, so no cause is asserted here.
+        step = "moved first playback"
         mark = log.mark()
-        moved_playback = {"status": "NOT RUN"}
+        moved_playback: dict = {"status": "NOT RUN"}
         try:
             first = playback_item(target, driver, playwright_root, browsers_path, jellyfin_url,
                                   credentials, moved_item)
@@ -784,24 +919,28 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
                               "decision": log.require_reuse(mark, moved_item["Id"])}
         except Failure as error:
             window = log.since(mark)
-            rejected = any("not accepted" in line for entry in window for line in [entry["line"]])
-            require(any(entry["kind"] == "probe" for entry in window) or rejected,
-                    f"moved-item playback failed without an observable native probe: {error}")
+            probe_started = any(entry["kind"] == "probe" for entry in window)
+            require(probe_started or bool(window),
+                    f"moved-item playback failed without any observable plugin activity: {error}")
+            # Report the observations, not an inferred cause: whether the plugin rejected the
+            # probe result is not visible here, so it stays unclassified for B/A to judge.
             moved_playback = {"status": "BLOCKED",
-                              "observed": "native probe started, probe result rejected (HTTP 500)",
-                              "reason": redact(str(error))[:200],
-                              "note": "the moved path is a new Jellyfin identity, so its first "
-                                      "playback requires a real probe; the pinned plugin rejects "
-                                      "its own probe result, the same external cause recorded for "
-                                      "the deferred URL/Size rows; handed to A, not a generator defect"}
+                              "observed": {"playback_error": scrub(str(error))[:200],
+                                           "probe_started": probe_started,
+                                           "window_entries": len(window)},
+                              "cause": "NOT DETERMINED: a probe start is not evidence that the "
+                                       "probe result was rejected; the row is handed to A/B "
+                                       "unclassified rather than attributed to an external cause"}
         second_decision = None
         if moved_playback["status"] == "PASS":
+            step = "moved second playback"
             mark = log.mark()
             second = playback_item(target, driver, playwright_root, browsers_path, jellyfin_url,
                                    credentials, moved_item)
             second_decision = log.require_reuse(mark, moved_item["Id"], {"Unchanged"})
 
         # 3. Mirror cleanup must retire the stale STRM after the configured confirmations.
+        step = "mirror cleanup"
         original_text = config.read_text(encoding="utf-8")
         cleaned = original_text.replace("enabled: false", "enabled: true", 1)
         require(cleaned != original_text, "cleanup anchor not found for the move scenario")
@@ -819,7 +958,10 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
         require(moved_strm_path.is_file(), "mirror cleanup deleted the moved STRM")
 
         # 4. Restore the object; the generator must recreate the original and retire the move.
+        step = "remote restore"
         rclone_move(env, moved_key, source_key)
+        object_moved = False
+        step = "restore sync"
         for _ in range(6):
             code, stdout, _ = run_cli(binary, config, token, cwd)
             require(code == 0, f"restore sync exit {code}")
@@ -832,11 +974,13 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
         restored = read_strm(strm_dir / (item_name[:-4] + ".strm"))
         require(restored["url"] == before_original["url"], "restored STRM URL differs from the original")
         require(digest_tree(strm_dir) == before_tree, "restored STRM tree differs from the pre-move tree")
+        step = "restored scan"
         scan = refresh_library(target)
         mapping = library_items(target, library_id)
         require(item_name[:-4] in mapping, "restored item is missing from the library")
+        step = "restored replay"
         mark = log.mark()
-        replay = {"status": "NOT RUN"}
+        replay: dict = {"status": "NOT RUN"}
         try:
             outcome = playback_item(target, driver, playwright_root, browsers_path, jellyfin_url,
                                     credentials, mapping[item_name[:-4]])
@@ -845,19 +989,62 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
             replay["decision"] = log.require_reuse(mark, mapping[item_name[:-4]]["Id"])
         except Failure as error:
             window = log.since(mark)
-            require(any(entry["kind"] == "probe" for entry in window) or bool(window),
+            require(bool(window),
                     f"restored-item playback failed without observable plugin activity: {error}")
-            replay = {"status": "BLOCKED", "reason": redact(str(error))[:200],
-                      "observed": "plugin activity present; playback did not advance"}
+            replay = {"status": "BLOCKED",
+                      "observed": {"playback_error": scrub(str(error))[:200],
+                                   "window_entries": len(window)},
+                      "cause": "NOT DETERMINED"}
         recorder.record("ro5_move_closure", moved_rel=moved_rel, scan=scan,
                         stale_cleanup_rounds=rounds_used, rounds=rounds,
                         moved_playback=moved_playback,
                         second_decision=second_decision,
                         restored_tree_sha256=digest_tree(strm_dir),
                         replay=replay)
+    except Failure as error:
+        # Stop at the failing step, put the fixture back the way it started, and record the
+        # truth: which step failed, whether the remote object was restored, and whether the
+        # configuration was written back and re-synchronised. Nothing here is inferred.
+        recovery = {"attempted": False, "object_restored": not object_moved,
+                    "config_written": False, "config_synced": None, "error": ""}
+        if object_moved:
+            recovery["attempted"] = True
+            try:
+                rclone_move(env, moved_key, source_key)
+                recovery["object_restored"] = True
+            except Failure as recovery_error:
+                recovery["object_restored"] = False
+                recovery["error"] = scrub(str(recovery_error))[:200]
+        try:
+            config.write_text(original, encoding="utf-8")
+            recovery["config_written"] = True
+        except OSError as write_error:
+            recovery["error"] = (recovery["error"] + " | " if recovery["error"] else "") \
+                                + f"config write: {type(write_error).__name__}"
+        try:
+            recovery["config_synced"] = run_cli(binary, config, token, cwd)[0] == 0
+        except OSError as sync_error:
+            recovery["config_synced"] = False
+            recovery["error"] = (recovery["error"] + " | " if recovery["error"] else "") \
+                                + f"config sync: {type(sync_error).__name__}"
+        recorder.record("ro5_move_failure",
+                        failed_step=step,
+                        cause="NOT DETERMINED (no root-cause inference)",
+                        message=scrub(str(error))[:300],
+                        recovery_attempted=recovery["attempted"],
+                        remote_object_restored=recovery["object_restored"],
+                        config_written_back=recovery["config_written"],
+                        config_resynced=recovery["config_synced"],
+                        recovery_error=recovery["error"],
+                        fixture_restored=(recovery["object_restored"] and recovery["config_written"]
+                                          and recovery["config_synced"] is True),
+                        note="the moved-path first playback is user-deferred; this marker records "
+                             "the real failure and the verified fixture state instead of a verdict")
+        raise
     finally:
-        config.write_text(original, encoding="utf-8")
-        run_cli(binary, config, token, cwd)
+        if config.read_text(encoding="utf-8") != original:
+            config.write_text(original, encoding="utf-8")
+            run_cli(binary, config, token, cwd)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -904,46 +1091,69 @@ def main() -> int:
     names = ["Plain Movie.mkv", "中文电影.mkv", "space name.mkv", "hash#name.mkv", "percent%name.mkv"]
     wanted = args.scenario
     decision_mark = log.mark()
+    # Item ids this run actually scanned and played; the decision rows are linked to these.
+    played_items: dict[str, str] = {}
+    completed: list[str] = []
 
     try:
         if wanted in ("all", "acceptance", "metadata"):
             scenario_metadata(recorder, target, args.remote_root, args.strm_dir)
+            completed.append("metadata")
         if wanted in ("all", "acceptance", "byte_equality"):
             scenario_byte_equality(recorder, target, args.remote_root, args.strm_dir,
                                    args.media_dir, names, args.download_base)
+            completed.append("byte_equality")
         if wanted in ("all", "acceptance", "stable"):
             scenario_stable_sync(recorder, args.binary, args.strm_config, credentials.openlist_token,
                                  ROOT, args.strm_dir)
+            completed.append("stable")
         if wanted in ("all", "acceptance", "playback"):
-            scenario_native_playback(recorder, target, args.library_id, args.playback_driver,
-                                     args.playwright_root, args.browsers_path, args.jellyfin_url,
-                                     credentials, names, log)
+            played_items = scenario_native_playback(recorder, target, args.library_id,
+                                                    args.playback_driver, args.playwright_root,
+                                                    args.browsers_path, args.jellyfin_url,
+                                                    credentials, names, log)
+            completed.append("playback")
         if wanted in ("all", "acceptance", "decisions"):
             # The window starts before the playback scenario in the same run so the rows are
             # linked to the inputs this run actually produced. A standalone ``decisions`` run
             # starts the window now and therefore requires real decisions in it.
+            if not played_items:
+                # No playback ran in this invocation: discover the ids the library currently
+                # reports for the expected STRMs so the rows still bind to real items.
+                mapping = library_items(target, args.library_id)
+                played_items = {name[:-4]: mapping[name[:-4]]["Id"] for name in names
+                                if name[:-4] in mapping}
             hash_probe = scenario_hash_input(recorder, target, args.remote_root, args.strm_dir, names)
-            scenario_decision_rows(recorder, log, names, decision_mark, hash_probe)
+            scenario_decision_rows(recorder, log, played_items, decision_mark, hash_probe)
+            completed.append("decisions")
         if wanted in ("all", "acceptance", "hash_input"):
             scenario_hash_input(recorder, target, args.remote_root, args.strm_dir, names)
+            completed.append("hash_input")
         if wanted in ("all", "url_change"):
             scenario_url_change(recorder, target, args.binary, args.strm_config,
                                 credentials.openlist_token, ROOT, args.strm_dir, args.library_id,
                                 args.playback_driver, args.playwright_root, args.browsers_path,
                                 args.jellyfin_url, credentials, log, args.change_item,
                                 args.alt_public_url)
+            completed.append("url_change")
         if wanted in ("all", "size_change"):
             scenario_size_change(recorder, target, args.binary, args.strm_config,
                                  credentials.openlist_token, ROOT, args.strm_dir, args.library_id,
                                  args.playback_driver, args.playwright_root, args.browsers_path,
                                  args.jellyfin_url, credentials, log, args.change_item,
                                  args.media_dir, args.remote_root, env)
+            completed.append("size_change")
         if wanted in ("all", "acceptance", "move"):
             scenario_move(recorder, target, args.binary, args.strm_config,
                           credentials.openlist_token, ROOT, args.strm_dir, args.library_id,
                           args.playback_driver, args.playwright_root, args.browsers_path,
                           args.jellyfin_url, credentials, log, args.change_item,
                           args.remote_root, env, args.download_base, args.media_dir)
+            completed.append("move")
+    except Failure as error:
+        # Record the failing scenario truthfully (scrubbed) before the process exits non-zero.
+        recorder.failure(error, scenario=wanted, completed=completed)
+        raise
     finally:
         recorder.finish()
     return 0
@@ -953,5 +1163,6 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Failure as error:
+        # Failure.__str__ scrubs registered secrets, escaped forms and URLs before printing.
         print(f"FAIL: {error}", file=sys.stderr)
         raise SystemExit(1)

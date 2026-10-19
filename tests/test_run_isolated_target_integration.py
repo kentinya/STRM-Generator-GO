@@ -153,7 +153,15 @@ class CredentialSourceTests(unittest.TestCase):
 
 
 class EvidenceHygieneTests(unittest.TestCase):
-    """Regression: a process credential must never reach an evidence record."""
+    """Regression: a process credential must never reach an evidence record, in any form."""
+
+    def setUp(self):
+        # The registered-secret list is process state; isolate each test from the others.
+        self._saved = list(driver._REGISTERED_SECRETS)
+        driver._REGISTERED_SECRETS.clear()
+
+    def tearDown(self):
+        driver._REGISTERED_SECRETS[:] = self._saved
 
     def test_recorder_refuses_secret_in_record(self):
         env = {"OPENLIST_TOKEN": "top-secret-token"}
@@ -174,14 +182,58 @@ class EvidenceHygieneTests(unittest.TestCase):
             self.assertNotIn("sign=1", written)
             self.assertNotIn("top-secret-token", (Path(tmp) / "summary.json").read_text())
 
+    def test_recorder_refuses_json_escaped_secret(self):
+        """B reproduction: a value containing quotes is escaped by json.dumps.
+
+        Comparing only the raw value lets the escaped form reach the record, so the check must
+        cover the serialized shapes of the same credential.
+        """
+        quoted = 'quoted-secret-value"with\\backslash'
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = driver.Recorder(Path(tmp), {"JF_PLAYBACK_PASSWORD": quoted})
+            with self.assertRaises(driver.Failure):
+                recorder.record("escaped", value=quoted)
+            self.assertFalse((Path(tmp) / "escaped.json").exists())
+
+    def test_derived_token_is_registered_and_scrubbed(self):
+        """A token issued at run time is not in the environment but is still a credential."""
+        issued = "issued-token-value-1234"
+        driver.register_secret(issued)
+        self.assertIn(issued, driver.secret_values({}))
+        self.assertNotIn(issued, driver.scrub(f'child failed with Token="{issued}"'))
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = driver.Recorder(Path(tmp), {})
+            with self.assertRaises(driver.Failure):
+                recorder.record("derived", authorization=f'Token="{issued}"')
+
     def test_secret_values_ignores_unset(self):
         self.assertEqual(driver.secret_values({"OPENLIST_TOKEN": ""}), [])
+
+    def test_failure_str_scrubs_registered_secret(self):
+        """B reproduction: a child JSON ``error`` was raised verbatim to the top-level FAIL line."""
+        sentinel = "synthetic-error-boundary-sentinel"
+        driver.register_secret(sentinel)
+        error = driver.Failure(f"playback driver error: {sentinel}")
+        self.assertNotIn(sentinel, str(error))
+        self.assertIn("<secret>", str(error))
+
+    def test_failure_record_is_written_and_scrubbed(self):
+        sentinel = "synthetic-failure-record-sentinel"
+        driver.register_secret(sentinel)
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = driver.Recorder(Path(tmp), {})
+            recorder.failure(driver.Failure(f"step failed: {sentinel}"), scenario="move")
+            written = (Path(tmp) / "run_failure.json").read_text()
+            self.assertNotIn(sentinel, written)
+            self.assertEqual(json.loads(written)["category"], "Failure")
 
 
 class DecisionWindowTests(unittest.TestCase):
     """Regression: cumulative or empty logs must not be reported as a decision matrix."""
 
     ITEM = "13b9046f-1e07-5fdf-0c2e-e4af320b929c"
+    DECISION_LINE = (f'[INF] STRM source "reused saved media information" for project {ITEM}, '
+                     'source "13b9046f1e075fdf0c2ee4af320b929c"; reason Unchanged, plugin probe calls 0.\n')
 
     def _log(self, tmp, lines):
         path = Path(tmp) / "log.log"
@@ -252,24 +304,74 @@ class DecisionWindowTests(unittest.TestCase):
             log = driver.DecisionLog(Path(tmp) / "missing.log")
             hash_probe = {"sha1_available": False, "observation": "none"}
             with self.assertRaises(driver.Failure):
-                driver.scenario_decision_rows(recorder, log, ["Plain Movie.mkv"], 0, hash_probe)
+                driver.scenario_decision_rows(recorder, log, {"Plain Movie.mkv": self.ITEM}, 0,
+                                              hash_probe)
             self.assertFalse((Path(tmp) / "ro3_decision_rows.json").exists())
 
     def test_decision_rows_records_stable_and_unavailable_hash_statuses(self):
         with tempfile.TemporaryDirectory() as tmp:
-            names = ["Plain Movie.mkv"]
-            lines = [f'[INF] STRM source "reused saved media information" for project {self.ITEM}, '
-                     f'source "13b9046f1e075fdf0c2ee4af320b929c"; reason Unchanged, plugin probe calls 0.']
             path = Path(tmp) / "log.log"
-            path.write_text("\n".join(lines), encoding="utf-8")
+            path.write_text(self.DECISION_LINE, encoding="utf-8")
             recorder = driver.Recorder(Path(tmp) / "out", {})
-            driver.scenario_decision_rows(recorder, driver.DecisionLog(path), names, 0,
+            driver.scenario_decision_rows(recorder, driver.DecisionLog(path),
+                                          {"Plain Movie.mkv": self.ITEM}, 0,
                                           {"sha1_available": False, "observation": "none"})
             record = json.loads((Path(tmp) / "out" / "ro3_decision_rows.json").read_text())
             rows = {row["row"]: row["status"] for row in record["rows"]}
             self.assertEqual(rows["stable_url_same_fingerprint"], "PASS")
             self.assertEqual(rows["same_url_same_sha1_size_changed"], "BLOCKED")
             self.assertEqual(rows["url_changed"], "DEFERRED")
+            self.assertEqual(record["linked_items"], 1)
+
+    def test_decision_rows_reject_unrelated_item(self):
+        """B reproduction: an unrelated item must not satisfy the stable row."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.log"
+            path.write_text(self.DECISION_LINE, encoding="utf-8")
+            recorder = driver.Recorder(Path(tmp) / "out", {})
+            unrelated = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+            with self.assertRaises(driver.Failure):
+                driver.scenario_decision_rows(recorder, driver.DecisionLog(path),
+                                              {"Expected Movie.mkv": unrelated}, 0,
+                                              {"sha1_available": False, "observation": "none"})
+            self.assertFalse((Path(tmp) / "out" / "ro3_decision_rows.json").exists())
+
+    def test_decision_rows_require_every_expected_item(self):
+        """A partial window that covers only one of two expected items must fail."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.log"
+            path.write_text(self.DECISION_LINE, encoding="utf-8")
+            recorder = driver.Recorder(Path(tmp) / "out", {})
+            with self.assertRaises(driver.Failure):
+                driver.scenario_decision_rows(
+                    recorder, driver.DecisionLog(path),
+                    {"Plain Movie.mkv": self.ITEM,
+                     "Other.mkv": "ffffffff-ffff-ffff-ffff-ffffffffffff"}, 0,
+                    {"sha1_available": False, "observation": "none"})
+
+    def test_decision_rows_reject_empty_expected_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.log"
+            path.write_text(self.DECISION_LINE, encoding="utf-8")
+            recorder = driver.Recorder(Path(tmp) / "out", {})
+            with self.assertRaises(driver.Failure):
+                driver.scenario_decision_rows(recorder, driver.DecisionLog(path), {}, 0,
+                                              {"sha1_available": False, "observation": "none"})
+
+    def test_deferred_rows_do_not_assert_a_root_cause(self):
+        """A probe start is not evidence of rejection, so the retained row claims no cause."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.log"
+            path.write_text(self.DECISION_LINE, encoding="utf-8")
+            recorder = driver.Recorder(Path(tmp) / "out", {})
+            driver.scenario_decision_rows(recorder, driver.DecisionLog(path),
+                                          {"Plain Movie.mkv": self.ITEM}, 0,
+                                          {"sha1_available": False, "observation": "none"})
+            record = json.loads((Path(tmp) / "out" / "ro3_decision_rows.json").read_text())
+            for row in record["rows"]:
+                if row["status"] == "DEFERRED":
+                    self.assertNotIn("HTTP 500", json.dumps(row))
+                    self.assertIn("not rerun", row["observed"])
 
 
 class PlaybackScenarioExchangeTests(unittest.TestCase):
@@ -308,12 +410,55 @@ class PlaybackScenarioExchangeTests(unittest.TestCase):
         original_run = driver.subprocess.run
         driver.subprocess.run = fake_run
         try:
-            result = driver.jellyfin_playback(
-                "http://127.0.0.1:28096", Path("/driver.mjs"), "/playwright", {}, "/browsers")
+            with self.assertRaises(driver.Failure) as raised:
+                driver.jellyfin_playback(
+                    "http://127.0.0.1:28096", Path("/driver.mjs"), "/playwright", {}, "/browsers")
         finally:
             driver.subprocess.run = original_run
-        self.assertIn("error", result)
-        self.assertNotIn("abc123", result["error"])
+        self.assertNotIn("abc123", str(raised.exception))
+        self.assertIn("not playback evidence", str(raised.exception))
+
+    def test_structured_driver_error_is_scrubbed_not_raised_raw(self):
+        """B reproduction: a JSON ``error`` field must not reach the top level verbatim."""
+        sentinel = "synthetic-driver-error-sentinel"
+        driver.register_secret(sentinel)
+        try:
+            class FakeTarget:
+                def jellyfin_json(self, path, method="GET", data=None):
+                    return [{"Id": "playback-id", "Name": "playback"}]
+
+                def jellyfin(self, *args, **kwargs):
+                    return (204, b"")
+
+            def fake_run(args, **kwargs):
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps({"error": f"probe failed: {sentinel}"}), stderr="")
+
+            credentials = driver.Credentials("openlist", "admin", "playback", "password")
+            with mock.patch.object(driver.subprocess, "run", side_effect=fake_run), \
+                    mock.patch.object(driver.time, "sleep"), \
+                    self.assertRaises(driver.Failure) as raised:
+                driver.playback_item(FakeTarget(), Path("/d.mjs"), "/p", "/b",
+                                     "http://127.0.0.1:28096", credentials,
+                                     {"Id": "item-id", "Name": "item"})
+            self.assertNotIn(sentinel, str(raised.exception))
+            self.assertIn("<secret>", str(raised.exception))
+        finally:
+            driver._REGISTERED_SECRETS.remove(sentinel)
+
+    def test_non_json_driver_output_is_a_failure(self):
+        with mock.patch.object(driver.subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 0, stdout="not json", stderr="")), \
+                self.assertRaises(driver.Failure) as raised:
+            driver.jellyfin_playback("http://127.0.0.1:28096", Path("/d.mjs"), "/p", {}, "/b")
+        self.assertIn("non-JSON", str(raised.exception))
+
+    def test_driver_timeout_is_a_failure_not_a_crash(self):
+        with mock.patch.object(driver.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired(["node"], 300)), \
+                self.assertRaises(driver.Failure) as raised:
+            driver.jellyfin_playback("http://127.0.0.1:28096", Path("/d.mjs"), "/p", {}, "/b")
+        self.assertIn("timed out", str(raised.exception))
 
 
 class ObjectKeyTests(unittest.TestCase):
@@ -346,6 +491,104 @@ class LibraryMappingTests(unittest.TestCase):
         self.assertIn("Plain Movie", mapping)
         self.assertIn("Moved/Plain Movie", mapping)
         self.assertEqual(len(mapping), 2)
+
+
+class MoveFailureRecoveryTests(unittest.TestCase):
+    """B reproduction: a move-phase failure must not leave the remote object at the moved key."""
+
+    ITEM = "Plain Movie.mkv"
+
+    def _fixture(self, tmp):
+        root = Path(tmp)
+        config = root / "config.yaml"
+        config.write_text("cleanup:\n  enabled: false\n", encoding="utf-8")
+        strms = root / "strm"
+        strms.mkdir()
+        (strms / "Plain Movie.strm").write_text(
+            "# strm-probe-version:1\n# strm-probe-size:1\n"
+            "http://isolated.invalid/d/s3/Plain%20Movie.mkv\n", encoding="utf-8")
+        return root, config, strms
+
+    def _run(self, root, config, strms):
+        return driver.scenario_move(
+            driver.Recorder(root / "out", {}), None, Path("unused"), config, "token",
+            root, strms, "library", Path("unused"), "unused", "unused",
+            "http://isolated.invalid", driver.Credentials("t", "a", "p", "p"),
+            None, self.ITEM, "/s3", {}, "", root)
+
+    def test_failed_sync_after_move_restores_remote_object(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            calls = []
+
+            def fake_move(env, source, dest):
+                calls.append((source, dest))
+
+            # First sync fails (the scenario failure); the recovery resync succeeds.
+            results = iter([(1, "", "injected failure"), (0, "created=0", "")])
+            with mock.patch.object(driver, "rclone_move", side_effect=fake_move), \
+                    mock.patch.object(driver, "run_cli", side_effect=lambda *a, **k: next(results)), \
+                    mock.patch.object(driver, "digest_tree", return_value="digest"), \
+                    mock.patch.object(driver, "read_strm",
+                                      return_value={"sha1": None, "size": 1, "url": "u"}), \
+                    self.assertRaises(driver.Failure):
+                self._run(root, config, strms)
+            # Move forwards, then the recovery move back: the fixture ends where it started.
+            self.assertEqual(len(calls), 2, f"expected one move plus one recovery move, got {calls}")
+            self.assertEqual(calls[1][1], "Plain Movie.mkv")
+            self.assertEqual(config.read_text(), "cleanup:\n  enabled: false\n")
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertEqual(marker["failed_step"], "move sync")
+            self.assertTrue(marker["recovery_attempted"])
+            self.assertTrue(marker["remote_object_restored"])
+            self.assertTrue(marker["config_written_back"])
+            self.assertTrue(marker["config_resynced"])
+            self.assertTrue(marker["fixture_restored"])
+            self.assertEqual(marker["recovery_error"], "")
+            self.assertIn("NOT DETERMINED", marker["cause"])
+
+    def test_unconfirmed_resync_is_reported_not_assumed(self):
+        """If the recovery sync also fails, the marker must not claim the fixture is restored."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            with mock.patch.object(driver, "rclone_move", side_effect=lambda *a, **k: None), \
+                    mock.patch.object(driver, "run_cli", return_value=(1, "", "still failing")), \
+                    mock.patch.object(driver, "digest_tree", return_value="digest"), \
+                    mock.patch.object(driver, "read_strm",
+                                      return_value={"sha1": None, "size": 1, "url": "u"}), \
+                    self.assertRaises(driver.Failure):
+                self._run(root, config, strms)
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertTrue(marker["remote_object_restored"])
+            self.assertFalse(marker["config_resynced"])
+            self.assertFalse(marker["fixture_restored"],
+                             "an unconfirmed resync must not be reported as a restored fixture")
+
+    def test_failed_recovery_is_recorded_not_hidden(self):
+        """A recovery that itself fails must be reported as un-restored, not glossed over."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            attempts = []
+
+            def fake_move(env, source, dest):
+                attempts.append(dest)
+                if len(attempts) > 1:
+                    raise driver.Failure("recovery move failed")
+
+            with mock.patch.object(driver, "rclone_move", side_effect=fake_move), \
+                    mock.patch.object(driver, "run_cli", return_value=(1, "", "injected failure")), \
+                    mock.patch.object(driver, "digest_tree", return_value="digest"), \
+                    mock.patch.object(driver, "read_strm",
+                                      return_value={"sha1": None, "size": 1, "url": "u"}), \
+                    self.assertRaises(driver.Failure) as raised:
+                self._run(root, config, strms)
+            self.assertEqual(len(attempts), 2)
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertEqual(marker["failed_step"], "move sync")
+            self.assertFalse(marker["remote_object_restored"])
+            self.assertFalse(marker["fixture_restored"])
+            self.assertIn("recovery move failed", marker["recovery_error"])            # The original failure is what reaches the caller; recovery detail is in the record.
+            self.assertIn("move sync exit 1", str(raised.exception))
 
 
 if __name__ == "__main__":

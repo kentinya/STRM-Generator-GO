@@ -7,7 +7,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 87be914349db70929461d306e1d183c8e560cd68
 Difficulty: High
@@ -153,7 +153,92 @@ B 自己负责一份真实链路、两行实际 SHA-1 插件观察、逐项全�
 API／DB，不接生产状态。生成器不下载媒体计算哈希；测试侧本地真实内容计算只按用户授权。
 不运行代理；ARM64 实机、规模测量与 registry 发布不属本 Task，不据此撤销后续目标。
 
-## Developer Completion Report（现存候选，历史事实）
+## Developer Completion Report（本轮第三修正，2026-10-19）
+
+```text
+State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
+Implementation Head: 见下方「本轮检查点」提交 SHA（本报告随同一提交交付）
+本轮 Base: f828c7f008be4abcf6bef73009c4d8526b768256
+证据索引: artifacts/validation-evidence/task-4.1-dev3-20261019-232352/INDEX.md（本机、Git 忽略）
+```
+
+只修 B 上一轮 P1 的三项与失败夹具最小处置；不改产品 Go、插件、V4.3 协议、比较规则、
+删除／锁／归属／SQLite 边界，不扩建通用秘密／日志／补偿框架，不动暂缓三项。
+
+### 1. AC-1／RO-1：凭据出口（B 复现的三条路径全部关闭）
+
+| B 复现的出口 | 修正 | 针对性回归 |
+|---|---|---|
+| `assert_secret_free` 只比对原始值，JSON 转义后的同一凭据可写入证据 | 每个秘密按原始、JSON 转义、`repr` 转义、unicode 转义四种形态比对与剔除 | `test_recorder_refuses_json_escaped_secret` |
+| 子进程 stdout 的 JSON `error` 被原样提升到顶层 `FAIL:` 行 | `jellyfin_playback` 在边界校验 payload 并 `scrub`；`Failure.__str__` 输出前统一脱敏 | `test_structured_driver_error_is_scrubbed_not_raised_raw`、`test_failure_str_scrubs_registered_secret` |
+| 运行时派生 token（`AuthenticateByName` 返回的 `AccessToken`）不受保护 | 新增 `register_secret()`，派生凭据进入同一脱敏与拒写集合 | `test_derived_token_is_registered_and_scrubbed` |
+
+附带：非 JSON／超时／非零退出改成分类别 `Failure`（不再静默或裸抛）；rclone 诊断改用
+`scrub`；`main` 在失败时先写 `run_failure.json` 再非零退出；`Recorder.failure` 即使被
+拒写也只写固定安全类别，不回显值。
+
+### 2. AC-6／RO-5：移动失败必须恢复夹具并如实标记
+
+`scenario_move` 现跟踪已完成步骤。移动成功后任何失败都会反向 `rclone_move` 复原远端对象，
+`ro5_move_failure.json` 记录 `failed_step`、`recovery_attempted`、`remote_object_restored`，
+恢复本身失败写入 `recovery_error` 且不被首次异常掩盖；配置一律在 `finally` 复原。
+`scenario_size_change`／`scenario_url_change` 的复原失败也分别写入
+`ro3_size_change_restore_failure`／`ro3_url_change_restore_failure`，不再静默。
+回归：`MoveFailureRecoveryTests`（恢复成功／恢复失败两条）。
+
+### 3. AC-4／RO-3：矩阵行必须绑定本次真实 item，且不硬写根因
+
+- `scenario_native_playback` 返回本次扫描并播放的 `STRM 名 → Jellyfin item id` 映射；
+  `scenario_decision_rows` 改为按该映射逐项要求窗口内属于**该 item** 的复用决策，
+  不再以「窗口内 item 数量 ≥ 文件名数量」充数。空期望集、缺项、无关 item 全部失败。
+  回归：`test_decision_rows_reject_unrelated_item`、`test_decision_rows_require_every_expected_item`、
+  `test_decision_rows_reject_empty_expected_set`。
+- 撤回「probe 启动 ⇒ HTTP 500／插件拒绝自身 probe 结果／同一外部原因」的推断。
+  `ro3_decision_rows` 的 DEFERRED 行改为「本轮未重跑、原始观察仅为 probe 启动、根因未复核」；
+  `ro5_move_closure.moved_playback`／`replay` 只记 `observed`（playback_error、probe_started、
+  窗口条目数）与 `cause: NOT DETERMINED`。回归：`test_deferred_rows_do_not_assert_a_root_cause`。
+  这两行仍**不是** PASS，仍交 A/B 判定。
+
+### 4. 凭据事件（脱敏，不再声称「从未泄露」）
+
+`credential-incident-record.md` 逐项列出历史暴露点与当前状态：证据索引内的播放口令字面量、
+`/tmp/t41env.sh`（mode 644，仍存在，本轮未读取／未 source）、第二轮口令／JWT 回显的轮换声明
+（**我未独立复核**）、两个已删临时凭据文件。说明为何本轮不能靠删除／轮换收口：轮换需要从
+文件或容器恢复秘密，删除属未授权的破坏性清理。列为待 B／A 处置的开放项。
+
+### 5. 验证（Developer 反馈层，产品全量仍归 B）
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 治理 | `python3 scripts/check_governance.py` | exit 0，PASS（仅合同一致性） |
+| 静态 | `python3 -m py_compile` 两文件 | exit 0 |
+| 受影响测试 | `python3 -m unittest discover -s tests -p 'test_run_isolated_target_integration.py' -v` | 45 项 OK，exit 0（原 31，新增 14） |
+| B 反例回放 | `b-repro-recheck.py`（由 B 的 reproduce.py 派生，调用签名适配） | 5 项反例全部 `false`，见 JSON |
+| 治理单测 | `python3 -m unittest discover -s tests -p 'test_governance.py'` | 14 项 OK |
+| 空白 | `git diff --check` | exit 0 |
+
+**未运行并如实记录：** 真实 OpenList／Jellyfin／播放链路、SHA-1 两行实际插件观察、URL-change／
+Size-change／移动首播（三项用户暂缓）、Go 全量／race／构建、本地 sync／serve／容器回归。
+本会话进程环境没有注入 `OPENLIST_TOKEN`／`JF_*`／`RUSTFS_*`；凭据只存在于容器环境与
+`/tmp/t41env.sh`，从这两处取用违反「不从文件恢复秘密」，故真实场景保持 NOT RUN，
+不以环境 smoke 或单元测试代替。
+
+### 6. 固定输入身份（本轮实测，未重选版）
+
+- CLI：`strmgen-amd64 16b70e13…`、`strmgen-testhooks-amd64 c6222a14…`（与 B 上轮核对一致）。
+- 插件源码 `2afc6517fda5a7b4170ebea625619a552c47dabc`，tracked worktree clean；ZIP SHA-256
+  `382d3ef1…`；OpenList `11b49012…`（v4.2.7）、Jellyfin `357724bf…`（12.2.0）、
+  RustFS `9ca95595…` 三个隔离容器镜像与合同一致；合成媒体 201 项。
+
+### 7. 风险与未决
+
+- RO-3 两行仍 BLOCKED（目标无 SHA-1），两行 DEFERRED（用户暂缓）；移动首播 BLOCKED 且根因
+  改为 NOT DETERMINED。均不因本轮视为通过。
+- 凭据历史暴露点的轮换／删除未完成（见 incident record），仍需 B／A 处置。
+- 本机证据，非远端可读；产品 T4 与独立真实复现仍由 B 执行。
+- 测试执行 0.315 秒，本轮保守回合分母远大于 1 秒，占比远低于 30%；无空等凑比例。
+
+## Developer Completion Report（上一轮候选，历史事实）
 
 - Implementation Head：83e5b1901e1c306d1f48fcde92786b353eb3d5e3；不是本轮新候选。
 - 变更：目标 runner／测试与环境登记，产品 Go 未变。第二轮报告曾交 READY FOR B REVIEW，
