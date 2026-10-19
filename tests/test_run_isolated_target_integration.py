@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -52,13 +52,8 @@ class StrmParsingTests(unittest.TestCase):
             parsed = driver.read_strm(path)
             self.assertEqual(parsed["version"], "1")
             self.assertEqual(parsed["size"], 24404)
+            self.assertIsNone(parsed["sha1"])
             self.assertEqual(parsed["url"], "http://openlist:5244/d/s3/Plain%20Movie.mkv")
-
-    def test_unsigned_url_has_no_query(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "x.strm"
-            path.write_text("# strm-probe-version:1\nhttp://openlist:5244/d/s3/x.mkv\n", encoding="utf-8")
-            self.assertNotIn("?", driver.read_strm(path)["url"])
 
     def test_reads_sha1_marker_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,12 +62,6 @@ class StrmParsingTests(unittest.TestCase):
             path.write_text(f"# strm-probe-version:1\n# strm-probe-sha1:{sha1}\nhttp://h/d/x.mkv\n",
                             encoding="utf-8")
             self.assertEqual(driver.read_strm(path)["sha1"], sha1)
-
-    def test_sha1_absent_is_none(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "x.strm"
-            path.write_text("# strm-probe-version:1\nhttp://h/d/x.mkv\n", encoding="utf-8")
-            self.assertIsNone(driver.read_strm(path)["sha1"])
 
 
 class TreeDigestTests(unittest.TestCase):
@@ -84,12 +73,16 @@ class TreeDigestTests(unittest.TestCase):
             (root / "a.strm").write_text("two", encoding="utf-8")
             self.assertNotEqual(first, driver.digest_tree(root))
 
-    def test_digest_stable_for_identical_tree(self):
+    def test_digest_ignores_creation_order_and_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "a.strm").write_text("one", encoding="utf-8")
-            (root / "b.strm").write_text("two", encoding="utf-8")
-            self.assertEqual(driver.digest_tree(root), driver.digest_tree(root))
+            first, second = Path(tmp) / "first", Path(tmp) / "second"
+            first.mkdir()
+            second.mkdir()
+            for root, names in ((first, ("a.strm", "b.strm")),
+                                (second, ("b.strm", "a.strm"))):
+                for name in names:
+                    (root / name).write_text(name, encoding="utf-8")
+            self.assertEqual(driver.digest_tree(first), driver.digest_tree(second))
 
     def test_digest_matches_manual_sha256(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -100,13 +93,6 @@ class TreeDigestTests(unittest.TestCase):
             expected.update(b"\0")
             expected.update(hashlib.sha256(b"payload").digest())
             self.assertEqual(driver.digest_tree(root), expected.hexdigest())
-
-
-class FailureTests(unittest.TestCase):
-    def test_require_raises_failure(self):
-        with self.assertRaises(driver.Failure):
-            driver.require(False, "boom")
-        driver.require(True, "fine")
 
 
 class CredentialSourceTests(unittest.TestCase):
@@ -125,10 +111,20 @@ class CredentialSourceTests(unittest.TestCase):
         self.assertIn("playback_driver", options)
         self.assertIn("jellyfin_log", options)
 
-    def test_no_secret_is_required_or_accepted_on_the_command_line(self):
-        with self.assertRaises(SystemExit):
-            with redirect_stderr(io.StringIO()):
-                driver.build_parser().parse_args(["--playback-password", "leaky"])
+    def test_secret_option_is_rejected_with_otherwise_valid_arguments(self):
+        parser = driver.build_parser()
+        args = ["--binary", "artifacts/test/bin", "--strm-config", "artifacts/test/config.yaml",
+                "--output-dir", "artifacts/test/evidence", "--library-id", "test-library",
+                "--strm-dir", "artifacts/test/strm", "--media-dir", "artifacts/test/media",
+                "--jellyfin-log", "artifacts/test/jellyfin.log",
+                "--playback-driver", "artifacts/test/playback.mjs",
+                "--playwright-root", "artifacts/test/playwright"]
+        parser.parse_args(args)  # Missing required options cannot explain the rejection below.
+        errors = io.StringIO()
+        with redirect_stderr(errors), self.assertRaises(SystemExit) as raised:
+            parser.parse_args(args + ["--playback-password", "synthetic-value"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("unrecognized arguments: --playback-password", errors.getvalue())
 
     def test_credentials_come_from_environment(self):
         env = dict(self.BASE_ENV, JF_ADMIN_TOKEN="admin-token-value")
@@ -194,12 +190,14 @@ class DecisionWindowTests(unittest.TestCase):
 
     def test_window_only_sees_lines_after_mark(self):
         with tempfile.TemporaryDirectory() as tmp:
-            log = self._log(tmp, ["noise"])
+            log = self._log(tmp, [
+                f'[INF] STRM source "reused saved media information" for project {self.ITEM}, '
+                'source "13b9046f1e075fdf0c2ee4af320b929c"; reason Unchanged, plugin probe calls 0.'])
             mark = log.mark()
             with open(Path(tmp) / "log.log", "a", encoding="utf-8") as handle:
                 handle.write(f'[INF] STRM source "reused saved media information" for project {self.ITEM}, '
                              f'source "13b9046f1e075fdf0c2ee4af320b929c"; reason FirstTrust, plugin probe calls 0.\n')
-            self.assertEqual(log.since(mark)[0]["reason"], "FirstTrust")
+            self.assertEqual([entry["reason"] for entry in log.since(mark)], ["FirstTrust"])
             self.assertEqual(log.since(log.mark()), [])
 
     def test_require_reuse_fails_on_empty_window(self):
@@ -230,11 +228,8 @@ class DecisionWindowTests(unittest.TestCase):
                 f'[INF] STRM source "reused saved media information" for project {self.ITEM}, '
                 f'source "13b9046f1e075fdf0c2ee4af320b929c"; reason Unchanged, plugin probe calls 0.'])
             # Jellyfin API responses use the hyphenless N form; the log prints the D form.
-            self.assertEqual(log.require_reuse(0, self.ITEM.replace("-", ""))["item"], driver.normalize_item_id(self.ITEM))
-
-    def test_normalize_item_id(self):
-        self.assertEqual(driver.normalize_item_id("13B9046F-1E07-5FDF-0C2E-E4AF320B929C"),
-                         "13b9046f1e075fdf0c2ee4af320b929c")
+            self.assertEqual(log.require_reuse(0, self.ITEM.replace("-", "").upper())["item"],
+                             "13b9046f1e075fdf0c2ee4af320b929c")
 
     def test_require_reuse_detects_probe_lines(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -260,7 +255,7 @@ class DecisionWindowTests(unittest.TestCase):
                 driver.scenario_decision_rows(recorder, log, ["Plain Movie.mkv"], 0, hash_probe)
             self.assertFalse((Path(tmp) / "ro3_decision_rows.json").exists())
 
-    def test_decision_rows_pass_with_linked_window(self):
+    def test_decision_rows_records_stable_and_unavailable_hash_statuses(self):
         with tempfile.TemporaryDirectory() as tmp:
             names = ["Plain Movie.mkv"]
             lines = [f'[INF] STRM source "reused saved media information" for project {self.ITEM}, '
@@ -288,20 +283,13 @@ class PlaybackScenarioExchangeTests(unittest.TestCase):
             captured["input"] = kwargs.get("input")
             return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"results": [{"advanced": True}]}), stderr="")
 
-        original_run = driver.subprocess.run
-        original_write_text = Path.write_text
-
-        def forbidden_write_text(self, *args, **kwargs):
-            raise AssertionError(f"scenario must not be persisted: write_text called on {self}")
-
-        driver.subprocess.run = fake_run
-        Path.write_text = forbidden_write_text
-        try:
+        # Guard the actual scenario exchange rather than scanning shared /tmp.
+        with mock.patch.object(driver.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(Path, "write_text", side_effect=AssertionError("scenario persisted")), \
+                mock.patch.object(tempfile, "NamedTemporaryFile",
+                                  side_effect=AssertionError("scenario temporary file created")):
             result = driver.jellyfin_playback(
                 "http://127.0.0.1:28096", Path("/driver.mjs"), "/playwright", scenario, "/browsers")
-        finally:
-            driver.subprocess.run = original_run
-            Path.write_text = original_write_text
         return captured, result
 
     def test_scenario_passed_via_stdin_not_a_file(self):
@@ -312,12 +300,6 @@ class PlaybackScenarioExchangeTests(unittest.TestCase):
         self.assertEqual(json.loads(captured["input"])["password"], "s3cr3t-value")
         self.assertNotIn("s3cr3t-value", " ".join(str(part) for part in captured["args"]))
         self.assertTrue(result["results"][0]["advanced"])
-
-    def test_no_tmp_scenario_file_is_created(self):
-        before = set(Path("/tmp").glob("strmgen-play-*.json"))
-        self._run({"username": "admin", "password": "another-secret", "items": []})
-        after = set(Path("/tmp").glob("strmgen-play-*.json"))
-        self.assertEqual(before, after, "jellyfin_playback left a scenario file behind")
 
     def test_driver_error_is_redacted(self):
         def fake_run(args, **kwargs):

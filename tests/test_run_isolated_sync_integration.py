@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import sqlite3
 import sys
@@ -25,7 +24,6 @@ class DriverUnitTests(unittest.TestCase):
     def test_output_dir_accepts_fresh_evidence_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp) / "artifacts" / "validation-evidence" / "run-1"
-            driver.ROOT.joinpath("artifacts")
             resolved = driver.validate_output_dir(base)
             self.assertTrue(resolved.is_dir())
 
@@ -75,10 +73,6 @@ class DriverUnitTests(unittest.TestCase):
             state = driver.read_db(db)
             self.assertEqual(len(state["ownership"]), 1)
             self.assertEqual(state["rounds"], [("source", 1)])
-
-    def test_summary_shape_is_json_serializable(self):
-        payload = {"scenarios": {"first_generation": {"status": "PASS"}}, "failures": []}
-        self.assertIn("first_generation", json.loads(json.dumps(payload))["scenarios"])
 
     def test_release_ownership_hook_is_inert(self):
         source = (driver.ROOT / "internal/reconciler/syncer_hook_default.go").read_text()

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import sys
 import tempfile
@@ -59,10 +58,6 @@ class ServeDriverUnitTests(unittest.TestCase):
     def test_driver_uses_only_testhooks_interval_override(self):
         source = (driver.ROOT / "scripts/run_serve_integration.py").read_text()
         self.assertIn("STRMGEN_TEST_SERVE_INTERVAL_MS", source)
-
-    def test_summary_shape_is_json_serializable(self):
-        payload = {"scenarios": {"serve_cancel": {"status": "PASS"}}, "failures": []}
-        self.assertIn("serve_cancel", json.loads(json.dumps(payload))["scenarios"])
 
 
 if __name__ == "__main__":
