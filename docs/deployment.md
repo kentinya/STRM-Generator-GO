@@ -50,7 +50,7 @@ docker compose -f deploy/compose.yaml stop -t 60
 
 | 项 | 合同 |
 |---|---|
-| token | 只通过运行时环境 `OPENLIST_TOKEN` 注入；`compose.yaml`、镜像层、仓库 `.env` 示例都不含真实 token |
+| token | 只通过运行时环境 `OPENLIST_TOKEN` 注入（Compose 透传声明 `OPENLIST_TOKEN:`）；`compose.yaml`、镜像层、仓库 `.env` 示例都不含真实 token。采集脱敏渲染时用 `docker compose config --no-interpolate`，不要把带宿主值的普通 `config` 输出写入日志或证据 |
 | 配置 | `STRMGEN_CONFIG` 以 `:ro` 只读挂载到 `/etc/strmgen/config.yaml` |
 | 输出 | `STRMGEN_OUTPUT` → `/output`，生成器拥有的 STRM 树 |
 | 数据库 | `STRMGEN_STATE` → `/state`，含 SQLite 主库及 `-wal`／`-shm`／`-journal` sidecar 与 dry-run 快照 |
@@ -81,6 +81,15 @@ docker compose -f deploy/compose.yaml up -d
 `serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60）触发；与手动
 `sync` 共用同一固定锁，锁忙的 tick 报告 `busy-skip`，单轮失败后继续下一 tick。
 SIGINT／SIGTERM 取消当前轮并以非零退出，不提交不完整轮、缺失计数或删除资格。
+
+`sync` 与 `sync --dry-run` 不调度，因此 `sync.interval_minutes: 0` 仍是合法配置；
+`serve` 在任何输出／数据库动作前拒绝零、负数或分钟到 `time.Duration` 溢出的间隔。
+
+`deploy/compose.yaml` 用 Compose 透传声明 `OPENLIST_TOKEN:` 注入 token。注意：
+在本机 Compose 版本上，带宿主值的普通 `docker compose config` 会解析并打印该值
+（这是 `environment:` 注入的既有行为），因此**不要**把普通 `config` 输出写进日志或
+证据；需要脱敏渲染时使用 `docker compose config --no-interpolate`，它只输出
+`OPENLIST_TOKEN: null`。仓库、镜像与 `--no-interpolate` 渲染都不含真实 token。
 
 ## 状态、备份与恢复
 

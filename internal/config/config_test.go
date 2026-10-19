@@ -284,16 +284,36 @@ func TestIntervalMinutesValidation(t *testing.T) {
 		t.Fatalf("explicit interval: minutes=%d duration=%v", r.IntervalMinutes, r.Interval)
 	}
 
-	// Zero, negative and overflow are rejected before any product action.
-	for _, value := range []string{"0", "-1", "-60", "9223372036854775808"} {
+	// A negative value is invalid for every command and is rejected at load.
+	for _, value := range []string{"-1", "-60"} {
 		body := validBase + "sync:\n  interval_minutes: " + value + "\n"
 		if _, err := Load(write(t, body)); err == nil {
-			t.Fatalf("interval_minutes=%s must be rejected", value)
+			t.Fatalf("interval_minutes=%s must be rejected at load", value)
 		}
 	}
 
+	// A value outside the Int64 range cannot even be parsed.
+	body = validBase + "sync:\n  interval_minutes: 9223372036854775808\n"
+	if _, err := Load(write(t, body)); err == nil {
+		t.Fatal("interval_minutes above Int64 must be rejected at load")
+	}
+
+	// Zero is accepted by Load for one-shot `sync`, which never schedules; it
+	// must be rejected only by the serve-only ValidateServeInterval.
+	body = validBase + "sync:\n  interval_minutes: 0\n"
+	r, err = Load(write(t, body))
+	if err != nil {
+		t.Fatalf("sync must accept interval_minutes: 0: %v", err)
+	}
+	if r.IntervalMinutes != 0 || r.Interval != 0 {
+		t.Fatalf("zero interval resolved to minutes=%d duration=%v", r.IntervalMinutes, r.Interval)
+	}
+	if err := r.ValidateServeInterval(); err == nil {
+		t.Fatal("serve must reject interval_minutes: 0")
+	}
+
 	// A value that overflows the minutes-to-Duration multiplication is
-	// rejected even though it fits an int.
+	// accepted by Load (one-shot `sync` ignores it) but rejected for serve.
 	maxSafe := math.MaxInt64 / int64(time.Minute)
 	if maxSafe > math.MaxInt64-1 {
 		t.Skip("int cannot hold the overflow fixture on this platform")
@@ -301,12 +321,20 @@ func TestIntervalMinutesValidation(t *testing.T) {
 	overflowMinutes := maxSafe + 1
 	if overflowMinutes <= math.MaxInt64 {
 		body := validBase + "sync:\n  interval_minutes: " + strconv.FormatInt(overflowMinutes, 10) + "\n"
-		if _, err := Load(write(t, body)); err == nil {
-			t.Fatalf("interval_minutes=%d must be rejected as a duration overflow", overflowMinutes)
+		r, err = Load(write(t, body))
+		if err != nil {
+			t.Fatalf("overflow interval must load for sync: %v", err)
+		}
+		if r.Interval > 0 {
+			t.Fatalf("overflow interval produced a positive duration: %v", r.Interval)
+		}
+		if err := r.ValidateServeInterval(); err == nil {
+			t.Fatalf("serve must reject overflow interval_minutes=%d", overflowMinutes)
 		}
 	}
 
-	// The exact safe maximum still converts to a positive duration.
+	// The exact safe maximum still converts to a positive duration and passes
+	// serve validation.
 	body = validBase + "sync:\n  interval_minutes: " + strconv.FormatInt(maxSafe, 10) + "\n"
 	r, err = Load(write(t, body))
 	if err != nil {
@@ -314,6 +342,9 @@ func TestIntervalMinutesValidation(t *testing.T) {
 	}
 	if r.Interval <= 0 {
 		t.Fatalf("safe maximum interval produced a non-positive duration: %v", r.Interval)
+	}
+	if err := r.ValidateServeInterval(); err != nil {
+		t.Fatalf("safe maximum interval must pass serve validation: %v", err)
 	}
 }
 

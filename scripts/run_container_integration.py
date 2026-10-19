@@ -460,7 +460,7 @@ def scenario_minimal_run(h, results, image):
     args = h.common_run_args(cfg, name, rm=False)
     args = args[:1] + ["-d"] + args[1:]
     args += ["-e", "OPENLIST_TOKEN", "--entrypoint", "/bin/sh",
-             image, "-c", "mount | grep strmgen; echo TOKEN=${OPENLIST_TOKEN}; sleep 30"]
+             image, "-c", "mount | grep strmgen; if [ -n \"$OPENLIST_TOKEN\" ]; then echo TOKEN_SET; else echo TOKEN_MISSING; fi; sleep 30"]
     started = docker(args, timeout=60, env=h._env())
     check(started.returncode == 0, f"mount probe failed to start: {started.stderr}")
     h.containers.append(name)
@@ -474,7 +474,13 @@ def scenario_minimal_run(h, results, image):
             check(targets[target]["RW"] is False, f"{target} must be read-only")
     logs = docker(["logs", name], timeout=30)
     h.remove(name)
-    check(f"TOKEN={SECRET_MARKER}" in logs.stdout, "token environment was not injected into the container")
+    # The token must be present in the running container but must never be
+    # printed: the probe reports only a boolean marker, and the marker value
+    # itself must not appear in the container logs.
+    check("TOKEN_SET" in logs.stdout, "token environment was not injected into the container")
+    check("TOKEN_MISSING" not in logs.stdout, "token environment was empty in the container")
+    check(SECRET_MARKER not in logs.stdout and SECRET_MARKER not in logs.stderr,
+          "container logs leaked the runtime token value")
     check("strmgen-locks" in logs.stdout and "ro" in logs.stdout,
           f"read-only config mount not visible: {logs.stdout}")
 
@@ -592,6 +598,17 @@ def scenario_compose_lifecycle(h, results, image):
               f"compose first round not committed: {read_db(db)['rounds']}")
         before = snapshot(h.out)
         check(len(before) == 4, f"compose first round wrote {len(before)} files, want 4")
+        # Runtime token injection is proven without printing the value: the
+        # synthetic service only accepts SECRET_MARKER, so a delivered first
+        # round already required it. Confirm the running container has the
+        # variable using a boolean marker only.
+        token_probe = docker(["exec", container, "sh", "-c",
+                              'if [ -n "$OPENLIST_TOKEN" ]; then echo TOKEN_SET; else echo TOKEN_MISSING; fi'],
+                             timeout=30)
+        check(token_probe.returncode == 0, f"compose token probe failed: {token_probe.stderr}")
+        check(token_probe.stdout.strip() == "TOKEN_SET",
+              f"compose container did not receive the runtime token: {token_probe.stdout!r}")
+        check(SECRET_MARKER not in token_probe.stdout, "compose token probe leaked the value")
         stop = subprocess.run(["docker", "compose", "-f", str(ROOT / "deploy" / "compose.yaml"),
                                "-p", project, "stop", "-t", "60"], capture_output=True,
                               text=True, timeout=120, env=env)
@@ -599,13 +616,25 @@ def scenario_compose_lifecycle(h, results, image):
         exit_code = int(docker(["inspect", "--format", "{{.State.ExitCode}}", container],
                                timeout=30).stdout.strip())
         check(exit_code != 0, f"compose serve must exit non-zero on stop, got {exit_code}")
-        # The rendered compose must not embed the token in a committed file.
-        rendered = subprocess.run(["docker", "compose", "-f", str(ROOT / "deploy" / "compose.yaml"),
-                                   "-p", project, "config"], capture_output=True, text=True,
-                                  timeout=60, env=env)
-        check(rendered.returncode == 0, f"compose config failed: {rendered.stderr}")
-        check(SECRET_MARKER in rendered.stdout,
-              "compose render should inject the runtime token into the environment")
+        # The committed compose must use a runtime pass-through declaration and
+        # must never bake a value into a rendered file or the evidence. On this
+        # Compose version plain `config` resolves the operator's own host
+        # environment (by design for `environment:` injection), so the
+        # redaction assertion uses `--no-interpolate`, which renders the
+        # declaration without any value. The pass-through form is also checked
+        # so a value interpolation cannot silently return.
+        nointerp = subprocess.run(["docker", "compose", "-f", str(ROOT / "deploy" / "compose.yaml"),
+                                   "-p", project, "config", "--no-interpolate"], capture_output=True,
+                                  text=True, timeout=60, env=env)
+        check(nointerp.returncode == 0, f"compose config --no-interpolate failed: {nointerp.stderr}")
+        check(SECRET_MARKER not in nointerp.stdout and SECRET_MARKER not in nointerp.stderr,
+              "compose --no-interpolate render leaked the runtime token")
+        check("${OPENLIST_TOKEN" not in nointerp.stdout,
+              "compose must use a pass-through declaration, not value interpolation")
+        # The running container did receive the token: the synthetic service
+        # only accepts SECRET_MARKER, so the committed first round above already
+        # required it, and the boolean probe below confirms the variable without
+        # printing its value.
         check(snapshot(h.out) == before, "compose stop changed output")
     finally:
         subprocess.run(["docker", "compose", "-f", str(ROOT / "deploy" / "compose.yaml"),

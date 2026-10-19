@@ -16,11 +16,15 @@ name: strmgen
 services:
   strmgen:
     image: "${STRMGEN_IMAGE:-strmgen:local}"
-    # The token is injected only at runtime. There is no default: a missing
-    # OPENLIST_TOKEN fails the compose interpolation instead of starting a
-    # container without credentials.
+    # The token is injected only at runtime. `OPENLIST_TOKEN:` is a Compose
+    # pass-through declaration: the running container reads the host value and
+    # fails its own token check if the host variable is unset. This file, an
+    # image and a `--no-interpolate` render therefore never contain a value.
+    # Note: plain `docker compose config` resolves the operator's own host
+    # environment by design, so use `--no-interpolate` when capturing a
+    # redacted render for evidence or logs.
     environment:
-      OPENLIST_TOKEN: "${OPENLIST_TOKEN:?set OPENLIST_TOKEN in the environment}"
+      OPENLIST_TOKEN:
     # Run as the host owner of the bind mounts. Defaults to the unprivileged
     # image account; override with STRMGEN_UID/STRMGEN_GID to match the host.
     user: "${STRMGEN_UID:-10001}:${STRMGEN_GID:-10001}"

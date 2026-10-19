@@ -87,6 +87,25 @@ class ContainerDriverUnitTests(unittest.TestCase):
         self.assertIn("/tmp/strmgen-locks", source)
         self.assertIn(":ro", source)
 
+    def test_compose_token_is_runtime_passthrough_not_interpolation(self):
+        # A value interpolation such as ${OPENLIST_TOKEN:?set} would render the
+        # runtime secret into `docker compose config` output. The contract is a
+        # pass-through declaration that renders only null/pass-through.
+        source = (driver.ROOT / "deploy/compose.yaml").read_text()
+        self.assertNotIn("${OPENLIST_TOKEN", source)
+        lines = [line.strip() for line in source.splitlines()]
+        self.assertIn("OPENLIST_TOKEN:", lines)
+
+    def test_driver_probe_reports_boolean_marker_only(self):
+        source = (driver.ROOT / "scripts/run_container_integration.py").read_text()
+        # The mount/token probe must never echo the runtime value.
+        self.assertNotIn("echo TOKEN=${OPENLIST_TOKEN}", source)
+        self.assertIn("TOKEN_SET", source)
+        self.assertIn("TOKEN_MISSING", source)
+        # The rendered compose is asserted to exclude the secret, not include it.
+        self.assertIn("SECRET_MARKER not in nointerp.stdout", source)
+        self.assertNotIn("SECRET_MARKER in rendered.stdout", source)
+
     def test_summary_shape_is_json_serializable(self):
         payload = {"scenarios": {"minimal_run": {"status": "PASS"}}, "failures": []}
         self.assertIn("minimal_run", json.loads(json.dumps(payload))["scenarios"])

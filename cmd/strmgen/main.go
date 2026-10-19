@@ -238,6 +238,15 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "configuration error: %s\n", config.SafeDiagnostic(err))
 		return exitUsage
 	}
+	// serve-only interval validation runs before token lookup, lock
+	// acquisition, output-root preparation, database open or any remote
+	// request, so an interval that cannot drive the timer never causes a
+	// product side effect. One-shot `sync` deliberately skips this check and
+	// keeps accepting interval_minutes: 0.
+	if err := resolved.ValidateServeInterval(); err != nil {
+		fmt.Fprintf(stderr, "configuration error: %s\n", config.SafeDiagnostic(err))
+		return exitUsage
+	}
 	token, err := resolved.Token()
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error: configured token environment variable is not set")

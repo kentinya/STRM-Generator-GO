@@ -158,6 +158,65 @@ func TestServeRejectsFractionalInterval(t *testing.T) {
 	}
 }
 
+// TestSyncAcceptsZeroInterval preserves the Base one-shot behavior: `sync` and
+// `sync --dry-run` never schedule, so sync.interval_minutes: 0 must remain a
+// valid configuration instead of failing every command.
+func TestSyncAcceptsZeroInterval(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	cfg := writeConfigWithExtra(t, ts.URL, root, db, "sync:\n  interval_minutes: 0\n")
+
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitOK {
+		t.Fatalf("sync with interval 0 exit=%d stderr=%s", code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "created=1") {
+		t.Fatalf("sync with interval 0 report: %s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "A.strm")); err != nil {
+		t.Fatalf("sync with interval 0 did not create output: %v", err)
+	}
+
+	dryRoot := t.TempDir()
+	dryDB := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	dryCfg := writeConfigWithExtra(t, ts.URL, dryRoot, dryDB, "sync:\n  interval_minutes: 0\n")
+	out.Reset()
+	errBuf.Reset()
+	if code := run([]string{"sync", "--config", dryCfg, "--dry-run"}, &out, &errBuf); code != exitOK {
+		t.Fatalf("sync --dry-run with interval 0 exit=%d stderr=%s", code, errBuf.String())
+	}
+	if _, err := os.Stat(filepath.Join(dryRoot, "A.strm")); !os.IsNotExist(err) {
+		t.Fatal("sync --dry-run with interval 0 must not create files")
+	}
+}
+
+// TestServeRejectsZeroIntervalBeforeAnySideEffect proves serve rejects a zero
+// interval after config load but before token lookup, lock, output or database.
+func TestServeRejectsZeroIntervalBeforeAnySideEffect(t *testing.T) {
+	ts := startFakeAPI(t)
+	// The token is deliberately absent: if serve touched the token lookup or any
+	// product resource before validating the interval, the error would differ.
+	os.Unsetenv("STRMGEN_TEST_TOKEN")
+	root := filepath.Join(t.TempDir(), "out")
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	cfg := writeConfigWithExtra(t, ts.URL, root, db, "sync:\n  interval_minutes: 0\n")
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"serve", "--config", cfg}, &out, &errBuf); code != exitUsage {
+		t.Fatalf("serve with interval 0 exit=%d want %d (%s)", code, exitUsage, errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "token") {
+		t.Fatalf("serve validated interval after token lookup: %s", errBuf.String())
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("serve with interval 0 created output: %v", err)
+	}
+	if _, err := os.Stat(db); !os.IsNotExist(err) {
+		t.Fatalf("serve with interval 0 created database: %v", err)
+	}
+}
+
 func TestServeMissingTokenIsUsageError(t *testing.T) {
 	ts := startFakeAPI(t)
 	os.Unsetenv("STRMGEN_TEST_TOKEN")

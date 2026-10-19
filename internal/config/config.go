@@ -115,11 +115,14 @@ type Resolved struct {
 	Mirror               bool
 	CleanupEnabled       bool
 	MissingConfirmations int
-	// IntervalMinutes is the validated serve interval in whole minutes. It is
-	// always >= 1; the default is DefaultIntervalMinutes.
+	// IntervalMinutes is the parsed serve interval in whole minutes. It is
+	// never negative; the default is DefaultIntervalMinutes. A zero value is
+	// valid for one-shot `sync`, which never schedules, and is rejected by
+	// ValidateServeInterval before any serve side effect.
 	IntervalMinutes int
-	// Interval is IntervalMinutes converted to a checked time.Duration. The
-	// conversion is validated so it can never wrap into a non-positive value.
+	// Interval is IntervalMinutes converted to a checked time.Duration. It is
+	// non-positive when the value is zero or would overflow the conversion;
+	// ValidateServeInterval rejects those cases before any serve side effect.
 	Interval time.Duration
 	Sources  []ResolvedSource
 	baseDir  string
@@ -271,13 +274,20 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if cfg.Sync.IntervalMinutes != nil {
 		intervalMinutes = int(*cfg.Sync.IntervalMinutes)
 	}
-	if intervalMinutes < 1 {
-		return nil, errors.New("sync.interval_minutes must be a positive integer")
+	// A negative interval is invalid for every command and is rejected here,
+	// before any lock, output root or database is touched. A zero interval is
+	// accepted for the one-shot `sync` command, which never schedules; the
+	// serve-only positive/overflow check lives in ValidateServeInterval so it
+	// can run before token lookup, locking or any product side effect.
+	if intervalMinutes < 0 {
+		return nil, errors.New("sync.interval_minutes must not be negative")
 	}
-	// Guard the minutes-to-Duration conversion against Int64 overflow before
-	// any lock, output root or database is touched.
-	if int64(intervalMinutes) > math.MaxInt64/int64(time.Minute) {
-		return nil, errors.New("sync.interval_minutes is too large to convert safely")
+	// Guard the minutes-to-Duration conversion against Int64 overflow. An
+	// overflowing value leaves Interval non-positive and is rejected by
+	// ValidateServeInterval; one-shot `sync` ignores it.
+	interval := time.Duration(0)
+	if int64(intervalMinutes) <= math.MaxInt64/int64(time.Minute) {
+		interval = time.Duration(intervalMinutes) * time.Minute
 	}
 	workers := DefaultDirectoryWorkers
 	if cfg.Sync.DirectoryWorkers != nil {
@@ -293,7 +303,7 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 		CleanupEnabled:       cleanupEnabled,
 		MissingConfirmations: missingConfirmations,
 		IntervalMinutes:      intervalMinutes,
-		Interval:             time.Duration(intervalMinutes) * time.Minute,
+		Interval:             interval,
 		baseDir:              baseDir,
 	}
 
@@ -494,6 +504,22 @@ func validEnvName(name string) bool {
 		return false
 	}
 	return true
+}
+
+// ValidateServeInterval rejects an interval that is valid for one-shot `sync`
+// but cannot drive the serve timer: zero, negative, or a value whose
+// minutes-to-Duration conversion would overflow. serve calls it immediately
+// after Load and before token lookup, lock acquisition, output-root
+// preparation, database open or any remote request, so an unusable interval
+// can never cause a partial product side effect.
+func (r *Resolved) ValidateServeInterval() error {
+	if r.IntervalMinutes < 1 {
+		return errors.New("sync.interval_minutes must be a positive integer")
+	}
+	if r.Interval <= 0 {
+		return errors.New("sync.interval_minutes is too large to convert safely")
+	}
+	return nil
 }
 
 // Token reads the configured environment variable. The value is returned to
