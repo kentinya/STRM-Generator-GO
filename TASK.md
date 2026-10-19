@@ -7,7 +7,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 87be914349db70929461d306e1d183c8e560cd68
 Difficulty: High
@@ -23,8 +23,9 @@ Planner / Reviewer: B
 
 ## 实际缺口与范围
 
-- 已实施候选：83e5b1901e1c306d1f48fcde92786b353eb3d5e3。产品 Go 未变；已有目标
-  runner；本轮测试治理前实际 36 项、精简后 31 项（历史报告为 34）。不是“尚缺目标／等待创建 runner”。既有部署只核对身份，不重搭。
+- 当前固定候选：a213e227b2e84675205110e7a51aee94a300acd9；报告后继为
+  44b40bddd4e3c4a29ae92c5bc0d8d294e1d86d69（仅 TASK 文档，产品 Go 未变）。
+  已有目标 runner；本轮目标工具测试 45 项、全 Python 153 项。既有部署只核对身份，不重搭。
 - OpenList 源 3b28270a4066ea52943a69ecddd850d83f7e8bdc，镜像
   openlistteam/openlist@sha256:11b490123d57f88c84ecda46285e1921869cf511da3e5bb4062f183e7e1200b7，
   v4.2.7，专用隔离 S3/RustFS。Jellyfin 为
@@ -43,8 +44,9 @@ Planner / Reviewer: B
   5/5，以及移动生成／扫描／旧路径清理／恢复原树及恢复后播放的证据；B 独立真实复现尚未运行。
 - 目标 get 没有可用 SHA-1；用户已允许验收侧计算自有本地合成媒体真实哈希，不再以此
   作为“无法构造输入”的范围阻塞。已有派生输入和 Go 比较通过，但实际插件两行仍 NOT RUN。
-- 当前剩余：实际凭据出口／事件记录、失败夹具最小处置和准确报告、两行真实插件观察、
-  B 独立一份媒体链路、完整 T4 复用裁定及 Base..Head 审查。本会话所需专用凭据未在进程
+- 当前剩余：本轮 B 实证的凭据接线／非零子进程／超时标记三项修正、凭据事件处置、
+  两行真实插件观察和 B 独立一份媒体链路。B 已完成本地门禁裁定及完整 Base..Head 审查，
+  真实必验未满足，不能签完整 T4／Task PASS。本会话所需专用凭据未在进程
   环境注入；不从文件／生产配置恢复，不把未运行写成通过。
 
 ## 最简执行与实施边界
@@ -248,19 +250,53 @@ Size-change／移动首播（三项用户暂缓）、Go 全量／race／构建�
   元数据 201、字节 5/5、重复零写、原生播放 5/5；移动生成／扫描／清理／恢复证据保留，首播 BLOCKED。
 - 凭据回显／临时文件事件及轮换为 Developer 报告，B 未独立确认全部处置，不保留“从未泄露”的断言。
 
-## B Review Result（现存决定与本轮文档调整）
+## B Review Result（第四轮固定候选复审，2026-10-19）
 
-- Reviewed Range：527570df75ab469eb204d6a42b2d1b4eb07f71e6..83e5b1901e1c306d1f48fcde92786b353eb3d5e3。
-- Decision：**FIX REQUIRED**，本轮没有新产品审查 PASS；继续 Task 4.1。
-- B 证据：artifacts/validation-evidence/task-4.1-b3-20261019-223640/INDEX.md（本机）。
-  quality.py 原始环境 PASS（148 Python 测试及 Go 检查）；最初 TMPDIR 覆盖导致两项夹具
-  失败，恢复原环境通过，首次日志保留。独立合成反例不是实际插件／播放证据。
-- 当前修正要求仅为上方最小范围：凭据实际出口／事件记录，夹具失败停止／准确标记和结果
-  描述；撤回通用补偿／秘密／日志工具要求及汇总反例的独立 P1。三项用户暂缓不再阻断。
-- SHA-1 夹具及 Go 比较证据：artifacts/validation-evidence/task-4.1-b-sha1-20261019-225444/。
-  同哈希／Size 异常 skip+anomaly、不同哈希 update 已通过；实际插件两行仍 NOT RUN。
-- B 独立真实链路 NOT RUN，完整 T4 逐项复用裁定尚未完成。全部必验尚未满足，Closure Packet／
-  A Final Review PENDING，不返回 SLICE READY FOR A REVIEW，不自行关闭。
+- Reviewed Range：527570df75ab469eb204d6a42b2d1b4eb07f71e6..a213e227b2e84675205110e7a51aee94a300acd9。
+  已审完整 18 文件差异及提交序列，不仅最后一笔修正。44b40bddd4e3c4a29ae92c5bc0d8d294e1d86d69
+  仅为完成报告／时间文档，不移动 Task Base／Slice Base／Contract Checkpoint。
+- Decision：**FIX REQUIRED**；继续同一 Task 4.1，不新造 Task，不代 A 关闭。
+- B 原始证据：artifacts/validation-evidence/task-4.1-b4-20261019-233050/（本机、Git 忽略）。
+  独立合成反例见 independent_reproduce.py / independent-reproductions.json；不是实际插件或播放证据。
+
+### 必须修正的实际出口与失败路径
+
+1. **P1 / AC-1：环境秘密未接入脱敏集合。** resolve_credentials 只注册 JF_ADMIN_TOKEN
+   和认证派生 token，没有注册 OPENLIST_TOKEN／JF_PASSWORD／JF_PLAYBACK_PASSWORD／S3 秘密。
+   main 也未补注册；scrub 只遍历已注册集合。独立反例从正常 resolve_credentials 入口传入
+   合成环境，再令子进程 JSON error 回显同一播放口令：明文仍由 jellyfin_playback 返回，
+   OPENLIST_TOKEN 同样存活于 Failure 文本。现有单测先手动 register_secret，掩盖正常接线缺口。
+   仅把已有 SECRET_ENV_KEYS 的进程输入接入现有边界（认证／子进程之前），补不手工注册的
+   真实入口回归；不建设通用秘密识别／派生追踪框架。JSON 转义 Recorder 拒写已独立确认修复。
+2. **P1 / AC-5：非零播放子进程仍可被判成功。** jellyfin_playback 只在空 stdout 时报告
+   returncode；非零退出但 stdout 有 results:[{advanced:true}] 会原样返回，playback_item 可接受。
+   独立反例 exit=7 被接受。非零退出不能作为播放证据，补此直接反例；无需新播放框架。
+3. **P1 / AC-6：普通超时绕过夹具失败标记。** 远端 move 成功后 run_cli 的真实
+   subprocess.TimeoutExpired 不属于 Failure／OSError，越过 scenario_move 的失败处理与 main 的
+   Failure 分支，既没有 ro5_move_failure，也不恢复远端对象；独立模拟只发生一次 move、无标记。
+   最小修正为在现有调用边界分类普通超时／启动或 I/O 失败，停止并可靠标记已改变、未恢复状态。
+   可恢复或弃用重建，**不要求**自动回滚、逐阶段故障矩阵；不执行用户暂缓的移动首播。
+4. **未完成处置仍开放。** Developer 事件记录已如实披露；历史密码证据及外部明文文件的
+   轮换／移除没有可核验收口。本轮只查外部文件存在与 mode，不读值、不 source、不擅删／轮换。
+   此项授权／历史风险接受交 A；不把“报告已记录”等同于“事件已处置”。
+
+### Developer 受影响验证与 B 保留门禁
+
+Developer 只修上述已有 runner 出口、正常失败标记与对应反馈测试，命令仍为本 Task 的
+目标工具 unittest（或被 quality 覆盖时不重复）；产品未改不要求 Developer 代跑全量。
+不得改产品语义、扩大暂缓、削弱断言或把手动 register_secret 作为唯一接线测试。
+修正提交后仍交 READY FOR B REVIEW，B 负责按可执行输入影响补跑与逐项证据裁定。
+
+本轮 B 完成 mod download／verify、quality（153 Python + Go 检查）、race／非缓存全部包、
+amd64／testhooks 构建、serve 6/6、镜像构建和容器 5/5。本地 sync 首跑 9/11（B 并行门禁
+争用产品固定共享锁）；首败原件保留，无并发精确复跑失败两项 2/2，与已通过九项组成 11/11。
+不改断言、不重跑已覆盖九项。门禁命令、输入、复用裁定见同目录 INDEX.md / gate-disposition.json。
+旧完整 T4 因二进制／运行身份不足没有整体复用；目标匹配旧行为有限复用，不冒充新 runner／B 实跑。
+截至 23:43:48，验证进程连同 serve 父进程等待上界双计约 321.560 秒 / 本轮 778.746 秒，
+保守占比 41.29%，低于 50%；未空等凑比例，最终治理／diff 检查另计。后继纯文档只重跑治理／链接／diff，不机械重跑产品 Final。
+真实 OpenList／Jellyfin 独立一份链路及实际 SHA-1 两行因专用凭据未注入仍 **NOT RUN**；
+未从文件／容器环境恢复秘密。三项用户暂缓保持原始 BLOCKED／DEFERRED，未执行、不计 PASS。
+全部 RO 未满足，Closure Packet / A Final Review PENDING，不能返回 SLICE READY FOR A REVIEW。
 
 ## 历史与检查点
 
