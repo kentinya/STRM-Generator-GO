@@ -157,8 +157,8 @@ API／DB，不接生产状态。生成器不下载媒体计算哈希；测试侧
 
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
-Implementation Head: 见下方「本轮检查点」提交 SHA（本报告随同一提交交付）
-本轮 Base: f828c7f008be4abcf6bef73009c4d8526b768256
+Implementation Head: a213e227b2e84675205110e7a51aee94a300acd9
+本轮 Base（B 上轮已审 HEAD）: f828c7f008be4abcf6bef73009c4d8526b768256
 证据索引: artifacts/validation-evidence/task-4.1-dev3-20261019-232352/INDEX.md（本机、Git 忽略）
 ```
 
@@ -236,7 +236,8 @@ Size-change／移动首播（三项用户暂缓）、Go 全量／race／构建�
   改为 NOT DETERMINED。均不因本轮视为通过。
 - 凭据历史暴露点的轮换／删除未完成（见 incident record），仍需 B／A 处置。
 - 本机证据，非远端可读；产品 T4 与独立真实复现仍由 B 执行。
-- 测试执行 0.315 秒，本轮保守回合分母远大于 1 秒，占比远低于 30%；无空等凑比例。
+- 测试执行合计 1.072 秒（py_compile 0.073 + 目标测试 0.193 + 治理单测 0.691 + 治理 0.115），
+  本轮保守回合分母约 560 秒，占比约 0.19%，远低于 30%；无空等凑比例。
 
 ## Developer Completion Report（上一轮候选，历史事实）
 
