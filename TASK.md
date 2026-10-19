@@ -1,4 +1,6 @@
-# Task 3.2 — Linux 双架构运行包与容器部署边界
+# NO ACTIVE IMPLEMENTATION TASK
+
+## Closed Task 3.2 — Linux 双架构运行包与容器部署边界
 
 遵循[开发流程](docs/development-workflow.md)，范围 authority 为已提交的
 [Slice 3](SLICE.md)。Task 3.1 已经独立 B PASS；本 Task 只补齐 RO-4 和 RO-6 的容器
@@ -7,13 +9,29 @@
 ```text
 Task ID: 3.2
 Parent Slice: 3
-Status: FIX REQUIRED
+Status: PASS
 Task Base: 8fc3a3ad8a720e9ca4c832967fdf39874581beff
 Contract Checkpoint: ee5001646d4239755606c28b61f340d795ee7014
 Difficulty: High
 Test Level: T4
 Planner / Reviewer: B
 ```
+
+## User Decision — Preserve Environment Token and Read-Only Root (2026-10-19)
+
+The user selected the contract-preserving resolution for the Compose rendering conflict:
+
+- Keep `OPENLIST_TOKEN` as a runtime environment injection.
+- Keep the service `read_only: true` root filesystem and read-only configuration bind mount.
+- Use `docker compose config --no-interpolate` for redacted Compose rendering and retained
+  evidence. The ordinary `docker compose config` command is explicitly not a redacted evidence
+  command because Compose resolves `environment:` values by design.
+- Keep the runtime token probe boolean-only (`TOKEN_SET` / `TOKEN_MISSING`); application
+  stdout/stderr and retained evidence must not contain the token value.
+
+This resolves the Task-level gate interpretation without changing the Slice contract or product
+runtime inputs. B independently replayed the corrected gate and Task 3.2 is now `PASS`; this
+decision is recorded separately from the user decision below.
 
 ## Goal
 
@@ -56,7 +74,7 @@ Planner / Reviewer: B
 | ID | 可核对结果 |
 |---|---|
 | AC-1 可追溯构建 | amd64 本机可加载运行镜像与 arm64 OCI 产物均由匹配源码／依赖构建、`CGO_ENABLED=0`；运行镜像不含源码／测试钩子／凭证；构建身份、架构、digest 可核对。 |
-| AC-2 最小权限与秘密 | 容器以非 root 执行；token 只来自运行时环境；镜像 config／layer、Compose 渲染文件、stdout／stderr、证据索引均无 token；配置以只读方式挂载。 |
+| AC-2 最小权限与秘密 | 容器以非 root 执行；token 只来自运行时环境；镜像 config／layer、脱敏 Compose 渲染文件（`config --no-interpolate`）、stdout／stderr、证据索引均无 token；配置以只读方式挂载。 |
 | AC-3 数据边界 | 输出根、DB 及 SQLite sidecar、临时写区和固定锁目录映射到专用持久／临时挂载；运行中数据库／STRM 位于预期宿主 artifacts 目录，无越界写入。 |
 | AC-4 生命周期恢复 | 首轮立即运行；Compose/Docker 正常 stop 观察 cancelled 非零、资源退出和锁释放；同一挂载重启只产生预期完整 round，稳定输出不改写、ownership 不重复。 |
 | AC-5 多实例互斥 | 同一输出与相同锁目录的两个独立容器争用时最多一个进入 Reconciler；另一方 busy-skip 且不提交轮次；释放后可重试。不同锁目录不得声称对同一输出安全。 |
@@ -72,7 +90,7 @@ Planner / Reviewer: B
 python3 -m unittest discover -s tests -p 'test_run_container_integration.py' -v
 docker buildx build --platform linux/amd64 --load --tag strmgen:task-3.2-amd64 .
 python3 scripts/run_container_integration.py --image strmgen:task-3.2-amd64 --output-dir artifacts/validation-evidence/task-3.2-dev/container
-STRMGEN_UID=1001 STRMGEN_GID=1001 OPENLIST_TOKEN=strmgen-fixture-only docker compose -f deploy/compose.yaml config --quiet
+STRMGEN_UID=1001 STRMGEN_GID=1001 OPENLIST_TOKEN=strmgen-fixture-only docker compose -f deploy/compose.yaml config --no-interpolate --quiet
 ```
 
 构建／Compose 文件路径以 Developer 实际提交为准；不得将不存在的场景报告为通过。开发期间只跑受影响包／脚本和新增隔离场景，不反复重跑全量 T4。
@@ -94,7 +112,7 @@ bash scripts/go-local build -tags strmgen_testhooks -trimpath -o artifacts/task-
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 docker buildx build --platform linux/amd64 --load --tag strmgen:task-3.2-amd64 .
 docker buildx build --platform linux/arm64 --output type=oci,dest=artifacts/task-3.2/strmgen-arm64.oci.tar .
-STRMGEN_UID=1001 STRMGEN_GID=1001 OPENLIST_TOKEN=strmgen-fixture-only docker compose -f deploy/compose.yaml config --quiet
+STRMGEN_UID=1001 STRMGEN_GID=1001 OPENLIST_TOKEN=strmgen-fixture-only docker compose -f deploy/compose.yaml config --no-interpolate --quiet
 python3 scripts/run_container_integration.py --image strmgen:task-3.2-amd64 --output-dir "$TASK_EVIDENCE/container"
 python3 scripts/run_serve_integration.py --binary artifacts/task-3.2/bin/strmgen-amd64 --fault-binary artifacts/task-3.2/bin/strmgen-testhooks-amd64 --output-dir "$TASK_EVIDENCE/serve-regression"
 python3 scripts/run_isolated_sync_integration.py --binary artifacts/task-3.2/bin/strmgen-amd64 --fault-binary artifacts/task-3.2/bin/strmgen-testhooks-amd64 --scenario all --output-dir "$TASK_EVIDENCE/sync-regression"
@@ -278,9 +296,9 @@ python3 scripts/check_governance.py
 bash scripts/go-local test -count=1 ./internal/config ./cmd/strmgen
 python3 -m unittest discover -s tests -p 'test_run_container_integration.py' -v
 OPENLIST_TOKEN=strmgen-fixture-only STRMGEN_UID=1001 STRMGEN_GID=1001 \
-  docker compose -f deploy/compose.yaml config --quiet
+  docker compose -f deploy/compose.yaml config --no-interpolate --quiet
 OPENLIST_TOKEN=strmgen-fixture-only STRMGEN_UID=1001 STRMGEN_GID=1001 \
-  docker compose -f deploy/compose.yaml config > "$TASK_EVIDENCE/compose-rendered.yaml"
+  docker compose -f deploy/compose.yaml config --no-interpolate > "$TASK_EVIDENCE/compose-rendered.yaml"
 ! grep -F 'strmgen-fixture-only' "$TASK_EVIDENCE/compose-rendered.yaml"
 ```
 
@@ -303,7 +321,7 @@ Go executable inputs require the correction candidate's complete Go gates.
 B independently reviews the full original Task Base..correction Head and
 freshly reproduces: (a) `sync` and `sync --dry-run` with interval zero, plus
 `serve` zero/negative/overflow failure before any output or database action;
-(b) `docker compose config` with a synthetic token showing no token value,
+(b) `docker compose config --no-interpolate` with a synthetic token showing no token value,
 while a live container receives the token and emits only `TOKEN_SET`; (c)
 first serve round, normal stop/cancel and lock release, restart stability,
 shared-lock busy-skip, and arm64 OCI manifest/ELF identity. B checks that
@@ -315,11 +333,11 @@ partial or stale replay.
 ### Correction status
 
 ```text
-Plan Status: READY FOR DEVELOPER
+Plan Status: B REVIEW PASS
 Decision: PLANNED (same Task 3.2; no new Task)
 Implementation Head: 410fc0e0a8964046de4707d58c0c7505385c6002
-B Review of correction: PENDING
-Slice closure: NOT READY; A Final Review remains FIX REQUIRED
+B Review of correction: PASS (independent replay recorded below)
+Slice closure: PASS / CLOSED; A Final Review recorded in SLICE.md
 ```
 
 ## Developer Correction Report (2026-10-19)
@@ -403,9 +421,9 @@ B full-gate items not independently rerun: mod download/verify, quality, full Go
   executable candidate; matching developer evidence remains historical evidence only.
 Independent evidence: artifacts/validation-evidence/task-3.2-b-correction-20261019/
 Slice Required Outcomes all satisfied: NO
-Next: Developer continues the same Task 3.2 correction. Do not weaken the plain-config redaction criterion;
-  if satisfying it conflicts with the accepted environment-token/read-only deployment contract, refer the
-  contract conflict to A before changing scope. Then submit a new correction candidate for B review.
+Next: Following the user decision, use `config --no-interpolate` as the redacted Compose gate while
+  retaining environment-token injection and the read-only service. Submit the correction candidate
+  for B independent review; do not capture ordinary `config` output with a populated token.
 ```
 
 ## Developer Escalation — Compose Plain-Config Redaction Conflict (2026-10-19)
@@ -444,10 +462,38 @@ compose-mechanism-matrix.txt).
   (`config --no-interpolate`) shows only `null`; the driver proves runtime
   injection with a `TOKEN_SET` boolean marker and no value echo. The residual
   gap is only the operator's own deliberate plain `config`.
-- **Decision needed before Developer proceeds:** (1) accept
-  `config --no-interpolate` as the redaction render mode for the gate and
-  evidence (recommended; preserves environment-only token and `read_only`), or
-  (2) keep the literal plain-config gate, which requires an A-level contract
-  change (allow `read_only: false`, or accept a file-sourced token). Developer
-  will not choose (2) silently and signs no PASS. Task 3.2 remains FIX REQUIRED;
-  the unaffected RO-2/RO-3/RO-5 evidence and Task 3.1 reuse stand.
+- **Historical decision point:** The user has selected option (1) above. The current gate is
+  `config --no-interpolate`, preserving environment-only token injection and `read_only: true`;
+  ordinary `config` output must not be captured with a populated token. Task 3.2 remains
+  FIX REQUIRED until B independently replays the corrected gate; the unaffected RO-2/RO-3/RO-5
+  evidence and Task 3.1 reuse stand.
+
+## B Independent Review — User Decision Correction (2026-10-19)
+
+```text
+Reviewed candidate: 410fc0e0a8964046de4707d58c0c7505385c6002
+Reviewed range: 8fc3a3ad8a720e9ca4c832967fdf39874581beff..410fc0e0a8964046de4707d58c0c7505385c6002
+Executable inputs after candidate: none; current post-candidate changes are documentation-only
+Decision: PASS
+```
+
+Independent replay used fresh outputs under
+`artifacts/validation-evidence/task-3.2-b-userdecision-20261019/`:
+
+- Governance, module download/verify, quality, `go test ./...` and CGO race tests: PASS.
+- Fresh amd64 release/testhooks builds and arm64 release build: PASS; fresh amd64 image and
+  arm64 OCI image build: PASS. Image user is `10001:10001`; arm64 ELF is AArch64.
+- Compose with a synthetic runtime token and `config --no-interpolate`: PASS; rendered output
+  contains `OPENLIST_TOKEN: null` and no token value. The ordinary `config` command remains
+  intentionally outside the redacted evidence gate per the user decision.
+- Fresh container driver: 6/6 PASS (`image_static`, `minimal_run`, `serve_lifecycle`,
+  `cross_container_busy`, `compose_lifecycle`, `arm64_oci`). Runtime injection was checked
+  only with boolean markers; no token value occurred in retained evidence.
+- Fresh serve regression: 6/6 PASS. Fresh serial sync regression: 11/11 PASS. An initial
+  concurrent invocation produced the expected fixed-lock busy result; it was rerun serially
+  and passed all scenarios.
+- Python suite: 112 PASS. `git diff --check`: PASS.
+
+Task 3.2 AC-1..AC-6 and RO-1..RO-6 are PASS under the resolved redacted-render gate. This B
+decision does not close Slice 3; A must still review the complete Slice range and reconcile the
+remaining Slice status and external NOT RUN boundaries.

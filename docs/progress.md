@@ -1,5 +1,29 @@
 # 进度
 
+## Slice 3 A Final PASS / CLOSED (2026-10-19)
+
+A 审查完整范围 `ca9f91e10a0fc6c28679b5827f453e632eb9854a..410fc0e0a8964046de4707d58c0c7505385c6002`，
+确认 Task 3.1 与修正后的 Task 3.2 均有独立 B PASS，RO-1..RO-6 和 Slice 安全不变量均满足。
+此前两项 P1 已闭环：`sync.interval_minutes: 0` 仅由 `serve` 专用校验拒绝，Compose 保留运行时环境
+token 与 `read_only`，脱敏采集固定使用 `config --no-interpolate`，驱动仅输出 token 布尔标记。
+A 独立复跑治理、Go 全量测试、race、quality、Python 112 项和 Compose 脱敏断言均 PASS；B 新鲜证据
+另覆盖双架构构建、容器 6/6、serve 6/6 与串行 sync 11/11。Closure Packet 已在 [SLICE.md](../SLICE.md)
+协调 Base、Implementation Head、Required Outcomes、证据与已知 NOT RUN 边界；未激活下一 Slice。
+
+真实 OpenList、无签名 `/d/` 播放、插件解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN，
+留待 Slice 4。下一步：A SELECTS THE NEXT LARGE SLICE。
+
+## Task 3.2 B Independent Review PASS (2026-10-19)
+
+用户决定保留环境变量 token 注入与 `read_only: true`，并将 Compose 脱敏门禁限定为
+`docker compose config --no-interpolate`。B 使用新构建的 amd64 镜像、arm64 OCI 产物和
+独立证据目录 `artifacts/validation-evidence/task-3.2-b-userdecision-20261019/` 复验：
+治理、mod download/verify、quality、Go 全量与 race、Python 112 项、双架构构建、Compose
+脱敏、容器 6/6、serve 6/6、串行 sync 11/11 均 PASS。Task 3.2 AC-1..AC-6、RO-1..RO-6
+判定 PASS；初次与 serve 并发运行导致固定锁 busy 的预期结果，串行重跑后全场景通过。
+Task 已 PASS；该 B 记录形成时 Slice 3 仍等待 A 最终审查，随后已在上方关闭；真实 OpenList、
+插件／Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
+
 ## Task 3.2 原 Slice 内修正（B Review，2026-10-19，FIX REQUIRED）
 
 按 B 的 [Task 3.2 原 Slice 内修正计划](../TASK.md)，Developer 在同一 Task 3.2、原 Task Base
@@ -54,6 +78,13 @@ Task 3.2 `FIX REQUIRED`，无 Closure Packet；若满足 token 环境注入、�
   保留环境 token 与 `read_only`）；或（2）保留字面普通 `config` 门，需 A 级合同变更（允许
   `read_only: false`，或接受文件来源 token）。Developer 不自行选择（2），不签发 PASS；Task 3.2
   保持 FIX REQUIRED。证据：`artifacts/validation-evidence/task-3.2-correction-escalation-20261019/`。
+
+**用户决策（2026-10-19）：** 选择方案（1），保留环境变量注入 `OPENLIST_TOKEN` 与
+`read_only: true`。Task 3.2 的脱敏 Compose 门禁使用 `docker compose config --no-interpolate`；
+普通 `docker compose config` 会按 Compose 既有语义展开宿主环境值，不再作为脱敏证据命令，且不得
+把其输出写入日志或证据。运行容器仍只用 `TOKEN_SET`／`TOKEN_MISSING` 布尔标记证明注入，
+应用 stdout／stderr 与保留证据不得出现 token 值。该决定不等于 B PASS；Task 3.2 仍待 B
+独立复验后才能更新状态。
 
 ## Slice 3 A Final Review（2026-10-19，FIX REQUIRED）
 

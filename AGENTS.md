@@ -4,7 +4,7 @@
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.3 原方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备、Slice 1 与 Slice 2 已完成，均为 PASS / CLOSED；Slice 2 的 Task 2.1／2.2 均有独立 B PASS，A 已完成完整 Base..Implementation Head 最终审查。Slice 3「定时与部署」的 Task 3.1／3.2 均有独立 B PASS，B 已提交 Closure Packet；A 已审查完整 Base..Implementation Head 并判定 FIX REQUIRED：`sync.interval_minutes: 0` 被错误应用为所有命令的拒绝条件，且 Compose 渲染会输出运行时 token。Slice 未关闭；下一步由 B 规划原 Slice 内修正，Developer 仅可在新计划检查点提交并通过治理检查后实施。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备、Slice 1、Slice 2 与 Slice 3 已完成，均为 PASS / CLOSED；Slice 3 的 Task 3.1／3.2 均有独立 B PASS，A 已审查完整 Base..Implementation Head 至 `410fc0e0a8964046de4707d58c0c7505385c6002` 并完成关闭协调。真实外部 OpenList、插件解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍按合同 NOT RUN，下一步由 A 独立选择后续 Slice。用户会话授权优先于本文件。
 
 ## 固定业务边界
 

@@ -3,7 +3,7 @@
 ```text
 Slice ID: 3
 Owner: A
-Status: FIX REQUIRED
+Status: PASS / CLOSED
 Base SHA: ca9f91e10a0fc6c28679b5827f453e632eb9854a
 Implementation Head: 410fc0e0a8964046de4707d58c0c7505385c6002
 ```
@@ -134,26 +134,39 @@ Slice Final 仍审查固定 Base..Implementation Head 全范围；P2 的部署�
 ## Closure Packet
 
 ```text
-Packet Status: REVIEWED - FIX REQUIRED
+Packet Status: PASS / CLOSED
 Slice Base: ca9f91e10a0fc6c28679b5827f453e632eb9854a
-Reviewed Implementation Head: 2131b54bcec1cd43769d239a30456b4a8607f4aa
-Task Index: Task 3.1 PASS (ee5001646d4239755606c28b61f340d795ee7014..b18caba6fd786bfe589f6ac29c2a2e779a5a1628); Task 3.2 PASS (8fc3a3ad8a720e9ca4c832967fdf39874581beff..2131b54bcec1cd43769d239a30456b4a8607f4aa)
-Required Outcomes: B submitted RO-1..RO-6 PASS; A review found RO-1, RO-4 and RO-6 FIX REQUIRED
-Final Evidence: artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md; artifacts/validation-evidence/task-3.2-final-20261019-1792350581/INDEX.md; artifacts/validation-evidence/task-3.2-b-review-20261019/
-Invariants: PASS; existing sync/mirror/dry-run/ownership/path/lock/round boundaries retained; deployment uses runtime token, read-only config, explicit persistent mounts, and shared lock object for multi-container output
-Known limitations / deferred: Slice 4 external integration, ARM64 runtime, scale and release
-Documentation coordination: current FIX REQUIRED status and A blockers synchronized; no closure performed
-A Final Review: FIX REQUIRED (2026-10-19)
-Next Action: B PLANS AN IN-SLICE CORRECTION
+Reviewed Implementation Head: 410fc0e0a8964046de4707d58c0c7505385c6002
+Task Index: Task 3.1 PASS (ee5001646d4239755606c28b61f340d795ee7014..b18caba6fd786bfe589f6ac29c2a2e779a5a1628); Task 3.2 PASS (8fc3a3ad8a720e9ca4c832967fdf39874581beff..410fc0e0a8964046de4707d58c0c7505385c6002)
+Required Outcomes: RO-1..RO-6 PASS after the in-Slice Task 3.2 correction and B independent re-review
+Final Evidence: artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md; artifacts/validation-evidence/task-3.2-correction-dev/INDEX.md; artifacts/validation-evidence/task-3.2-b-userdecision-20261019/summary.json; B review recorded in TASK.md
+Independent A checks: governance PASS; Go test ./... PASS; Go race ./... PASS; quality.py PASS; Python 112 tests PASS; Compose --no-interpolate redaction PASS
+Invariants: PASS; existing sync/mirror/dry-run/ownership/path/lock/round boundaries retained; serve uses the same lock and round entry; deployment uses runtime token, read-only config, explicit persistent mounts, and shared lock object for multi-container output
+Known limitations / deferred: real OpenList, unsigned /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 hardware, scale and formal publication remain NOT RUN for Slice 4
+Documentation coordination: SLICE, TASK, README, architecture CURRENT, Roadmap, Progress, environment handoff and test matrix reconciled at this closure checkpoint; no new Slice was activated
+A Final Review: PASS / CLOSED (2026-10-19)
+Next Action: A SELECTS THE NEXT LARGE SLICE
 ```
 
 ## A Final Review
 
 ```text
-Reviewed Range: ca9f91e10a0fc6c28679b5827f453e632eb9854a..2131b54bcec1cd43769d239a30456b4a8607f4aa
-Decision: FIX REQUIRED
-P0/P1 Blockers:
-- P1 / RO-1: `internal/config.validate` rejects `sync.interval_minutes: 0` for every command, although the Base accepted zero and Slice 3 requires positive validation for `serve`; `sync` and `sync --dry-run` therefore no longer preserve existing configuration behavior.
-- P1 / RO-4, RO-6 / Task 3.2 AC-2: Compose interpolates `OPENLIST_TOKEN` into `docker compose config` output, and the container acceptance driver asserts that the token appears there. This contradicts the no-token rendered-config/output acceptance and exposes real runtime values to terminal or command-output capture.
-Next Action: B PLANS AN IN-SLICE CORRECTION; Developer implements only after the plan checkpoint and governance pass
+Reviewed Range: ca9f91e10a0fc6c28679b5827f453e632eb9854a..410fc0e0a8964046de4707d58c0c7505385c6002
+Decision: PASS
+P0/P1 Blockers: none
+
+The prior A blockers against 2131b54bcec1cd43769d239a30456b4a8607f4aa were re-reviewed across
+the complete correction range. `sync` and `sync --dry-run` accept interval_minutes: 0 while
+serve rejects zero, negative and duration-overflow values before token lookup, locking, output,
+database or remote work. The user-selected Compose resolution preserves runtime environment
+token injection and read_only deployment; `config --no-interpolate` is the redacted render gate,
+and the driver uses boolean token markers without echoing the value.
+
+Task 3.1 and corrected Task 3.2 have independent B PASS decisions. B's fresh replay covered
+the full candidate gates, dual-architecture builds, six container scenarios, serve 6/6, and
+serial sync 11/11. A independently reran governance, Go tests, race tests, quality, Python
+tests, and the redacted Compose assertion. No required outcome or invariant regressed.
+
+External OpenList, unsigned /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 hardware,
+scale and formal publication remain NOT RUN and are explicitly outside this Slice's acceptance.
 ```
