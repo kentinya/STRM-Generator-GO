@@ -117,47 +117,46 @@ B 审查完整 Task Base..Implementation Head 和上表 AC／RO 映射，确认�
 - Decisions / Risks / Remaining Required Outcomes：PENDING
 ## Developer Completion Report
 
-**Status: BLOCKED on the user-supplied target identity — not READY FOR B REVIEW.**
+**Status: NOT READY FOR B REVIEW — 2 of 7 RO-3 decision-matrix rows BLOCKED.**
 
-Per TASK 4.1 admission rules (lines 22–26, 30) the target OpenList driver/provider, dedicated
-test mount, isolated API + stable unsigned `/d/` base, and Jellyfin-network reachability must be
-provided by the user before any external service work. None were supplied this session
-(`artifacts/validation-evidence/task-4.1-dev-20261019-043534/admission/target-driver-admission.txt`).
-AGENTS/SLICE forbid inferring them from production config/services, so no external target
-scenario was started. AC-2..AC-6 are BLOCKED and AC-7's real-service portion is NOT RUN; the
-Task is deliberately left `PLANNED` for B to re-drive once the identity is available.
+The user later supplied the isolated target (S3/RustFS driver + mount + synthetic media + isolated
+OpenList/Jellyfin). The core chain then ran for real: target pagination, stable unsigned `/d/`
+byte equality, stable repeat sync, plugin first-trust/unchanged decisions, and Jellyfin native
+scan + actual playback of the synthetic media all PASS. Two RO-3 change rows (URL change, size
+change) start a real native probe but the pinned plugin rejects the result (`returned primary
+matches probe False`, HTTP 500); fixing that needs a change to the pinned plugin source, which
+Task 4.1 forbids, so those rows are recorded **BLOCKED** and handed to A. Per the TASK rule a
+BLOCKED row means the Task cannot PASS; it is left for B/A to coordinate.
 
-- Changed Files / Implemented: No product Go change. Executed only the admission-independent
-  subset: (1) plugin source pinned at `2afc6517fda5a7b4170ebea625619a552c47dabc` into
-  `artifacts/task-4.1/plugin-source/` (tracked worktree clean, tree
-  `710c190d0643cca3bffa613c4989d32647c4b5b2`); (2) pinned .NET SDK `10.0.401` installed by the
-  plugin's own verified tool; (3) plugin package built with the exact TASK command
-  `python3 scripts/package_plugin.py --configuration Release --runtime linux-x64 --output-dir artifacts/releases`,
-  archive SHA-256 `382d3ef106ed8534b06ab5bff614d826e602a29703dadddbe3ef2e9864bd06d8`, sidecar
-  manifest records `sourceRevision` = the pinned SHA and `--verify` exits 0; (4) candidate amd64 +
-  testhooks binaries built from HEAD.
-- Tests and Results / Evidence: `artifacts/validation-evidence/task-4.1-dev-20261019-043534/`
-  (local, Git-ignored). Governance PASS; `go vet` exit 0; gofmt clean (44 files); `quality.py`
-  exit 0; `race` exit 0 (9 packages); Python regression 112 tests OK. Total test wall-clock ≈53s,
-  under 30% of this round. Full T4 / real-service gates NOT RUN.
-- Decisions / Risks / Remaining Required Outcomes: The Go product tree is byte-identical to the
-  Slice 3 reviewed candidate `410fc0e0a8964046de4707d58c0c7505385c6002` (`go.mod`/`go.sum` blobs
-  match; 0 product files differ), so its reviewed T4 evidence is reusable once an external target
-  exists. Remaining: AC-2..AC-6 target OpenList→STRM→plugin→Jellyfin native playback; AC-7 full
-  real-service evidence. Blocking input needed from the user: target driver/provider, dedicated
-  test mount + synthetic-object method, isolated OpenList API, stable unsigned `/d/` base,
-  Jellyfin-network reachability, and a process-env credential injection channel.
+- Changed Files / Implemented: No product Go change. Added an isolated target acceptance runner
+  `scripts/run_isolated_target_integration.py` and unit tests
+  `tests/test_run_isolated_target_integration.py`; registered both in `dev/environment-spec.json`.
+  Plugin source pinned at `2afc6517fda5a7b4170ebea625619a552c47dabc` (tree
+  `710c190d0643cca3bffa613c4989d32647c4b5b2`) and built with the exact TASK command to archive
+  SHA-256 `382d3ef106ed8534b06ab5bff614d826e602a29703dadddbe3ef2e9864bd06d8`; installed files
+  match the archive except Jellyfin-rewritten `meta.json`.
+- Tests and Results / Evidence: `artifacts/validation-evidence/task-4.1-dev-20261019-065651/`
+  (local, Git-ignored). Governance PASS; `quality.py` exit 0; new runner unit tests 9 OK; target
+  chain: pagination 201 (200+1) PASS, `/d/` byte equality 5/5 PASS, stable sync zero-rewrite PASS,
+  plugin FirstTrust 11 / Unchanged 43 PASS, native playback 5/5 PASS (advancing time, 160x90).
+  URL-change and size-change rows BLOCKED (probe started, plugin rejected result).
+- Decisions / Risks / Remaining Required Outcomes: RO-1, RO-2, RO-4, RO-5 satisfied for the
+  tested paths; RO-3 is partial (first-trust/unchanged PASS; URL/size change BLOCKED); RO-6's
+  full T4 and independent B reproduction remain for review. The Go product tree is byte-identical
+  to the Slice 3 reviewed candidate `410fc0e0a8964046de4707d58c0c7505385c6002`, so its T4 evidence
+  is reusable for the local product gates. The BLOCKED plugin row is a plugin↔Jellyfin acceptance
+  interaction on the S3-backed source, not a generator defect; the item plays again after the URL
+  is restored.
 - Head SHA: `2531032c88182ab2078cf2d155724f80e7529e49` (no product change; TASK report checkpoint
   follows).
 
-## Developer Blocked Note (2026-10-19)
+## Developer Note (2026-10-19)
 
-No target OpenList driver/provider or dedicated test mount identity was provided, so per the
-Task admission rule no external service, container, or target credential was started or inferred.
-Evidence of the admission check and of the executable subset (plugin provenance/build, static
-checks, local regression) is in `artifacts/validation-evidence/task-4.1-dev-20261019-043534/`.
-This is not a product or review PASS; B should keep Task 4.1 `PLANNED` until the user supplies the
-missing target identity, then re-drive it.
+After the user supplied the isolated S3/RustFS target, the real chain was executed. Core scenarios
+PASS; the URL-change and size-change plugin rows are BLOCKED (probe started, plugin rejected the
+result with HTTP 500), which per the TASK rule prevents a PASS and is handed to A/B rather than
+patched. Evidence is in `artifacts/validation-evidence/task-4.1-dev-20261019-065651/`. No
+production service, config, media, or `/opt/jf-strm-probe` was touched; no proxy was started.
 
 ## B Review Result
 
