@@ -112,9 +112,9 @@ B 审查完整 Task Base..Implementation Head 和上表 AC／RO 映射，确认�
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：PENDING
-- Tests and Results / Evidence：PENDING
-- Decisions / Risks / Remaining Required Outcomes：PENDING
+- Changed Files / Implemented：见下方「Developer Fix Report — 第二轮修正（2026-10-19）」。
+- Tests and Results / Evidence：见同一报告；证据目录 `task-4.1-fix2-20261019-215918/`。
+- Decisions / Risks / Remaining Required Outcomes：见同一报告末段「剩余」。
 ## Developer Completion Report
 
 **Status: NOT READY FOR B REVIEW — 2 of 7 RO-3 decision-matrix rows BLOCKED.**
@@ -255,3 +255,48 @@ B 核对 410fc0e0a8964046de4707d58c0c7505385c6002 与本候选：54 个 Go 产�
 - **B 最终门禁：** 新固定候选后审查完整 Task Base..新 Implementation Head，并独立安全复现。B 自己负责本 Task“最终检查点门槛”指定的全量质量、race、uncached test、构建、sync、serve、container 及逐项历史证据复用；再独立执行授权真实 OpenList→CLI STRM→稳定字节→Jellyfin 扫描／实际播放和关键探测／重用。完全匹配证据只复用一次，不匹配项按影响重跑；不把全量退给 Developer，不机械重跑 Final。
 - **A 范围协调：** 用户两行临时例外与其他不能合法触发的合同输入分别交 A；无新授权不降级 RO 或改外部组件。全部 RO 未满足，不提交 Closure Packet，不返回 SLICE READY FOR A REVIEW，不自行关闭。
 - **时间约束：** 本轮两次短测试／合成复现总执行不足 1 秒；治理与其他验证保守单独统计见 B 索引。测试占本轮耗时低于 50%，未空等延长回合。
+
+## Developer Fix Report — 第二轮修正（2026-10-19）
+
+**Status: READY FOR B REVIEW — 凭据边界已改为纯进程环境注入；矩阵按行给出与输入关联的证据；
+目标路径移动闭环已真实运行。未伪造任何行。**
+
+- **AC-1／RO-1 凭据（FIXED）。** runner 已无任何接收秘密的命令行参数：删除
+  `--playback-user`／`--playback-password`；播放身份只读 `JF_PLAYBACK_USER`／
+  `JF_PLAYBACK_PASSWORD`，Jellyfin 管理用 `JF_ADMIN_TOKEN`（或 `JF_USER`+`JF_PASSWORD`），
+  OpenList 用 `OPENLIST_TOKEN`，远端内容变更用 `RUSTFS_*`，全部仅进程环境。`Recorder`
+  现在遇到任何进程秘密即拒绝写证据（泄漏会让场景 FAIL 而不是产出证据）。新增
+  `CredentialSourceTests`／`EvidenceHygieneTests` 回归。
+- **AC-1 事件披露。** 本轮曾把一次隔离实例的 admin JWT 与 OpenList admin 口令短暂回显到本
+  会话终端记录。已轮换口令（旧口令 401、新口令 200），并实证被回显 JWT 已失效
+  （`/api/admin/user/list` 返回 `code:401 "token is invalidated"`；该实例以 JSON `code`
+  而非 HTTP 状态表达鉴权结果）；实例 JWT 密钥改为由进程环境经任务自有 compose 注入以便后续
+  轮换；重新签发的 `OPENLIST_TOKEN` 已复验（列表返回 201 对象）；Jellyfin 播放账号重建。
+  两处临时凭据文件仅记录摘要后删除，无秘密进入文件／证据／提交。仅触碰隔离测试实例。
+- **AC-4／RO-3 覆盖（可合法观察部分已补齐）。** 取消按全日志累计汇总的
+  `plugin_decision_matrix`，改为按场景起点标记的窗口化 `DecisionLog`：只分类标记之后写入的
+  行，并断言刚播放条目的复用决策；空日志／滞后日志／累计日志现在直接 FAIL。新增
+  `ro3_decision_rows.json` 逐行状态与 `ro3_hash_input.json` 输入前提证据。稳定 URL 行 PASS
+  （本轮窗口内 5 个条目 `Unchanged`）；同 URL／同有效 SHA-1／不同 Size 与 SHA-1 改变两行
+  **BLOCKED**，原因是目标 `get` 返回 `hash_info=null` 且生成的 STRM 无 `strm-probe-sha1`，
+  伪造标记被禁止；URL 与有效 Size 变更两行按用户 2026-10-19 决定保持 **DEFERRED** 且未重跑。
+- **AC-6／RO-5 移动闭环（新增真实证据）。** 目标对象移动→生成器生成移动后 STRM 并在达到
+  确认次数后清理旧 STRM（4 轮后 `deleted=1 reclaimed=1`）→Jellyfin 扫描加载
+  `Moved/Plain Movie`→恢复对象→生成器重建原 STRM、清理移动 STRM，STRM 树摘要精确回到移动前
+  `8528dd74…`→恢复后原生播放 PASS。移动条目的**首次**播放记为 **BLOCKED**：移动路径是新
+  Jellyfin 身份，原生探测确实启动但固定插件拒绝自身探测结果（`returned primary matches probe
+  False`，HTTP 500），与暂缓行同一外部原因，非生成器缺陷；未以打补丁或改插件规避。
+- **变更文件：** `scripts/run_isolated_target_integration.py`、
+  `tests/test_run_isolated_target_integration.py`。产品 Go 无变化，与 Slice 3 已审查候选
+  `410fc0e0a8964046de4707d58c0c7505385c6002` 保持一致；Go T4 证据复用仍由 B 判定。
+- **验证（证据 `artifacts/validation-evidence/task-4.1-fix2-20261019-215918/`，本机、Git-ignored）：**
+  governance PASS；`quality.py` exit 0（148 py 测试 + gofmt/vet/test/build）；受影响测试 34 OK；
+  目标 acceptance runner exit 0（160 s）：元数据 201（200+1）、`/d/` 字节相等 5/5、稳定重复同步
+  `created=0 updated=0 skipped=201` 且树摘要不变、原生播放 5/5（160x90、HLS 200，逐条
+  `Unchanged`）、移动闭环 PASS。本轮 5 次首次失败与修正均保留在索引。
+- **证据身份：** runner `47deb4fa…`、测试 `62dd43fd…`、插件源
+  `2afc6517fda5a7b4170ebea625619a552c47dabc`（tracked clean）、归档 `382d3ef1…`、
+  二进制 `16b70e13…`／`c6222a14…`。
+- **剩余：** RO-3 两行 BLOCKED（目标无 SHA-1）、两行 DEFERRED（用户决定）、移动首播 BLOCKED
+  （同一外部原因），均交 A 协调；RO-6 的匹配输入全量 T4、证据复用判定与独立真实复现由 B 执行。
+  本轮未重跑 URL／Size 暂缓项。测试执行远低于本轮 30% 的时间预算。
