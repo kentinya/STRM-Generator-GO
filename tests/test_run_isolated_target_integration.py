@@ -493,6 +493,105 @@ class LibraryMappingTests(unittest.TestCase):
         self.assertEqual(len(mapping), 2)
 
 
+class CredentialScrubbingWiringTests(unittest.TestCase):
+    """B reproduction: the normal credential entry must wire every process secret in.
+
+    The earlier tests registered a secret by hand, which hid the real gap: ``resolve_credentials``
+    only registered the admin token, so ``OPENLIST_TOKEN``, the playback password and the S3
+    secrets were absent from the scrubbing set and survived a child ``error`` field or a
+    ``FAIL:`` line. These tests use the normal entry point and register nothing manually.
+    """
+
+    ENV = {
+        "OPENLIST_TOKEN": "synthetic-openlist-token-wire",
+        "JF_ADMIN_TOKEN": "synthetic-admin-token-wire",
+        "JF_PLAYBACK_USER": "synthetic-player",
+        "JF_PLAYBACK_PASSWORD": "synthetic-playback-password-wire",
+        "RUSTFS_ACCESS_KEY": "synthetic-access-key-wire",
+        "RUSTFS_SECRET_KEY": "synthetic-secret-key-wire",
+    }
+
+    def setUp(self):
+        self._saved = list(driver._REGISTERED_SECRETS)
+        driver._REGISTERED_SECRETS.clear()
+
+    def tearDown(self):
+        driver._REGISTERED_SECRETS[:] = self._saved
+
+    def test_normal_entry_registers_every_environment_secret(self):
+        driver.resolve_credentials(dict(self.ENV), require_playback=True)
+        for key in ("OPENLIST_TOKEN", "JF_PLAYBACK_PASSWORD", "RUSTFS_ACCESS_KEY",
+                    "RUSTFS_SECRET_KEY"):
+            with self.subTest(key=key):
+                self.assertIn(self.ENV[key], driver._REGISTERED_SECRETS)
+                self.assertNotIn(self.ENV[key], driver.scrub(f"child said {self.ENV[key]}"))
+
+    def test_derived_child_error_is_scrubbed_through_normal_entry(self):
+        driver.resolve_credentials(dict(self.ENV), require_playback=True)
+        password = self.ENV["JF_PLAYBACK_PASSWORD"]
+        child = subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps({"error": f"driver failed: {password}"}), stderr="")
+        with mock.patch.object(driver.subprocess, "run", return_value=child):
+            result = driver.jellyfin_playback("http://isolated.invalid", Path("unused"),
+                                              "unused", {}, "unused")
+        self.assertNotIn(password, result.get("error", ""))
+        self.assertIn("<secret>", result["error"])
+
+    def test_failure_text_is_scrubbed_through_normal_entry(self):
+        driver.resolve_credentials(dict(self.ENV), require_playback=True)
+        token = self.ENV["OPENLIST_TOKEN"]
+        self.assertNotIn(token, str(driver.Failure(f"request failed with {token}")))
+
+    def test_recorder_refuses_environment_secret_after_normal_entry(self):
+        env = dict(self.ENV)
+        driver.resolve_credentials(env, require_playback=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = driver.Recorder(Path(tmp), env)
+            with self.assertRaises(driver.Failure):
+                recorder.record("wired", detail=env["JF_PLAYBACK_PASSWORD"])
+            self.assertFalse((Path(tmp) / "wired.json").exists())
+
+
+class PlaybackExitStatusTests(unittest.TestCase):
+    """B reproduction: a non-zero playback child with success-shaped JSON was accepted."""
+
+    def _driver_run(self, returncode, stdout):
+        return mock.patch.object(driver.subprocess, "run",
+                                 return_value=subprocess.CompletedProcess([], returncode,
+                                                                         stdout=stdout, stderr=""))
+
+    def test_nonzero_exit_with_success_payload_is_not_playback_evidence(self):
+        payload = json.dumps({"results": [{"advanced": True}]})
+        with self._driver_run(7, payload), self.assertRaises(driver.Failure) as raised:
+            driver.jellyfin_playback("http://127.0.0.1:28096", Path("/d.mjs"), "/p", {}, "/b")
+        self.assertIn("non-zero exit", str(raised.exception))
+
+    def test_nonzero_exit_reaches_playback_item_as_a_failure(self):
+        """``playback_item`` must not accept a non-zero child as an advanced playback."""
+        payload = json.dumps({"results": [{"advanced": True, "currentTime": 42}]})
+
+        class FakeTarget:
+            def jellyfin_json(self, path, method="GET", data=None):
+                return [{"Id": "playback-id", "Name": "playback"}]
+
+            def jellyfin(self, *args, **kwargs):
+                return (204, b"")
+
+        credentials = driver.Credentials("openlist", "admin", "playback", "password")
+        with self._driver_run(7, payload), mock.patch.object(driver.time, "sleep"), \
+                self.assertRaises(driver.Failure):
+            driver.playback_item(FakeTarget(), Path("/d.mjs"), "/p", "/b",
+                                "http://127.0.0.1:28096", credentials,
+                                {"Id": "item-id", "Name": "item"})
+
+    def test_zero_exit_with_payload_is_still_accepted(self):
+        payload = json.dumps({"results": [{"advanced": True}]})
+        with self._driver_run(0, payload):
+            result = driver.jellyfin_playback("http://127.0.0.1:28096", Path("/d.mjs"), "/p", {},
+                                              "/b")
+        self.assertTrue(result["results"][0]["advanced"])
+
+
 class MoveFailureRecoveryTests(unittest.TestCase):
     """B reproduction: a move-phase failure must not leave the remote object at the moved key."""
 
@@ -565,7 +664,6 @@ class MoveFailureRecoveryTests(unittest.TestCase):
                              "an unconfirmed resync must not be reported as a restored fixture")
 
     def test_failed_recovery_is_recorded_not_hidden(self):
-        """A recovery that itself fails must be reported as un-restored, not glossed over."""
         with tempfile.TemporaryDirectory() as tmp:
             root, config, strms = self._fixture(tmp)
             attempts = []
@@ -587,8 +685,70 @@ class MoveFailureRecoveryTests(unittest.TestCase):
             self.assertEqual(marker["failed_step"], "move sync")
             self.assertFalse(marker["remote_object_restored"])
             self.assertFalse(marker["fixture_restored"])
-            self.assertIn("recovery move failed", marker["recovery_error"])            # The original failure is what reaches the caller; recovery detail is in the record.
+            self.assertIn("recovery move failed", marker["recovery_error"])
+            # The original failure is what reaches the caller; recovery detail is in the record.
             self.assertIn("move sync exit 1", str(raised.exception))
+
+    def test_cli_timeout_after_move_marks_and_restores_fixture(self):
+        """B reproduction: a plain ``TimeoutExpired`` bypassed the move failure handling.
+
+        It escaped as an unclassified exception: no marker was written and the already-moved
+        remote object was left at the moved key. ``run_cli`` now classifies it, so the normal
+        ``Failure`` path stops, restores the object and records the truth.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            moves = []
+            results = iter([subprocess.TimeoutExpired("strmgen", 600),
+                            subprocess.CompletedProcess([], 0, stdout="", stderr="")])
+
+            def flaky_run(*args, **kwargs):
+                outcome = next(results)
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                return outcome
+
+            with mock.patch.object(driver, "rclone_move",
+                                   side_effect=lambda *a, **k: moves.append(a)), \
+                    mock.patch.object(driver.subprocess, "run", side_effect=flaky_run), \
+                    self.assertRaises(driver.Failure) as raised:
+                self._run(root, config, strms)
+            self.assertNotIsInstance(raised.exception, subprocess.TimeoutExpired)
+            self.assertIn("timed out", str(raised.exception))
+            self.assertEqual(len(moves), 2, "the moved object must be moved back")
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertEqual(marker["failed_step"], "move sync")
+            self.assertTrue(marker["remote_object_restored"])
+            self.assertTrue(marker["config_resynced"])
+            self.assertTrue(marker["fixture_restored"])
+            self.assertEqual(marker["recovery_error"], "")
+
+    def test_rclone_timeout_is_a_classified_failure(self):
+        """A transport timeout while mutating the fixture must not escape unclassified."""
+        with mock.patch.object(driver.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired("rclone", 180)), \
+                self.assertRaises(driver.Failure) as raised:
+            driver.rclone_copyto({"RUSTFS_ACCESS_KEY": "a", "RUSTFS_SECRET_KEY": "b",
+                                  "RUSTFS_ENDPOINT": "http://isolated.invalid"},
+                                 Path("unused.mkv"), "key.mkv")
+        self.assertIn("timed out", str(raised.exception))
+
+    def test_rclone_error_text_is_scrubbed(self):
+        secret = "synthetic-rclone-secret-value"
+        self._saved = list(driver._REGISTERED_SECRETS)
+        try:
+            driver.register_secret(secret)
+            with mock.patch.object(
+                    driver.subprocess, "run",
+                    return_value=subprocess.CompletedProcess([], 1, stdout="",
+                                                             stderr=f"bad {secret}")), \
+                    self.assertRaises(driver.Failure) as raised:
+                driver.rclone_copyto({"RUSTFS_ACCESS_KEY": "a", "RUSTFS_SECRET_KEY": "b",
+                                      "RUSTFS_ENDPOINT": "http://isolated.invalid"},
+                                     Path("unused.mkv"), "key.mkv")
+            self.assertNotIn(secret, str(raised.exception))
+        finally:
+            driver._REGISTERED_SECRETS[:] = self._saved
 
 
 if __name__ == "__main__":

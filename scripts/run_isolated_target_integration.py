@@ -144,6 +144,19 @@ def require(condition: bool, message: str) -> None:
         raise Failure(message)
 
 
+def register_environment_secrets(env: dict[str, str]) -> None:
+    """Put every process-injected secret into the one scrubbing set used by all boundaries.
+
+    Called from the normal credential-resolution entry point, before authentication or any
+    child process runs. Without it ``scrub`` only knew the secrets that happened to be read
+    (the admin token and the derived session token), so ``OPENLIST_TOKEN``/
+    ``JF_PLAYBACK_PASSWORD``/S3 secrets could survive in a child ``error`` field or a
+    ``FAIL:`` line. No new secret discovery is introduced: this is exactly ``SECRET_ENV_KEYS``.
+    """
+    for key in SECRET_ENV_KEYS:
+        register_secret(env.get(key))
+
+
 def secret_values(env: dict[str, str]) -> list[str]:
     """Non-empty secret values (process environment and run-time derived) to scrub."""
     values = [env[key] for key in SECRET_ENV_KEYS if env.get(key)]
@@ -176,6 +189,10 @@ def resolve_credentials(env: dict[str, str], *, require_playback: bool) -> Crede
     transcripts. The Jellyfin administrative identity may be supplied either as
     a pre-issued token or as user/password, both through the environment.
     """
+    # Every process-injected secret joins the scrubbing set here, before the admin
+    # authentication below and before any child process inherits the environment.
+    register_environment_secrets(env)
+
     token = env.get("OPENLIST_TOKEN", "")
     require(bool(token), "OPENLIST_TOKEN must be provided in the process environment")
 
@@ -185,7 +202,6 @@ def resolve_credentials(env: dict[str, str], *, require_playback: bool) -> Crede
     admin_user = env.get("JF_USER", "")
     admin_password = env.get("JF_PASSWORD", "")
     if admin_token:
-        register_secret(admin_token)
         authorization = f'{identifier}, Token="{admin_token}"'
     else:
         require(bool(admin_user) and bool(admin_password),
@@ -279,12 +295,24 @@ class Target:
 
 
 def run_cli(binary: Path, config: Path, token: str, cwd: Path) -> tuple[int, str, str]:
+    """Run one generator sync, classifying start/timeout problems as a scenario ``Failure``.
+
+    A ``TimeoutExpired`` or a start/IO error is a real failure of this run, so it must reach
+    the callers' ``Failure`` handling (stop, mark the fixture truthfully, do not claim a sync
+    result) instead of escaping as an unclassified exception past it.
+    """
     env = dict(os.environ)
     env["OPENLIST_TOKEN"] = token
-    result = subprocess.run(
-        [str(binary), "sync", "--config", str(config)],
-        cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
-    )
+    try:
+        result = subprocess.run(
+            [str(binary), "sync", "--config", str(config)],
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        raise Failure("generator sync timed out after 600s; no sync result and the fixture "
+                      "state is unconfirmed") from None
+    except OSError as error:
+        raise Failure(f"generator sync could not start ({type(error).__name__})") from None
     return result.returncode, result.stdout, result.stderr
 
 
@@ -485,9 +513,14 @@ def jellyfin_playback(jellyfin_url: str, driver: Path, playwright_root: str,
         raise Failure("native playback driver timed out after 300s; no playback evidence") from None
     except OSError as error:
         raise Failure(f"native playback driver could not start ({type(error).__name__})") from None
+    if result.returncode != 0:
+        # A non-zero exit is never playback evidence, even when the child still printed a
+        # success-shaped payload: the driver may have failed after emitting partial results.
+        raise Failure(f"native playback driver exited {result.returncode}; a non-zero exit is "
+                      "not playback evidence")
     if not result.stdout.strip():
-        raise Failure(f"native playback driver exited {result.returncode} without JSON output; "
-                      "a non-zero exit or an empty payload is not playback evidence")
+        raise Failure("native playback driver exited 0 without JSON output; an empty payload "
+                      "is not playback evidence")
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -618,21 +651,34 @@ def object_key(env: dict[str, str], remote_root: str, relative_name: str) -> str
     return "/".join(part for part in parts if part)
 
 
+def _rclone(env: dict[str, str], args: list[str]) -> subprocess.CompletedProcess:
+    """Run one rclone command, classifying start/timeout problems as a scenario ``Failure``.
+
+    Without this, a plain ``TimeoutExpired`` from rclone escaped as an unclassified exception,
+    so a fixture-mutating scenario could neither mark the real state nor report it.
+    """
+    try:
+        return subprocess.run(args, env=rclone_env(env), capture_output=True, text=True,
+                              timeout=180)
+    except subprocess.TimeoutExpired:
+        raise Failure(f"rclone {args[1]} timed out after 180s; the remote fixture state is "
+                      "unconfirmed") from None
+    except OSError as error:
+        raise Failure(f"rclone {args[1]} could not start ({type(error).__name__})") from None
+
+
 def rclone_copyto(env: dict[str, str], source: Path, key: str) -> None:
     bucket = env.get("RUSTFS_BUCKET", "slice4-media")
     remote = env.get("RCLONE_REMOTE", "slice4")
-    result = subprocess.run(
-        ["rclone", "copyto", str(source), f"{remote}:{bucket}/{key}"],
-        env=rclone_env(env), capture_output=True, text=True, timeout=180)
+    result = _rclone(env, ["rclone", "copyto", str(source), f"{remote}:{bucket}/{key}"])
     require(result.returncode == 0, f"rclone copyto failed: {scrub(result.stderr[-200:])}")
 
 
 def rclone_move(env: dict[str, str], source_key: str, dest_key: str) -> None:
     bucket = env.get("RUSTFS_BUCKET", "slice4-media")
     remote = env.get("RCLONE_REMOTE", "slice4")
-    result = subprocess.run(
-        ["rclone", "moveto", f"{remote}:{bucket}/{source_key}", f"{remote}:{bucket}/{dest_key}"],
-        env=rclone_env(env), capture_output=True, text=True, timeout=180)
+    result = _rclone(env, ["rclone", "moveto", f"{remote}:{bucket}/{source_key}",
+                           f"{remote}:{bucket}/{dest_key}"])
     require(result.returncode == 0, f"rclone moveto failed: {scrub(result.stderr[-200:])}")
 
 
@@ -685,7 +731,7 @@ def scenario_url_change(recorder: Recorder, target: Target, binary: Path, config
         config.write_text(original, encoding="utf-8")
         try:
             run_cli(binary, config, token, cwd)
-        except OSError as error:
+        except (Failure, OSError) as error:
             recorder.record("ro3_url_change_restore_failure", failed=True,
                             detail=[f"sync: {type(error).__name__}"],
                             note="config was rewritten back but the fixture sync could not run; "
@@ -749,8 +795,8 @@ def scenario_size_change(recorder: Recorder, target: Target, binary: Path, confi
             restore_failures.append(f"remote: {scrub(str(error))[:160]}")
         try:
             run_cli(binary, config, token, cwd)
-        except OSError as error:
-            restore_failures.append(f"sync: {type(error).__name__}")
+        except (Failure, OSError) as error:
+            restore_failures.append(f"sync: {scrub(str(error))[:160]}")
         if restore_failures:
             recorder.record("ro3_size_change_restore_failure",
                             failed=True, detail=restore_failures,
@@ -1023,7 +1069,7 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
                                 + f"config write: {type(write_error).__name__}"
         try:
             recovery["config_synced"] = run_cli(binary, config, token, cwd)[0] == 0
-        except OSError as sync_error:
+        except (Failure, OSError) as sync_error:
             recovery["config_synced"] = False
             recovery["error"] = (recovery["error"] + " | " if recovery["error"] else "") \
                                 + f"config sync: {type(sync_error).__name__}"
@@ -1044,7 +1090,13 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
     finally:
         if config.read_text(encoding="utf-8") != original:
             config.write_text(original, encoding="utf-8")
-            run_cli(binary, config, token, cwd)
+            try:
+                run_cli(binary, config, token, cwd)
+            except (Failure, OSError) as restore_error:
+                recorder.record("ro5_move_config_restore_failure", failed=True,
+                                detail=scrub(str(restore_error))[:200],
+                                note="the config text was written back but the fixture sync could "
+                                     "not run; the fixture is NOT confirmed restored")
 
 
 def build_parser() -> argparse.ArgumentParser:
