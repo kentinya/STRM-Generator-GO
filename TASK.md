@@ -486,6 +486,12 @@ Size-change／移动首播（三项用户暂缓）、Go 全量／race／构建�
 
 ### Developer 受影响验证、交接与耗时
 
+本轮修正直接影响 `scenario_move` 及其回归。Developer 按既定受影响命令运行
+`python3 -m unittest discover -s tests -p 'test_run_isolated_target_integration.py' -v`，报告
+58/58 PASS，另有 `py_compile`、治理与空白检查 PASS（原始 Developer 日志见
+`artifacts/validation-evidence/task-4.1-dev6-20261020-001445/`）。该反馈不替代 B 门禁；B 已运行
+quality.py 覆盖同套 58 项及全 Python／Go 静态、普通测试与构建，因此不机械再跑目标单测。
+
 第六轮已知 runner 缺陷闭合，没有新增代码修正要求；当前阻断为缺少授权的专用进程凭据／真实必验以及
 历史事件由 A 处置，不得从本地文件自助取值。Developer 若后续因有效新证据发现代码缺陷，应只修同一
 Task 的受影响路径，运行治理和目标工具测试（或由 `quality.py` 覆盖而不重复），提交新实现 Head 再交 B；
