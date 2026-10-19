@@ -147,8 +147,10 @@ BLOCKED row means the Task cannot PASS; it is left for B/A to coordinate.
   is reusable for the local product gates. The BLOCKED plugin row is a plugin↔Jellyfin acceptance
   interaction on the S3-backed source, not a generator defect; the item plays again after the URL
   is restored.
-- Head SHA: `2531032c88182ab2078cf2d155724f80e7529e49` (no product change; TASK report checkpoint
-  follows).
+- Head SHA: `c769840378ccc6d366c1b9959a0b7b768ab6da85` (no product change; TASK report
+  checkpoint). Correction: an earlier draft of this report cited the stale
+  `2531032c88182ab2078cf2d155724f80e7529e49` (the B planning commit); the reviewed
+  implementation checkpoint is `c769840378ccc6d366c1b9959a0b7b768ab6da85`.
 
 ## Developer Note (2026-10-19)
 
@@ -184,3 +186,36 @@ Slice Required Outcomes all satisfied: NO — RO-1 and RO-6 remain unresolved; R
 Independent B reproduction: NOT RUN (authorized target credentials absent from this session); no external or production service was accessed.
 Required correction: remain in Task 4.1. Remove secret-bearing /tmp scenario persistence and add a regression test; correct the candidate/evidence SHA references; Developer runs affected feedback validation and returns a fixed candidate READY FOR B REVIEW. B owns the specified matching-input final full gates, evidence-reuse decisions and independent key reproduction; do not hand the full gates back to Developer. Exclude only the two temporarily accepted URL/Size rows from this round's blocking reruns, and hand their follow-up/contract reconciliation to A.
 ```
+
+## Developer Fix Report (FIX REQUIRED round, 2026-10-19)
+
+**Status: READY FOR B REVIEW — AC-1 secret-on-disk and AC-7 stale SHA both corrected; two
+URL/Size rows remain user-temporarily-accepted BLOCKED and are handed to A.**
+
+- **AC-1 corrected.** `jellyfin_playback` in `scripts/run_isolated_target_integration.py` no
+  longer writes a scenario JSON containing the Jellyfin password to `/tmp`. The pinned playback
+  driver is now invoked as `node <driver> /dev/stdin` and receives the scenario JSON through the
+  process pipe, so the credential is never persisted to disk. Three regression tests were added
+  in `tests/test_run_isolated_target_integration.py` (`PlaybackScenarioExchangeTests`): scenario
+  arrives via stdin with the password present in the pipe and absent from any file; no
+  `strmgen-play-*.json` is created in `/tmp`; driver errors remain redacted. Test count 9 -> 12.
+- **AC-7 corrected.** The stale Head SHA `2531032c…` in the earlier report was corrected to the
+  reviewed implementation checkpoint `c769840378ccc6d366c1b9959a0b7b768ab6da85` (see the
+  Developer Completion Report above). This fix round's Base HEAD is
+  `28b459d2c5f68100bfeb00d537ac11b9d78a0561`.
+- **Changed files:** `scripts/run_isolated_target_integration.py` (stdin scenario exchange),
+  `tests/test_run_isolated_target_integration.py` (regression tests). No product Go change; the Go
+  tree remains byte-identical to the Slice 3 reviewed candidate `410fc0e0…`.
+- **Affected validation rerun** (`artifacts/validation-evidence/task-4.1-fix-20261019-211529/`,
+  local Git-ignored): governance PASS; `quality.py` exit 0 (124 py tests + vet/test/build);
+  affected unit tests 12 OK; target native playback 5/5 (advancing time, 160x90, HLS 200); target
+  metadata 201 (200+1); `/d/` byte equality 5/5; stable sync `created=0 updated=0 skipped=201`
+  tree unchanged; plugin decisions FirstTrust 11 / Unchanged 50. No `/tmp` scenario files remain
+  and the new evidence contains no test credentials.
+- **Remaining:** the URL-change and Size-change rows stay BLOCKED under the user's 2026-10-19
+  temporary acceptance and were not rerun; their contract reconciliation is A's. B owns the
+  matching-input full T4 gates, evidence-reuse decisions, and independent key reproduction. RO-1
+  is now addressed for the credential-safety boundary; RO-6 full gates and independent
+  reproduction remain for B.
+- **Evidence:** `artifacts/validation-evidence/task-4.1-fix-20261019-211529/INDEX.md`.
+- **Fix Head SHA:** this report checkpoint commit (recorded on commit; no product change).

@@ -254,16 +254,20 @@ def scenario_stable_sync(recorder: Recorder, binary: Path, config: Path, token: 
 
 def jellyfin_playback(jellyfin_url: str, driver: Path, playwright_root: str,
                       scenario: dict, browsers_path: str) -> dict:
-    scenario_path = Path("/tmp") / f"strmgen-play-{os.getpid()}-{int(time.time())}.json"
-    scenario_path.write_text(json.dumps(scenario, ensure_ascii=False))
+    """Run the pinned native playback driver with the scenario supplied on stdin.
+
+    The scenario carries the Jellyfin credential, so it must never be persisted to disk. The
+    driver is pointed at ``/dev/stdin`` and receives the JSON through the process pipe; no
+    temporary scenario file is created anywhere, including ``/tmp``.
+    """
     env = dict(os.environ)
     env["STRM_CONFIG_PLAYWRIGHT_ROOT"] = playwright_root
     env["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
-    try:
-        result = subprocess.run(["node", str(driver), str(scenario_path)],
-                                capture_output=True, text=True, timeout=300, env=env)
-    finally:
-        scenario_path.unlink(missing_ok=True)
+    result = subprocess.run(
+        ["node", str(driver), "/dev/stdin"],
+        input=json.dumps(scenario, ensure_ascii=False),
+        capture_output=True, text=True, timeout=300, env=env,
+    )
     return json.loads(result.stdout) if result.stdout.strip() else {"error": redact(result.stderr[-300:])}
 
 

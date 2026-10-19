@@ -8,6 +8,7 @@ exercised separately by the acceptance run itself.
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -87,6 +88,62 @@ class FailureTests(unittest.TestCase):
         with self.assertRaises(driver.Failure):
             driver.require(False, "boom")
         driver.require(True, "fine")
+
+
+class PlaybackScenarioExchangeTests(unittest.TestCase):
+    """Regression: the playback scenario carries the Jellyfin password and must never touch disk."""
+
+    def _run(self, scenario):
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            captured["args"] = args
+            captured["input"] = kwargs.get("input")
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"results": [{"advanced": True}]}), stderr="")
+
+        original_run = driver.subprocess.run
+        original_write_text = Path.write_text
+
+        def forbidden_write_text(self, *args, **kwargs):
+            raise AssertionError(f"scenario must not be persisted: write_text called on {self}")
+
+        driver.subprocess.run = fake_run
+        Path.write_text = forbidden_write_text
+        try:
+            result = driver.jellyfin_playback(
+                "http://127.0.0.1:28096", Path("/driver.mjs"), "/playwright", scenario, "/browsers")
+        finally:
+            driver.subprocess.run = original_run
+            Path.write_text = original_write_text
+        return captured, result
+
+    def test_scenario_passed_via_stdin_not_a_file(self):
+        captured, result = self._run({"username": "admin", "password": "s3cr3t-value", "items": []})
+        self.assertEqual(captured["args"][0], "node")
+        self.assertEqual(captured["args"][2], "/dev/stdin")
+        self.assertIn("s3cr3t-value", captured["input"])
+        self.assertEqual(json.loads(captured["input"])["password"], "s3cr3t-value")
+        self.assertTrue(result["results"][0]["advanced"])
+
+    def test_no_tmp_scenario_file_is_created(self):
+        before = set(Path("/tmp").glob("strmgen-play-*.json"))
+        self._run({"username": "admin", "password": "another-secret", "items": []})
+        after = set(Path("/tmp").glob("strmgen-play-*.json"))
+        self.assertEqual(before, after, "jellyfin_playback left a scenario file behind")
+
+    def test_driver_error_is_redacted(self):
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="failed http://x/y?token=abc123")
+
+        original_run = driver.subprocess.run
+        driver.subprocess.run = fake_run
+        try:
+            result = driver.jellyfin_playback(
+                "http://127.0.0.1:28096", Path("/driver.mjs"), "/playwright", {}, "/browsers")
+        finally:
+            driver.subprocess.run = original_run
+        self.assertIn("error", result)
+        self.assertNotIn("abc123", result["error"])
 
 
 if __name__ == "__main__":
