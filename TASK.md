@@ -169,7 +169,7 @@ production service, config, media, or `/opt/jf-strm-probe` was touched; no proxy
 - 本轮不为这两行继续调查、修复或重跑；后续跟进交 A 协调，待用户恢复要求或 A 在授权范围内明确处置后再执行。A 收口时须将这项用户临时例外及未通过事实显式协调进 Slice 合同／Closure Packet，不得据此声称原合同全部 RO 已验证。B 不代签 A 的合同修订或最终审查。
 - 此决定不豁免其他插件矩阵行、移动／恢复、凭据安全、候选身份、匹配输入的全量门禁或 B 独立真实链路复现。Task 仍为 `FIX REQUIRED`，修正继续同一 Task，不新建 Task。
 
-## B Review Result
+## B Review Result — 首轮（历史）
 
 ```text
 Reviewed: 2026-10-19
@@ -220,3 +220,38 @@ URL/Size rows remain user-temporarily-accepted BLOCKED and are handed to A.**
 - **Evidence:** `artifacts/validation-evidence/task-4.1-fix-20261019-211529/INDEX.md`.
 - **Fix Head SHA:** `3df244adf0a000b5376967e0f90b70387d195293` (runner + regression tests + report;
   no product Go change).
+
+
+## B Review Result — 修正候选复审（2026-10-19）
+
+- Reviewed Range: 527570df75ab469eb204d6a42b2d1b4eb07f71e6..3df244adf0a000b5376967e0f90b70387d195293
+- Report Successor: 4898d6ad87b5eb789bb3a532cae44e25b3a7bfba（仅 TASK.md）
+- Decision: FIX REQUIRED
+- Task: 4.1（同一 Task，不新建）；Slice 4 ACTIVE；Closure Packet／A Final Review 仍 PENDING。
+- Evidence: artifacts/validation-evidence/task-4.1-b-20261019-212439/INDEX.md（本机、Git-ignored）。
+
+**已确认修正：** stdin 场景交换取代原含口令的临时 JSON 文件。B 执行 runner 的 12 项测试，并以独立合成子进程经 /dev/stdin 接收场景验证通过；这不是实际 Jellyfin 播放。旧完成报告的候选 SHA 已改正。runner／测试 SHA-256 与修正证据匹配；报告后继只改 TASK。用户暂时接受的 URL-change／Size-change 两行仍为原始 BLOCKED，本轮未调查、修复或重跑，亦不据此阻断。
+
+### P1 阻断与修正要求
+
+1. **AC-1／RO-1：新证据仍泄露播放凭据，runner 允许凭据进入 argv。** 修正证据 artifacts/validation-evidence/task-4.1-fix-20261019-211529/INDEX.md:52 的命令含非空、非环境引用的播放口令字面量；:42 记录从 artifacts 外的临时文件加载凭据。B 仅记录位置、布尔结果、文件摘要，不回显口令，亦未读取外部凭据文件。runner 的 --playback-password 参数仍接收并使用该值；仅改 stdin 不满足进程环境注入、不进入文件／命令参数／证据的边界。Developer 须移除 secret-bearing CLI 参数，改用独立播放凭据环境变量并修正调用；披露专用测试凭据泄露，按授权使旧凭据失效／重新注入，不碰生产凭据。原始失败不能静默覆盖或删除，含秘密原件不可加入 Git 或交接；交接保留脱敏副本、原件摘要及受限位置／处置记录。撤回“新证据无凭据／RO-1 已解决”的断言。
+2. **AC-4、AC-6／RO-3、RO-5：其他既定行为未证实，不属用户暂缓范围。** 两份目标决策 JSON 只有累计 FirstTrust:0／Unchanged:0，没有同 URL／同有效 SHA-1／不同 Size、同 URL／不同有效 SHA-1 等行的逐场景实际输入及探测／重用证据，亦未提供路径移动后的生成器→扫描→播放闭环。plugin_decision_matrix（runner:338-353）只汇总全日志，不限定窗口、不关联输入、不断言必要行；B 独立复现空日志也正常返回并写 total=0，因此调用成功不证明矩阵 PASS。补既定非暂缓场景及明确判定；稳定重复同步／历史本地移动测试不替代目标插件／Jellyfin 移动闭环。无法合法触发的哈希等输入逐项标 BLOCKED／NOT RUN，给出原因及所需决策，交 A 协调；不伪造 SHA-1、不手改原始 STRM、不改插件，不扩大用户例外。
+
+### 验收重评与复用
+
+| 项目 | 本轮结论 |
+|---|---|
+| AC-1／RO-1 | FIX REQUIRED：stdin 已修正，新证据／argv 凭据问题仍阻断；来源历史结论保留，不推断整体 PASS。 |
+| AC-2、AC-3、AC-5／RO-2、RO-4 | 保留前轮对已有 Developer 接入、来源、扫描／播放证据的有限认可；本轮不访问外部服务，不新增真实链路 PASS。 |
+| AC-4／RO-3 | 未完成：两行临时非阻断，其他哈希行缺实际证据；累计计数不等于完整矩阵。 |
+| AC-6／RO-5 | 稳定重复证据保留；移动闭环未提供／NOT RUN。旧 recovery 摘要不证明全部恢复通过；两项暂缓不重跑。 |
+| AC-7／RO-6 | 未完成：完整候选范围已审查；明确 P1 按流程第 4 节提前拒绝，不机械重跑全量 T4／Slice Final。独立真实链路 NOT RUN：本会话 OPENLIST_TOKEN、JF_USER、JF_PASSWORD 均未注入，未从文件／生产配置恢复。 |
+
+B 核对 410fc0e0a8964046de4707d58c0c7505385c6002 与本候选：54 个 Go 产品／module 文件、3 个 sync／serve／go-local 驱动文件、6 个容器／部署输入 Git blob 相同；新增目标 runner／测试／环境清单不同。仅证明这些源码集合匹配，不冒充全部运行输入匹配或新候选 T4 PASS。历史 task-3.2-final-20261019-1792350581 的记录源码是 2131b54bcec1cd43769d239a30456b4a8607f4aa，还须连同二进制、工具链、依赖、镜像、配置、夹具、命令核对后由 B 决定复用；不因“Go 未变”笼统通过。新 runner 测试已对当前输入执行。修正目标 summary 只含最后 decisions 调用，交接以逐场景清单为准。
+
+### 同一 Task 下一步与门禁分工
+
+- **Developer 受影响反馈：** 先治理检查；修复本 Task runner 的凭据来源／证据及既定非暂缓覆盖，补 secret 参数拒绝、环境注入、secret 不进入 argv／文件／stdout／stderr／证据、空日志／缺失决策不可通过的测试。执行 python3 -m unittest discover -s tests -p 'test_run_isolated_target_integration.py' -v、相关质量检查及受影响隔离场景；提供固定实现 Head、输入身份、脱敏命令、退出码／耗时、首次失败与重跑、逐行 AC 后再交 READY FOR B REVIEW。不要重跑 URL／Size 暂缓项；无法合法构造的输入给 A 精确阻塞包。
+- **B 最终门禁：** 新固定候选后审查完整 Task Base..新 Implementation Head，并独立安全复现。B 自己负责本 Task“最终检查点门槛”指定的全量质量、race、uncached test、构建、sync、serve、container 及逐项历史证据复用；再独立执行授权真实 OpenList→CLI STRM→稳定字节→Jellyfin 扫描／实际播放和关键探测／重用。完全匹配证据只复用一次，不匹配项按影响重跑；不把全量退给 Developer，不机械重跑 Final。
+- **A 范围协调：** 用户两行临时例外与其他不能合法触发的合同输入分别交 A；无新授权不降级 RO 或改外部组件。全部 RO 未满足，不提交 Closure Packet，不返回 SLICE READY FOR A REVIEW，不自行关闭。
+- **时间约束：** 本轮两次短测试／合成复现总执行不足 1 秒；治理与其他验证保守单独统计见 B 索引。测试占本轮耗时低于 50%，未空等延长回合。
