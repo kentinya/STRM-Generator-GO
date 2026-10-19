@@ -99,7 +99,7 @@ Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引保留于 `93078203
 
 Slice 2 的 T4 与缺失确认真实 OpenList 实证见其关闭检查点；Slice 3 的调度隔离验收命令与夹具由 Task 3.1 落地，部署镜像、Compose 挂载与容器生命周期由 Task 3.2 落地，两个 Task 均经独立 B PASS，A 已完成最终审查并关闭 Slice。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin；交叉构建不替代 ARM64 实机运行。
 
-验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、插件解析、Jellyfin／代理或播放通过。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
+验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、当前源码插件解析、Jellyfin 原生扫描或播放通过。Slice 4 不验证代理。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 
 本仓库原先无 Git；用户提供身份后只在本仓库配置 Git 身份，开发准备文件已提交在本地 main。未配置远程、未推送。当前 Slice／Task 生命周期与审查结论以 [SLICE.md](../SLICE.md) 和 [TASK.md](../TASK.md) 为准；旧验证和审查内容保留为历史记录，不覆盖新候选证据。
 
@@ -170,4 +170,4 @@ TTL 自然到期后仍不能被读取。运行器准备、轮询与取证请求�
 与 `hidden_entries` 记录的是用户明确接受的局限，不写成已安全辨别或已修复。
 
 Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。`/d/` 播放、固定插件解析、
-Jellyfin／代理、ARM64 实机与规模仍为 NOT RUN。
+Jellyfin 原生扫描／播放、ARM64 实机与规模仍为 NOT RUN；代理不属于 Slice 4 验收。

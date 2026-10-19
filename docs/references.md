@@ -5,12 +5,16 @@
 | 输入 | 固定身份／用途 |
 |---|---|
 | 用户开发方案 | [根原文](<../STRM Generator Go.md>)，SHA-256 `7ce4e0e4a3cbf10bd626e10c4a3081c489da99260c4e43305e0691409232cdbb` |
-| 配套插件 | `kentinya/jellyfin-strm-probe@1bdb79082c4945e126611f217200555d53c31367`，流程与协议对照 |
+| 配套插件参考 | `kentinya/jellyfin-strm-probe@1bdb79082c4945e126611f217200555d53c31367`，V4.3 流程与协议／决策对照；不是 Slice 4 部署包身份 |
 | OpenList 源码 | `OpenListTeam/OpenList@3b28270a4066ea52943a69ecddd850d83f7e8bdc`，API 数据形状参考；不是已实测服务版本 |
 | Go SDK | `1.27.2`，官方模块代理 ZIP 与固定 SHA-256；官方 checksum database 内容摘要已比对 |
 | Python 容器夹具 | `python@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89`，本机 amd64；ARM64镜像运行未验 |
 
 ## 配套项目
+
+Slice 4 部署包按合同从配套仓库当前源码构建。规划／实施须记录实际 checkout 的源仓库、
+分支、commit SHA、必要补丁摘要、构建工具与命令、产物 SHA-256；不得把下方固定参考提交
+误称为当前部署包，也不得用来源不明的预构建包替代。
 
 - [AGENTS](https://github.com/kentinya/jellyfin-strm-probe/blob/1bdb79082c4945e126611f217200555d53c31367/AGENTS.md) 与 [开发流程](https://github.com/kentinya/jellyfin-strm-probe/blob/1bdb79082c4945e126611f217200555d53c31367/docs/development-workflow.md)：复用 Slice／Task、三职责、状态、Git、分级测试、证据与关闭门槛；本地重新编写，不迁入插件历史授权。
 - [STRM reader](https://github.com/kentinya/jellyfin-strm-probe/blob/1bdb79082c4945e126611f217200555d53c31367/src/Jellyfin.Plugin.StrmProbeOptimizer/Services/StrmManifestReader.cs)：版本、UTF-8、65,536字节、SHA-1、Int64、URL 与重复标记。

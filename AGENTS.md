@@ -1,10 +1,10 @@
 # 仓库开发约束
 
-项目：STRM Generator Go，OpenList 到本地 STRM 的独立生成器，配套 jellyfin-strm-probe V4.3。
+项目：STRM Generator Go，OpenList 到本地 STRM 的独立生成器；协议／决策规则按配套 jellyfin-strm-probe V4.3 对照。
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.3 原方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备、Slice 1、Slice 2 与 Slice 3 已完成，均为 PASS / CLOSED；Slice 3 的 Task 3.1／3.2 均有独立 B PASS，A 已审查完整 Base..Implementation Head 至 `410fc0e0a8964046de4707d58c0c7505385c6002` 并完成关闭协调。Slice 4「隔离真实服务端到端兼容验收」已由 A 在真实 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 激活，当前等待 B 规划 Task 4.1；真实目标驱动、固定 Jellyfin／代理及播放仍 NOT RUN。ARM64 实机与规模测量留给后续 Slice，未降低验收。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。无 HEAD 的准备阶段可使用 `--bootstrap`，不据此开始产品实施。开发准备、Slice 1、Slice 2 与 Slice 3 已完成，均为 PASS / CLOSED；Slice 3 的 Task 3.1／3.2 均有独立 B PASS，A 已审查完整 Base..Implementation Head 至 `410fc0e0a8964046de4707d58c0c7505385c6002` 并完成关闭协调。Slice 4「隔离真实服务端到端兼容验收」已由 A 在真实 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 激活；A 已按用户授权修订验收为目标 OpenList、由配套仓库当前源码构建的插件包及 Jellyfin 原生扫描／播放，不验证代理。当前无活动 Task，合同检查点后由 B 规划 Task 4.1。目标服务与播放仍 NOT RUN；ARM64 实机与规模测量留给后续 Slice，未降低验收。用户会话授权优先于本文件。
 
 ## 固定业务边界
 
@@ -26,4 +26,4 @@ Slice／Task 状态和 Git 检查点仅由开发流程定义。A／B／Developer
 
 保留用户文件与真实状态。已授权范围内持续完成必要实现、修复和隔离验证；不自动推送、不重写历史、不破坏性清理。只操作本仓库 `artifacts/` 及专用隔离夹具，不修改 `/opt/jf-strm-probe`、运行中的 Jellyfin、OpenList、代理和生产媒体。Git 身份缺失时如实记录，不捏造用户身份或提交。
 
-单元、夹具、真实 OpenList、插件解析、真实 Jellyfin／代理和性能证据分开报告。NOT RUN／BLOCKED／SKIPPED 不能写成 PASS，环境 smoke 不代表产品通过。日志不包含真实 token、Cookie、签名 URL 或私有完整路径。
+单元、夹具、真实 OpenList、当前源码插件解析、真实 Jellyfin 原生扫描／播放和性能证据分开报告。Slice 4 不运行或验证代理。NOT RUN／BLOCKED／SKIPPED 不能写成 PASS，环境 smoke 不代表产品通过。日志不包含真实 token、Cookie、签名 URL 或私有完整路径。

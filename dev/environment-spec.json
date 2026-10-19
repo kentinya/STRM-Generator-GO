@@ -6,7 +6,7 @@
   },
   "probe": {
     "repository": "https://github.com/kentinya/jellyfin-strm-probe.git",
-    "source_sha": "1bdb79082c4945e126611f217200555d53c31367"
+    "reference_sha": "1bdb79082c4945e126611f217200555d53c31367"
   },
   "openlist": {
     "repository": "https://github.com/OpenListTeam/OpenList.git",
