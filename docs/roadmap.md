@@ -1,6 +1,6 @@
 # Slice 路线图
 
-状态表由治理工具读取；Slice 1 与 Slice 2 均 PASS / CLOSED。Slice 3 的 Task 3.1／3.2 均已 B PASS，但 A 最终审查为 FIX REQUIRED，下一步由 B 规划原 Slice 内修正。Task 2.1／2.2 均 PASS，Slice 2 已完成 A 最终审查。用户最终改为源根／目标 Get 简化判定，所有列表关闭强刷；撤回前两次权威列表／500 例外和刷新预算决定，已关闭 Slice Base 不变。
+状态表由治理工具读取；Slice 1 与 Slice 2 均 PASS / CLOSED。Slice 3 的 Task 3.1／3.2 均已 B PASS，A 最终审查为 FIX REQUIRED；B 已规划原 Slice 内修正，Developer 已实施并交 Task 3.2 READY FOR B REVIEW。Task 2.1／2.2 均 PASS，Slice 2 已完成 A 最终审查。用户最终改为源根／目标 Get 简化判定，所有列表关闭强刷；撤回前两次权威列表／500 例外和刷新预算决定，已关闭 Slice Base 不变。
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|
@@ -15,7 +15,7 @@
 
 Slice 2 的关闭合同保留于其关闭检查点，Base 为 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`。必要删除安全要求已由 Task 2.2 实现并经 B 审查及 A 最终审查；该 Slice 对真实 OpenList 的范围限于源根／Get 判定所需的固定隔离版本／驱动实证，不能替代 Slice 4 的真实部署、无签名 `/d/`、插件或播放验收。
 
-Slice 3 当前合同以 [SLICE.md](../SLICE.md) 为准，Base 固定为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Implementation Head 为 `2131b54bcec1cd43769d239a30456b4a8607f4aa`。B 已提交 Closure Packet；A 审查完整范围后判定 FIX REQUIRED，未关闭 Slice。B 须规划原 Slice 内修正，再由 Developer 按治理流程实施。真实 OpenList、无签名 `/d/`、插件／Jellyfin／代理、ARM64 实机、规模与正式发布仍留在 Slice 4。
+Slice 3 当前合同以 [SLICE.md](../SLICE.md) 为准，Base 固定为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Developer 原 Slice 内修正后的实现 Head 为 `410fc0e0a8964046de4707d58c0c7505385c6002`。B 已提交 Closure Packet；A 审查完整范围后判定 FIX REQUIRED，未关闭 Slice。B 已规划原 Slice 内修正，Developer 已实施并交 Task 3.2 READY FOR B REVIEW，待 B 独立复验。真实 OpenList、无签名 `/d/`、插件／Jellyfin／代理、ARM64 实机、规模与正式发布仍留在 Slice 4。
 
 Slice 1 的 Base 保留为 `f90f9560e55b07fd2d6a20e8bac43741c39176c4`，已审查 Implementation Head 为 `248a609eb70dbb8591091463ed51c5146d7c378a`。完整关闭合同及 Closure Packet 位于 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；Task 1.1／1.2 独立 B PASS、A PASS / CLOSED 及原始证据均保留。正常写者与最终一致性边界继续遵循需求 SW-1..SW-6，旧外部写者 FAIL 不改称已修复。
 

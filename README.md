@@ -2,7 +2,7 @@
 
 OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。开发依据为原样保留的 [V4.3 方案](<STRM Generator Go.md>)。
 
-**Slice 1「安全的单轮生成闭环」与 Slice 2「安全目录镜像与清理恢复」均已 PASS / CLOSED；Slice 3「定时与部署」当前为 FIX REQUIRED。** Slice 2 的 Base 为 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`；Task 2.1／2.2 均有独立 B PASS，A 已审查完整范围并接受三轮缺失、源根／目标 Get 重核、本地安全清理、移动收敛、dry-run 和正常失败恢复。Slice 3 的 Base 为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，Implementation Head 为 `2131b54bcec1cd43769d239a30456b4a8607f4aa`；Task 3.1／3.2 均有独立 B PASS，但 A 最终审查发现 sync 零间隔兼容回归和 Compose 渲染暴露 token 两项 P1 阻断，未关闭 Slice。分层证据和后续动作见 [当前合同](SLICE.md)。
+**Slice 1「安全的单轮生成闭环」与 Slice 2「安全目录镜像与清理恢复」均已 PASS / CLOSED；Slice 3「定时与部署」当前为 FIX REQUIRED。** Slice 2 的 Base 为 `930782035615512be811a7b8bcc8416050f0c12f`，Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`；Task 2.1／2.2 均有独立 B PASS，A 已审查完整范围并接受三轮缺失、源根／目标 Get 重核、本地安全清理、移动收敛、dry-run 和正常失败恢复。Slice 3 的 Base 为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，A Final 后由 Developer 在原 Task 3.2 内修正，当前实现 Head 为 `410fc0e0a8964046de4707d58c0c7505385c6002`，Task 3.2 交 READY FOR B REVIEW；A 最终审查发现的两项 P1（sync 零间隔兼容回归、Compose 渲染暴露 token）已实施修正并本机重跑证据，待 B 独立复验后 Slice 才能关闭。分层证据和后续动作见 [当前合同](SLICE.md)。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
 
@@ -33,7 +33,7 @@ export OPENLIST_TOKEN=...   # 来自 openlist.token_env 指定变量
 ./artifacts/slice-1/bin/strmgen-amd64 serve --config config.yaml
 ```
 
-成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60，必须为正整数）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)；真实服务兼容、播放、性能与 ARM64 实机尚未验收。
+成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60；`serve` 要求正整数且不溢出，`sync`／`sync --dry-run` 接受零）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)；真实服务兼容、播放、性能与 ARM64 实机尚未验收。
 
 隔离 CLI 验收（自建动态端口假服务；故障二进制仅供测试）：
 
