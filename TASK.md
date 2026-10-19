@@ -218,4 +218,5 @@ URL/Size rows remain user-temporarily-accepted BLOCKED and are handed to A.**
   is now addressed for the credential-safety boundary; RO-6 full gates and independent
   reproduction remain for B.
 - **Evidence:** `artifacts/validation-evidence/task-4.1-fix-20261019-211529/INDEX.md`.
-- **Fix Head SHA:** this report checkpoint commit (recorded on commit; no product change).
+- **Fix Head SHA:** `3df244adf0a000b5376967e0f90b70387d195293` (runner + regression tests + report;
+  no product Go change).
