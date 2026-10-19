@@ -7,7 +7,7 @@
 ```text
 Task ID: 3.2
 Parent Slice: 3
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 8fc3a3ad8a720e9ca4c832967fdf39874581beff
 Contract Checkpoint: ee5001646d4239755606c28b61f340d795ee7014
 Difficulty: High
@@ -381,4 +381,29 @@ Slice closure: NOT READY; A Final Review remains FIX REQUIRED
     门由本候选重跑）。
   - 真实 OpenList、无签名 `/d/`、插件解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
 
-- **B Review Result：** PENDING（Developer 未签发独立审查结论）
+- **B Review Result：** FIX REQUIRED（见下方独立复核；Developer 未签发审查结论）
+
+## B Review Result — In-Slice Correction (2026-10-19)
+
+```text
+Reviewed Task Range: 8fc3a3ad8a720e9ca4c832967fdf39874581beff..410fc0e0a8964046de4707d58c0c7505385c6002
+Documentation follow-ups: 41fd498, 3066a75 (no executable input changes)
+Decision: FIX REQUIRED
+AC-1 PASS; AC-2 FIX REQUIRED; AC-3..AC-5 PASS on reviewed evidence; AC-6 FIX REQUIRED
+RO-1 PASS; RO-2 PASS; RO-3 PASS; RO-4 FIX REQUIRED; RO-5 PASS; RO-6 FIX REQUIRED
+Independent focused Go verification: PASS (`./internal/config ./cmd/strmgen`)
+Independent Compose replay: FAIL — plain `docker compose config` output contains the synthetic host token;
+  `config --no-interpolate` omits it but does not change the plain command's disclosure.
+Independent container replay: PASS, 6/6 scenarios using candidate image sha256:5f2694d4ccedd9abe8d8e3f06d03f189420e64b369f823de752deb07b0b6d7c2
+Candidate full gate evidence: Developer reports PASS at artifacts/validation-evidence/task-3.2-correction-dev/INDEX.md;
+  reviewed input identities and raw summaries. B did not rerun full gates because the independent P1 blocker
+  was reproduced first, as permitted by the workflow's early-rejection rule.
+B full-gate items not independently rerun: mod download/verify, quality, full Go race/non-race, all Python,
+  amd64/arm64/testhooks build, image rebuilds, serve/sync regression. They must be rerun on a corrected
+  executable candidate; matching developer evidence remains historical evidence only.
+Independent evidence: artifacts/validation-evidence/task-3.2-b-correction-20261019/
+Slice Required Outcomes all satisfied: NO
+Next: Developer continues the same Task 3.2 correction. Do not weaken the plain-config redaction criterion;
+  if satisfying it conflicts with the accepted environment-token/read-only deployment contract, refer the
+  contract conflict to A before changing scope. Then submit a new correction candidate for B review.
+```

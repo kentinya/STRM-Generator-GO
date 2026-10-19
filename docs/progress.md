@@ -1,6 +1,6 @@
 # 进度
 
-## Task 3.2 原 Slice 内修正（Developer，2026-10-19，READY FOR B REVIEW）
+## Task 3.2 原 Slice 内修正（B Review，2026-10-19，FIX REQUIRED）
 
 按 B 的 [Task 3.2 原 Slice 内修正计划](../TASK.md)，Developer 在同一 Task 3.2、原 Task Base
 `8fc3a3ad8a720e9ca4c832967fdf39874581beff` 内实施修正，实现 Head
@@ -10,19 +10,29 @@
 （2）`deploy/compose.yaml` 改为 Compose 透传声明 `OPENLIST_TOKEN:`，容器驱动改用 `TOKEN_SET`
 布尔标记且不再回显 token，Compose 场景以 `config --no-interpolate` 断言脱敏渲染。
 
-本机重跑（证据 `artifacts/validation-evidence/task-3.2-correction-dev/`）：治理 PASS；聚焦 Go
-`test`／`vet`／`gofmt` 通过；Python 112 项通过；amd64／arm64／testhooks 构建与 amd64 镜像、
-arm64 OCI 构建 exit 0；隔离容器驱动 6/6、serve 6/6、sync 11/11。
+Developer 候选 `410fc0e0a8964046de4707d58c0c7505385c6002` 的索引
+`artifacts/validation-evidence/task-3.2-correction-dev/` 记录治理、聚焦 Go／vet／gofmt、
+Python 112 项、amd64／arm64／testhooks 与镜像构建、隔离容器 6/6、serve 6/6、sync 11/11
+及 T4 全量门禁通过。B 审阅完整 Task Base..Head 和输入身份，独立聚焦 Go 测试通过，并以
+候选 amd64 镜像独立重跑隔离容器 6/6；独立证据位于
+`artifacts/validation-evidence/task-3.2-b-correction-20261019/`。
 
-**发现：计划字面门在本机 Compose v5.1.3 上不可达。** 普通 `docker compose config` 会解析并
+**Developer 风险报告：** 普通 `docker compose config` 在本机 Compose v5.1.3 上会解析并
 打印服务 `environment:` 的宿主值，透传声明也不例外；唯一能让普通 `config` 不含值的
 `secrets: {environment: ...}` 与 `read_only: true` 冲突（只支持 `file`）。实现因此采用
 透传声明＋`--no-interpolate` 脱敏采集＋布尔标记＋无回显，满足 AC-2 安全意图但未满足计划字面的
-普通 `config` 门；请 B 决定把脱敏采集改为 `--no-interpolate` 或给出替代方案。Developer 未签发
-PASS，Task 交 READY FOR B REVIEW。真实 OpenList、插件解析、Jellyfin／代理、ARM64 实机、规模与
-正式发布仍 NOT RUN。
+普通 `config` 门。该报告作为 Developer 的原始判断保留；B 独立复核及裁决见下文。真实 OpenList、
+插件解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
 
-Next Action: B REVIEWS THE TASK 3.2 IN-SLICE CORRECTION
+**B 独立复核结论（覆盖上方 Developer 的待审交接）：FIX REQUIRED。** B 重跑普通
+`docker compose config`，合成 token 出现在输出中；`config --no-interpolate` 不含该值且显示
+`OPENLIST_TOKEN: null`，但这只避免脱敏采集回显，未修复普通渲染的既有泄露。因此不把门槛改成
+仅检查 `--no-interpolate`。RO-1／2／3／5 及容器 AC-1／3／4／5 有匹配候选证据支持；RO-4、
+RO-6／AC-2 仍被 P1 阻断。B 独立聚焦 Go 测试、治理与候选容器 6/6 通过；发现阻断后按流程
+提前停止，未独立重跑 T4 的依赖／quality、Go race／全量、Python 全量、构建和 serve／sync
+回归。Developer 同 SHA 的完整 T4 证据已核对，但不能覆盖失败的秘密门槛。Task 仍为同一
+Task 3.2 `FIX REQUIRED`，无 Closure Packet；若满足 token 环境注入、只读部署与无普通渲染泄露
+三项产生合同冲突，应交 A 决定，不得由 B 弱化验收。
 
 ## Slice 3 A Final Review（2026-10-19，FIX REQUIRED）
 
