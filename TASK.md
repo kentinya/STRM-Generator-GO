@@ -5,7 +5,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: PLANNED
+Status: FIX REQUIRED
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Difficulty: High
@@ -161,10 +161,17 @@ production service, config, media, or `/opt/jf-strm-probe` was touched; no proxy
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Reviewed Range: NOT SET
-Decision: PENDING
-AC-1..AC-7: PENDING
-Slice Required Outcomes all satisfied: PENDING
-Next: PENDING
+Reviewed: 2026-10-19
+Reviewed Range: 527570df75ab469eb204d6a42b2d1b4eb07f71e6..c769840378ccc6d366c1b9959a0b7b768ab6da85
+Decision: FIX REQUIRED
+AC-1: FIX REQUIRED — scripts/run_isolated_target_integration.py:jellyfin_playback writes a JSON scenario containing the Jellyfin password to /tmp; this violates the Task's process-only credential and artifacts-only state boundary. Move the scenario exchange to a credential-free mechanism or an artifacts-owned, permissioned temporary input with no secret persisted, add a regression test, and rerun the affected native-playback evidence.
+AC-2: PASS by matched developer evidence; B independent target reproduction NOT RUN because the current session has no authorized target credentials in its process environment.
+AC-3: PASS by matched provenance evidence; the pinned source SHA, archive SHA-256, and installed-file comparison are consistent.
+AC-4: FIX REQUIRED — URL-change and Size-change rows are BLOCKED by the real pinned plugin/Jellyfin interaction; the Task contract requires every matrix row to be observed or explicitly resolved before PASS. Do not patch the plugin in this repository; hand the external-component scope to A, or provide an A-approved contract disposition.
+AC-5: PASS by matched native scan/playback evidence; B independent playback NOT RUN for the same credential precondition.
+AC-6: FIX REQUIRED — change/recovery coverage is incomplete because the blocked URL/Size rows are not accepted; preserve the recorded failure and rerun after the approved resolution.
+AC-7: FIX REQUIRED — the candidate is not eligible for final T4/B gate while AC-1, AC-4, AC-6 remain unresolved; the Developer report's Head SHA `2531032c88182ab2078cf2d155724f80e7529e49` is stale versus the reviewed commit `c769840378ccc6d366c1b9959a0b7b768ab6da85` and must be corrected.
+Slice Required Outcomes all satisfied: NO — RO-1, RO-3, RO-5 and RO-6 remain unresolved/partial; RO-2 and RO-4 are supported only by matched developer evidence.
+Independent B reproduction: NOT RUN (authorized target credentials absent from this session); no external or production service was accessed.
+Required correction: remain in Task 4.1. Remove secret-bearing /tmp scenario persistence and add a regression test; correct the candidate/evidence SHA references; resolve or obtain A disposition for the pinned-plugin URL/Size BLOCKED rows; then rerun only affected native target scenarios plus the specified full T4 gates as required by input changes, and return READY FOR B REVIEW.
 ```
