@@ -608,12 +608,12 @@ class MoveFailureRecoveryTests(unittest.TestCase):
             "http://isolated.invalid/d/s3/Plain%20Movie.mkv\n", encoding="utf-8")
         return root, config, strms
 
-    def _run(self, root, config, strms):
+    def _run(self, root, config, strms, target=None, log=None):
         return driver.scenario_move(
-            driver.Recorder(root / "out", {}), None, Path("unused"), config, "token",
+            driver.Recorder(root / "out", {}), target, Path("unused"), config, "token",
             root, strms, "library", Path("unused"), "unused", "unused",
             "http://isolated.invalid", driver.Credentials("t", "a", "p", "p"),
-            None, self.ITEM, "/s3", {}, "", root)
+            log, self.ITEM, "/s3", {}, "", root)
 
     def test_failed_sync_after_move_restores_remote_object(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -688,6 +688,149 @@ class MoveFailureRecoveryTests(unittest.TestCase):
             self.assertIn("recovery move failed", marker["recovery_error"])
             # The original failure is what reaches the caller; recovery detail is in the record.
             self.assertIn("move sync exit 1", str(raised.exception))
+
+    def test_unconfirmed_remote_move_is_not_reported_as_restored(self):
+        """B reproduction: a timed-out ``moveto`` may already have changed the remote object.
+
+        ``TimeoutExpired`` says nothing about whether the remote side committed the move. The
+        marker must therefore report the position as unconfirmed and the fixture as NOT
+        restored, instead of defaulting ``remote_object_restored``/``fixture_restored`` to true
+        just because the local flag was never set. No blind reverse move is attempted either.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            attempts = []
+            # The move commits remotely, then the transport times out before returning.
+            def timed_out_move(env, source, dest):
+                attempts.append((source, dest))
+                raise driver.Failure("rclone moveto timed out after 180s; the remote fixture "
+                                     "state is unconfirmed")
+
+            with mock.patch.object(driver, "rclone_move", side_effect=timed_out_move), \
+                    mock.patch.object(driver, "run_cli", return_value=(0, "created=0", "")) as \
+                    run_cli_mock, \
+                    self.assertRaises(driver.Failure):
+                self._run(root, config, strms)
+            self.assertEqual(len(attempts), 1, "no reverse move may run on an unconfirmed fixture")
+            self.assertEqual(run_cli_mock.call_count, 0,
+                             "no sync may run on an unconfirmed fixture")
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertEqual(marker["failed_step"], "remote move")
+            self.assertEqual(marker["remote_state"], "unconfirmed")
+            self.assertFalse(marker["recovery_attempted"])
+            self.assertFalse(marker["remote_object_restored"],
+                             "a timed-out move must not be reported as restored")
+            self.assertFalse(marker["fixture_restored"],
+                             "an unconfirmed fixture must never be reported as restored")
+            self.assertIsNone(marker["config_resynced"])
+            self.assertIn("NOT confirmed", marker["recovery_error"])
+            self.assertIn("NOT", marker["note"])
+            # The config text itself is still put back, so only the remote side stays unknown.
+            self.assertTrue(marker["config_written_back"])
+            self.assertEqual(config.read_text(), "cleanup:\n  enabled: false\n")
+
+    def test_confirmed_move_still_reports_restored_fixture(self):
+        """Guard: the truthful-state change must not weaken the confirmed-success path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            with mock.patch.object(driver, "rclone_move", side_effect=lambda *a, **k: None), \
+                    mock.patch.object(driver, "run_cli",
+                                      side_effect=[(1, "", "injected failure"), (0, "ok", "")]), \
+                    mock.patch.object(driver, "digest_tree", return_value="digest"), \
+                    mock.patch.object(driver, "read_strm",
+                                      return_value={"sha1": None, "size": 1, "url": "u"}), \
+                    self.assertRaises(driver.Failure):
+                self._run(root, config, strms)
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertEqual(marker["remote_state"], "original")
+            self.assertTrue(marker["recovery_attempted"])
+            self.assertTrue(marker["remote_object_restored"])
+            self.assertTrue(marker["fixture_restored"])
+
+    def test_unconfirmed_state_also_blocks_the_finally_resync(self):
+        """Double failure: the write-back fails, so ``finally`` must still refuse to sync.
+
+        When the remote position is unconfirmed, no sync may run on the fixture -- not in the
+        failure handler (covered above) and not in ``finally`` either, because a sync there would
+        write STRM state derived from an unknown remote. The config text is still restored.
+        """
+        original_text = "cleanup:\n  enabled: false\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root, config, strms = self._fixture(tmp)
+            media = root / self.ITEM
+            media.write_bytes(b"payload")
+            (strms / "Moved").mkdir()
+            (strms / "Moved" / "Plain Movie.strm").write_text("x", encoding="utf-8")
+            moves = []
+
+            def move(env, source, dest):
+                moves.append(source)
+                if len(moves) >= 2:  # the scenario's remote restore commits then times out
+                    raise driver.Failure("rclone moveto timed out after 180s")
+
+            real_write = Path.write_text
+            attempts = {"n": 0}
+
+            def flaky_write(path, data, **kwargs):
+                # Only the first write-back of the pre-scenario config text fails.
+                if data == original_text:
+                    attempts["n"] += 1
+                    if attempts["n"] == 1:
+                        raise OSError("injected write failure")
+                return real_write(path, data, **kwargs)
+
+            target = mock.MagicMock()
+            target.openlist_download.return_value = (200, b"payload")
+            log = mock.MagicMock()
+            log.since.return_value = [{"kind": "decision", "item": "m", "reason": "Unchanged",
+                                       "line": "reuse"}]
+            log.require_reuse.return_value = "reused"
+            stale = strms / "Plain Movie.strm"
+            syncs = []
+
+            def cli(*args, **kwargs):
+                syncs.append(1)
+                # The cleanup round retires the stale pre-move STRM so the scenario advances
+                # to the remote restore, where the unconfirmed timeout happens.
+                if "enabled: true" in config.read_text(encoding="utf-8") and stale.exists():
+                    stale.unlink()
+                return (0, "created=0", "")
+
+            def read_marker(path):
+                moved = "Moved" in str(path)
+                return {"sha1": None, "size": 7,
+                        "url": "http://isolated.invalid/d/s3/"
+                               + ("Moved/" if moved else "") + "Plain%20Movie.mkv"}
+
+            with mock.patch.object(driver, "rclone_move", side_effect=move), \
+                    mock.patch.object(driver, "run_cli", side_effect=cli), \
+                    mock.patch.object(driver, "read_strm", side_effect=read_marker), \
+                    mock.patch.object(driver, "digest_tree", return_value="digest"), \
+                    mock.patch.object(driver, "refresh_library", return_value={"state": "Idle"}), \
+                    mock.patch.object(driver, "library_items",
+                                      side_effect=[{"Moved/Plain Movie": {"Id": "m"}},
+                                                   {"Moved/Plain Movie": {"Id": "m"}}]), \
+                    mock.patch.object(driver, "playback_item",
+                                      return_value={"advanced": True, "currentTime": 3}), \
+                    mock.patch.object(Path, "write_text", flaky_write), \
+                    self.assertRaises(driver.Failure):
+                self._run(root, config, strms, target=target, log=log)
+            marker = json.loads((root / "out" / "ro5_move_failure.json").read_text())
+            self.assertEqual(marker["failed_step"], "remote restore")
+            self.assertEqual(marker["remote_state"], "unconfirmed")
+            self.assertFalse(marker["fixture_restored"])
+            # The in-handler write-back genuinely failed, so the marker must say so; the finally
+            # retry restores the config text afterwards and is recorded separately.
+            self.assertFalse(marker["config_written_back"])
+            self.assertIn("config write: OSError", marker["recovery_error"])
+            self.assertIsNone(marker["config_resynced"],
+                              "no sync may run on an unconfirmed fixture")
+            self.assertEqual(config.read_text(), original_text)
+            gap = json.loads((root / "out" / "ro5_move_config_restore_failure.json").read_text())
+            self.assertIn("not attempted", gap["detail"][0])
+            self.assertIn("NOT restored", gap["note"])
+            # Only the syncs before the unconfirmed restore ran; none ran after it.
+            self.assertTrue(syncs, "the earlier scenario steps legitimately synced")
 
     def test_cli_timeout_after_move_marks_and_restores_fixture(self):
         """B reproduction: a plain ``TimeoutExpired`` bypassed the move failure handling.

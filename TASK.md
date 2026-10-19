@@ -7,7 +7,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 87be914349db70929461d306e1d183c8e560cd68
 Difficulty: High
@@ -23,10 +23,10 @@ Planner / Reviewer: B
 
 ## 实际缺口与范围
 
-- 当前固定候选：5d6b1911913294a0134cc92f499e4bee20a84895（第四轮 P1 修正后）。
-  前一候选 a213e227b2e84675205110e7a51aee94a300acd9 及其文档后继
-  44b40bddd4e3c4a29ae92c5bc0d8d294e1d86d69 保留为已审历史。
-  产品 Go 自 a213e22 起未变；本轮仅改目标 runner／目标工具测试（目标工具现 55 项）。
+- 当前固定候选：见下方第六修正报告的真实 Implementation Head（第五轮为
+  5d6b1911913294a0134cc92f499e4bee20a84895，已被 B 第五轮判 FIX REQUIRED）。
+  更早候选 a213e22／44b40bd／9e91eaf 保留为已审历史。
+  产品 Go 自 a213e22 起未变；本轮仅改目标 runner／目标工具测试（目标工具现 58 项）。
 - OpenList 源 3b28270a4066ea52943a69ecddd850d83f7e8bdc，镜像
   openlistteam/openlist@sha256:11b490123d57f88c84ecda46285e1921869cf511da3e5bb4062f183e7e1200b7，
   v4.2.7，专用隔离 S3/RustFS。Jellyfin 为
@@ -46,8 +46,8 @@ Planner / Reviewer: B
 - 目标 get 没有可用 SHA-1；用户已允许验收侧计算自有本地合成媒体真实哈希，不再以此
   作为“无法构造输入”的范围阻塞。已有派生输入和 Go 比较通过，但实际插件两行仍 NOT RUN。
 - 当前剩余：凭据事件处置（历史出口的轮换／移除仍开放，交 B／A），两行真实插件观察
-  和 B 独立一份媒体链路。B 已对上一候选完成本地门禁裁定及完整 Base..Head 审查并保留三个
-  P1；Developer 第五轮已按此最小修正。真实必验未满足，不能签完整 T4／Task PASS。本会话
+  和 B 独立一份媒体链路。B 已对第五候选完成完整 Base..Head 审查并保留不确定移动标记一条
+  P1；Developer 第六轮已按此最小修正。真实必验未满足，不能签完整 T4／Task PASS。本会话
   所需专用凭据未在进程环境注入；不从文件／生产配置恢复，不把未运行写成通过。
 
 ## 最简执行与实施边界
@@ -156,14 +156,104 @@ B 自己负责一份真实链路、两行实际 SHA-1 插件观察、逐项全�
 API／DB，不接生产状态。生成器不下载媒体计算哈希；测试侧本地真实内容计算只按用户授权。
 不运行代理；ARM64 实机、规模测量与 registry 发布不属本 Task，不据此撤销后续目标。
 
-## Developer Completion Report（本轮第五修正，2026-10-19）
+## Developer Completion Report（本轮第六修正，2026-10-20）
 
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
+Implementation Head: 见本轮提交（本报告所在检查点）
+本轮 Base（B 上一轮审查 HEAD）: 9e91eaf7be67cc956d0bc34412089b4ad59af31c
+证据索引: artifacts/validation-evidence/task-4.1-dev6-20261020-001445/INDEX.md（本机、Git 忽略）
+```
+
+只修 B 第五轮唯一保留的 P1（AC-6／RO-5 不确定远端变更误记恢复）；不改产品 Go、插件、
+V4.3 协议、比较规则、删除／锁／归属／SQLite 边界，不扩建自动补偿／反向移动平台／逐阶段
+故障矩阵，不动暂缓三项。
+
+### 1. AC-6／RO-5：以“已确认的远端位置”替代布尔已移动标志
+
+`scripts/run_isolated_target_integration.py` 的 `scenario_move` 原先用 `object_moved` 布尔值：
+只在 `rclone_move` **正常返回后**置 true。`TimeoutExpired` 不保证远端未提交，于是 B 的复现里
+`failed_step=remote move`、`recovery_attempted=false`，却得到 `remote_object_restored=true` 与
+`fixture_restored=true`（默认值 `not object_moved` 把“未确认”当成“未移动”）。
+
+改为三态 `remote_state`（`original` / `moved` / `unconfirmed`）：
+
+- 调用任何变更步骤前先置 `unconfirmed`，只有 `rclone_move` 正常返回才置 `moved`／`original`。
+- 失败处理只在 `moved`（已确认为移动后状态）时反向移动；成功才写回 `original`。
+- `unconfirmed` 时：不反向移动、不跑 sync、`config_resynced=null`、
+  `remote_object_restored=false`、`fixture_restored=false`，`recovery_error`／`note` 明确写
+  “位置未确认、夹具未恢复、需核对或重建”，并新增 `remote_state` 字段供 B 核对。
+- `finally` 的配置复原同步同样受 `unconfirmed` 保护（只复原配置文本，不在未确认夹具上 sync），
+  另记 `ro5_move_config_restore_failure`，且不吞掉原异常（不用 `return`）。
+- 已完成正向移动后 CLI 超时的既有修复（第 5 轮）保持不变。
+
+### 2. 回归（3 新增，目标工具 55 → 58）
+
+`tests/test_run_isolated_target_integration.py`：
+
+| 测试 | 断言的现实 |
+|---|---|
+| `test_unconfirmed_remote_move_is_not_reported_as_restored` | 超时 moveto：仅 1 次子进程、0 次 sync、`remote_state=unconfirmed`、两项 restored 均 false、config 文本仍复原 |
+| `test_unconfirmed_state_also_blocks_the_finally_resync` | 写回与远端同时失败：`finally` 不 sync、另记 restore-failure 记录、原异常照常抛出 |
+| `test_confirmed_move_still_reports_restored_fixture` | 已确认移动 + 恢复成功仍报 `remote_state=original`／两项 restored true（防改弱） |
+
+### 3. B 反例原件对照（同一脚本、同一输入）
+
+`b-repro-recheck.py` 分别加载修复前 `HEAD:scripts/run_isolated_target_integration.py` 快照与
+修复后工作区文件，模拟“moveto 已提交远端改变后抛真实 TimeoutExpired”：
+
+| 观察 | before | after |
+|---|---|---|
+| 远端实际位置已变 | 是 | 是（反例前提成立） |
+| `remote_object_restored` | **true（错）** | **false** |
+| `fixture_restored` | **true（错）** | **false** |
+| `remote_state` | 无此字段 | `unconfirmed` |
+| 子进程次数 | 2（含一次正常 sync） | 1 |
+| `counterexample_present` | **true** | **false** |
+
+### 4. 验证（Developer 反馈层；产品 T4 仍归 B）
+
+| 项 | 结果 |
+|---|---|
+| `python3 scripts/check_governance.py` | exit 0，PASS（仅合同一致性） |
+| `python3 -m unittest discover -s tests -p 'test_run_isolated_target_integration.py' -v` | exit 0，**58 项 OK**（+3），0.149 s |
+| `python3 -m unittest discover -s tests -p 'test_governance.py' -v` | exit 0，14 项 OK，0.503 s |
+| `python3 -m py_compile` 两文件 | exit 0 |
+| `git diff --check` | exit 0 |
+| B 反例原件对照 | before=true → after=false |
+
+**未运行：** 真实 OpenList／Jellyfin／播放链路、两行真实 SHA-1 插件观察（本轮进程环境
+`OPENLIST_TOKEN`／`JF_*`／`RUSTFS_*` 全部 absent，仅核对名字不读值，不从文件／容器／生产
+配置恢复秘密）；Go 全量／race／构建、本地 sync／serve／容器／镜像（归 B）；暂缓三项未执行。
+
+### 5. 复用输入身份（本轮实测，未重选版）
+
+CLI `strmgen-amd64 16b70e13…`、`strmgen-testhooks-amd64 c6222a14…`；插件 ZIP
+`382d3ef1…`；插件源码副本 HEAD `2afc6517…` 且 tracked worktree 干净；`artifacts/` 下合成
+媒体 202 个 `.mkv`。与 TASK／SLICE 固定身份一致，本轮未重取远程 HEAD、未访问容器。
+
+### 6. 凭据事件（脱敏；不宣称从未泄露）
+
+`/tmp/t41env.sh` 等历史出口本轮未读取、未 source、未删除、未轮换，仍为 **B／A 处置的
+开放项**。本轮只关闭当前可复现出口；历史接受由 A 在最终审查决定。
+
+### 7. 风险与未决
+
+- 本轮只关闭“未确认远端变更误报恢复”这一条合成失败路径；**真实链路证据仍 NOT RUN**，
+  AC-2／AC-4／AC-5 的真实部分、B 独立一份媒体链路与两行 SHA-1 观察均未完成。
+- 两项 Size 变化与两项 URL 变化（暂缓清单）状态未变，不计 PASS。
+- 测试执行合计约 1.1 s，本轮保守回合分母约 480 s，占比约 0.2%，远低于 30%；无空等凑比例。
+
+## Developer Completion Report（本轮第五修正，2026-10-19，历史事实）
+
+```text
+State: 当时交 READY FOR B REVIEW，随后 B 第五轮判 FIX REQUIRED
 Implementation Head: 5d6b1911913294a0134cc92f499e4bee20a84895
 本轮 Base（B 上一轮审查 HEAD）: 393f96518f59fe5a5671677b41ca7e3f2da77f87
 证据索引: artifacts/validation-evidence/dev5-20261019-234921/INDEX.md（本机、Git 忽略）
 ```
+
+本节以下内容保留为第五轮历史事实，不再是对“本轮”的陈述。
 
 只修 B 第四轮的三条 P1 与直接受影响的失败路径；不改产品 Go、插件、V4.3 协议、比较规则、
 删除／锁／归属／SQLite 边界，不扩建通用秘密识别／日志关联／补偿框架，不动暂缓三项。

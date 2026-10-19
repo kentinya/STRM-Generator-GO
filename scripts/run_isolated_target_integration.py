@@ -905,10 +905,14 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
                   media_dir: Path) -> None:
     """RO-5/AC-6: remote path move, then generator, scan, playback and cleanup closure.
 
-    The scenario tracks which mutating steps it has completed. If anything after the remote
-    move fails, the object is moved back so the fixture is left in its pre-scenario location;
-    the failure marker records the step, whether the object was restored, and whether the
-    restore itself failed. A failed restore is never hidden behind the original error.
+    The scenario tracks the *confirmed* remote object position, not merely whether a call
+    returned: a failed or timed-out ``rclone`` step leaves the position unconfirmed because the
+    remote side may already have changed. If anything after a confirmed move fails, the object
+    is moved back so the fixture is left in its pre-scenario location; the failure marker records
+    the step, whether the object is confirmed restored, and whether the restore itself failed.
+    An unconfirmed position is reported as NOT restored (verify or rebuild the fixture); this
+    runner never guesses with a blind reverse move, and a failed restore is never hidden behind
+    the original error.
     """
     original = config.read_text(encoding="utf-8")
     source_key = object_key(env, remote_root, item_name)
@@ -919,12 +923,16 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
     before_original = read_strm(strm_dir / (item_name[:-4] + ".strm"))
     rounds: list[str] = []
     step = "start"
-    object_moved = False
+    # Only a completed rclone step confirms a position: ``original`` (pre-scenario key) or
+    # ``moved`` (moved key). The state is set to ``unconfirmed`` for the duration of a mutating
+    # call, because a non-zero exit or a timeout does not prove the remote side stayed put.
+    remote_state = "original"
     try:
         # 1. Move the object inside the target mount and synchronize.
         step = "remote move"
+        remote_state = "unconfirmed"
         rclone_move(env, source_key, moved_key)
-        object_moved = True
+        remote_state = "moved"
         step = "move sync"
         code, stdout, _ = run_cli(binary, config, token, cwd)
         require(code == 0, f"move sync exit {code}")
@@ -1005,8 +1013,9 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
 
         # 4. Restore the object; the generator must recreate the original and retire the move.
         step = "remote restore"
+        remote_state = "unconfirmed"
         rclone_move(env, moved_key, source_key)
-        object_moved = False
+        remote_state = "original"
         step = "restore sync"
         for _ in range(6):
             code, stdout, _ = run_cli(binary, config, token, cwd)
@@ -1049,17 +1058,22 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
                         replay=replay)
     except Failure as error:
         # Stop at the failing step, put the fixture back the way it started, and record the
-        # truth: which step failed, whether the remote object was restored, and whether the
-        # configuration was written back and re-synchronised. Nothing here is inferred.
-        recovery = {"attempted": False, "object_restored": not object_moved,
-                    "config_written": False, "config_synced": None, "error": ""}
-        if object_moved:
+        # truth: which step failed, whether the remote object is *confirmed* restored, and
+        # whether the configuration was written back and re-synchronised. Nothing is inferred;
+        # a position left unconfirmed by a failed/timed-out rclone step is reported as unknown
+        # and NOT restored rather than assumed to be at the moved key or back at the original.
+        recovery = {"attempted": False, "object_restored": remote_state == "original",
+                    "remote_state": remote_state, "config_written": False,
+                    "config_synced": None, "error": ""}
+        if remote_state == "moved":
             recovery["attempted"] = True
             try:
                 rclone_move(env, moved_key, source_key)
                 recovery["object_restored"] = True
+                recovery["remote_state"] = "original"
             except Failure as recovery_error:
                 recovery["object_restored"] = False
+                recovery["remote_state"] = "unconfirmed"
                 recovery["error"] = scrub(str(recovery_error))[:200]
         try:
             config.write_text(original, encoding="utf-8")
@@ -1067,36 +1081,58 @@ def scenario_move(recorder: Recorder, target: Target, binary: Path, config: Path
         except OSError as write_error:
             recovery["error"] = (recovery["error"] + " | " if recovery["error"] else "") \
                                 + f"config write: {type(write_error).__name__}"
-        try:
-            recovery["config_synced"] = run_cli(binary, config, token, cwd)[0] == 0
-        except (Failure, OSError) as sync_error:
-            recovery["config_synced"] = False
+        if recovery["remote_state"] == "unconfirmed":
             recovery["error"] = (recovery["error"] + " | " if recovery["error"] else "") \
-                                + f"config sync: {type(sync_error).__name__}"
+                                + "remote object position is NOT confirmed after the failed " \
+                                  "move; no reverse move or resync was attempted on an " \
+                                  "unconfirmed fixture, so the fixture is NOT restored"
+        else:
+            try:
+                recovery["config_synced"] = run_cli(binary, config, token, cwd)[0] == 0
+            except (Failure, OSError) as sync_error:
+                recovery["config_synced"] = False
+                recovery["error"] = (recovery["error"] + " | " if recovery["error"] else "") \
+                                    + f"config sync: {type(sync_error).__name__}"
+        note = ("the moved-path first playback is user-deferred; this marker records the real "
+                "failure and the verified fixture state instead of a verdict")
+        if recovery["remote_state"] == "unconfirmed":
+            note = ("the moved-path first playback is user-deferred; the remote object position "
+                    "after the failed move is NOT confirmed, so the fixture is reported NOT "
+                    "restored. Verify or rebuild it before the next run")
         recorder.record("ro5_move_failure",
                         failed_step=step,
                         cause="NOT DETERMINED (no root-cause inference)",
                         message=scrub(str(error))[:300],
                         recovery_attempted=recovery["attempted"],
+                        remote_state=recovery["remote_state"],
                         remote_object_restored=recovery["object_restored"],
                         config_written_back=recovery["config_written"],
                         config_resynced=recovery["config_synced"],
                         recovery_error=recovery["error"],
                         fixture_restored=(recovery["object_restored"] and recovery["config_written"]
                                           and recovery["config_synced"] is True),
-                        note="the moved-path first playback is user-deferred; this marker records "
-                             "the real failure and the verified fixture state instead of a verdict")
+                        note=note)
         raise
     finally:
         if config.read_text(encoding="utf-8") != original:
             config.write_text(original, encoding="utf-8")
-            try:
-                run_cli(binary, config, token, cwd)
-            except (Failure, OSError) as restore_error:
+            if remote_state == "unconfirmed":
+                # The remote position is unknown, so a sync here would write STRM state derived
+                # from an unconfirmed fixture. Record the gap instead of continuing on it; the
+                # original failure keeps propagating.
                 recorder.record("ro5_move_config_restore_failure", failed=True,
-                                detail=scrub(str(restore_error))[:200],
-                                note="the config text was written back but the fixture sync could "
-                                     "not run; the fixture is NOT confirmed restored")
+                                detail=["sync: not attempted, remote object position is NOT "
+                                        "confirmed"],
+                                note="the config text was written back but no sync was run on "
+                                     "an unconfirmed fixture; the fixture is NOT restored")
+            else:
+                try:
+                    run_cli(binary, config, token, cwd)
+                except (Failure, OSError) as restore_error:
+                    recorder.record("ro5_move_config_restore_failure", failed=True,
+                                    detail=scrub(str(restore_error))[:200],
+                                    note="the config text was written back but the fixture sync "
+                                         "could not run; the fixture is NOT confirmed restored")
 
 
 def build_parser() -> argparse.ArgumentParser:
