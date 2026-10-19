@@ -7,7 +7,7 @@
 ```text
 Task ID: 3.2
 Parent Slice: 3
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 8fc3a3ad8a720e9ca4c832967fdf39874581beff
 Contract Checkpoint: ee5001646d4239755606c28b61f340d795ee7014
 Difficulty: High
@@ -317,7 +317,68 @@ partial or stale replay.
 ```text
 Plan Status: READY FOR DEVELOPER
 Decision: PLANNED (same Task 3.2; no new Task)
-Implementation Head: remains 2131b54bcec1cd43769d239a30456b4a8607f4aa until Developer commit
+Implementation Head: 410fc0e0a8964046de4707d58c0c7505385c6002
 B Review of correction: PENDING
 Slice closure: NOT READY; A Final Review remains FIX REQUIRED
 ```
+
+## Developer Correction Report (2026-10-19)
+
+- **Head SHA：** `410fc0e0a8964046de4707d58c0c7505385c6002`（同一 Task 3.2，原 Task Base
+  `8fc3a3ad8a720e9ca4c832967fdf39874581beff` 不变）。
+
+- **Changed Files / Implemented：**
+  - `internal/config/config.go`：`validate` 重新接受 `sync.interval_minutes: 0`（仅拒绝负数）；
+    零／溢出值不再在 `Load` 阶段报错，解析出的 `Interval` 相应为非正值；新增
+    `Resolved.ValidateServeInterval()` 在 serve 专用路径做“正数＋转换不溢出”校验。
+  - `cmd/strmgen/main.go`：`runServe` 在 `config.Load` 之后、`Token()`／锁／输出根／
+    数据库／远端请求之前调用 `ValidateServeInterval()`；`sync`／`sync --dry-run` 不调用，
+    因此保持零间隔兼容。
+  - `internal/config/config_test.go`、`cmd/strmgen/main_test.go`：更新间隔用例——零／溢出
+    在 `Load` 接受但 `ValidateServeInterval` 拒绝；负数在 `Load` 拒绝；新增
+    `TestSyncAcceptsZeroInterval`、`TestServeRejectsZeroIntervalBeforeAnySideEffect`。
+  - `deploy/compose.yaml`：把 `OPENLIST_TOKEN: "${OPENLIST_TOKEN:?set ...}"` 值插值改为
+    Compose 透传声明 `OPENLIST_TOKEN:`；容器自身在 token 缺失时失败，文件／镜像不含值。
+  - `scripts/run_container_integration.py`：挂载探针只输出 `TOKEN_SET`／`TOKEN_MISSING`
+    布尔标记（不再 `echo TOKEN=${OPENLIST_TOKEN}`），并断言容器日志不含合成 token；
+    Compose 场景用 `config --no-interpolate` 断言脱敏渲染不含 token 且不是值插值。
+  - `tests/test_run_container_integration.py`：新增透传／布尔标记断言，更新渲染断言。
+  - `docs/deployment.md`：记录透传声明、`--no-interpolate` 脱敏采集，以及 `sync` 零间隔
+    兼容与 `serve` 拒绝规则。
+  - 未修改 `internal/scheduler`、`internal/reconciler`、锁命名空间、SQLite schema、
+    输出安全、源语义、Docker 基础镜像或依赖版本；`git diff 2131b54..HEAD -- internal/scheduler internal/reconciler` 为空。
+
+- **Tests and Results / Evidence：** 证据目录
+  `artifacts/validation-evidence/task-3.2-correction-dev/`（本机 Git 忽略）：
+  - `focused-checks.txt`：治理 `PASS`；`test -count=1 ./internal/config ./cmd/strmgen` 两项 `ok`；
+    `vet` exit 0；`gofmt -l` 无输出。
+  - `builds.txt`：amd64／arm64 `CGO_ENABLED=0` 与 testhooks 构建 exit 0，SHA-256 见文件。
+  - Python 全量 `112 tests` OK，exit 0。
+  - `serve-regression/summary.json`：6/6 PASS；`sync-regression/summary.json`：11/11 PASS。
+  - amd64 镜像 `--load` exit 0（image id `sha256:5f2694d4…`）；arm64 `--output type=oci`
+    exit 0，OCI SHA-256 `c1ac6924…`。
+  - `container/summary.json`：隔离容器驱动 6/6 PASS（含 Compose 生命周期与 arm64 OCI）。
+  - `compose-token-matrix.txt`、`compose-gate-finding.txt`：Compose v5.1.3 的 token 机制矩阵与
+    本计划字面门的可行性发现（见风险）。
+  - `git diff --check`、`git diff --cached --check` 均干净。
+
+- **Decisions / Risks / Remaining Required Outcomes：**
+  - **计划字面门在本机 Compose 版本上不可达（需 B 决定）。** 本机 `Docker Compose v5.1.3`
+    的普通 `docker compose config` 会解析并打印服务 `environment:` 的宿主值，即便使用透传声明
+    `OPENLIST_TOKEN:` 也如此（`--no-interpolate` 才渲染为 `null`）。这与本修正计划“plain
+    `docker compose config` … never the runtime value”和反馈循环中的
+    `! grep -F 'strmgen-fixture-only' rendered.yaml` 字面要求冲突。经系统实验，唯一能让普通
+    `config` 不含值的机制是 `secrets: {environment: ...}`，但它与 `read_only: true` 冲突
+    （`cannot create secret in read-only service: 'file' is the sole supported option`），而
+    `secrets: {file: ...}` 又要求 token 来自文件、违反“token 只从环境注入”。
+  - 因此实现采用透传声明＋`--no-interpolate` 脱敏采集＋布尔标记＋无回显，满足 RO-4/AC-2 的
+    安全意图（文件／镜像层／stdout／stderr／证据均无 token），但未满足计划字面的普通 `config`
+    门。**请 B 将反馈循环与最终门的脱敏采集改为 `docker compose config --no-interpolate`**，
+    或明确指示替代方案（后者需要改变“token 只从环境注入”或 `read_only` 约束，属 Slice 合同变更）。
+    Developer 不自行弱化验收，也不签发 PASS。
+  - RO-1／RO-4／RO-6 的其余项由本轮重跑证据覆盖；Task 3.1 的 Go 全量、race、调度证据在源码／
+    工具链／夹具身份匹配时复用（本轮仅配置／命令／Compose／驱动可执行输入变化，Go 全量 T4
+    门由本候选重跑）。
+  - 真实 OpenList、无签名 `/d/`、插件解析、Jellyfin／代理、ARM64 实机、规模与正式发布仍 NOT RUN。
+
+- **B Review Result：** PENDING（Developer 未签发独立审查结论）

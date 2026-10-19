@@ -1,5 +1,29 @@
 # 进度
 
+## Task 3.2 原 Slice 内修正（Developer，2026-10-19，READY FOR B REVIEW）
+
+按 B 的 [Task 3.2 原 Slice 内修正计划](../TASK.md)，Developer 在同一 Task 3.2、原 Task Base
+`8fc3a3ad8a720e9ca4c832967fdf39874581beff` 内实施修正，实现 Head
+`410fc0e0a8964046de4707d58c0c7505385c6002`。交付：（1）`config.Load` 重新接受
+`sync.interval_minutes: 0`、仅拒绝负数，新增 `Resolved.ValidateServeInterval()` 由 `serve`
+在 token／锁／输出根／数据库／远端请求之前调用，`sync`／`sync --dry-run` 保持零间隔兼容；
+（2）`deploy/compose.yaml` 改为 Compose 透传声明 `OPENLIST_TOKEN:`，容器驱动改用 `TOKEN_SET`
+布尔标记且不再回显 token，Compose 场景以 `config --no-interpolate` 断言脱敏渲染。
+
+本机重跑（证据 `artifacts/validation-evidence/task-3.2-correction-dev/`）：治理 PASS；聚焦 Go
+`test`／`vet`／`gofmt` 通过；Python 112 项通过；amd64／arm64／testhooks 构建与 amd64 镜像、
+arm64 OCI 构建 exit 0；隔离容器驱动 6/6、serve 6/6、sync 11/11。
+
+**发现：计划字面门在本机 Compose v5.1.3 上不可达。** 普通 `docker compose config` 会解析并
+打印服务 `environment:` 的宿主值，透传声明也不例外；唯一能让普通 `config` 不含值的
+`secrets: {environment: ...}` 与 `read_only: true` 冲突（只支持 `file`）。实现因此采用
+透传声明＋`--no-interpolate` 脱敏采集＋布尔标记＋无回显，满足 AC-2 安全意图但未满足计划字面的
+普通 `config` 门；请 B 决定把脱敏采集改为 `--no-interpolate` 或给出替代方案。Developer 未签发
+PASS，Task 交 READY FOR B REVIEW。真实 OpenList、插件解析、Jellyfin／代理、ARM64 实机、规模与
+正式发布仍 NOT RUN。
+
+Next Action: B REVIEWS THE TASK 3.2 IN-SLICE CORRECTION
+
 ## Slice 3 A Final Review（2026-10-19，FIX REQUIRED）
 
 A 审查完整范围 `ca9f91e10a0fc6c28679b5827f453e632eb9854a..2131b54bcec1cd43769d239a30456b4a8607f4aa`，核对 Task 3.1／3.2 B 结论及本机原始 T4 证据。发现两项 P1：共享 `config.Load` 对所有命令拒绝 `sync.interval_minutes: 0`，回退 Slice 3 要求保持的 `sync` 配置行为；Compose 将运行时 `OPENLIST_TOKEN` 插值到 `docker compose config` 输出，且容器验收器断言该 token 出现在渲染结果，违反 Task 3.2 AC-2。Slice 3 保持原 Base／Implementation Head，不关闭；RO-1、RO-4、RO-6 待修正与复验。
