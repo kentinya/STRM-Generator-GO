@@ -7,7 +7,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 87be914349db70929461d306e1d183c8e560cd68
 Difficulty: High
@@ -23,9 +23,10 @@ Planner / Reviewer: B
 
 ## 实际缺口与范围
 
-- 当前固定候选：a213e227b2e84675205110e7a51aee94a300acd9；报告后继为
-  44b40bddd4e3c4a29ae92c5bc0d8d294e1d86d69（仅 TASK 文档，产品 Go 未变）。
-  已有目标 runner；本轮目标工具测试 45 项、全 Python 153 项。既有部署只核对身份，不重搭。
+- 当前固定候选：5d6b1911913294a0134cc92f499e4bee20a84895（第四轮 P1 修正后）。
+  前一候选 a213e227b2e84675205110e7a51aee94a300acd9 及其文档后继
+  44b40bddd4e3c4a29ae92c5bc0d8d294e1d86d69 保留为已审历史。
+  产品 Go 自 a213e22 起未变；本轮仅改目标 runner／目标工具测试（目标工具现 55 项）。
 - OpenList 源 3b28270a4066ea52943a69ecddd850d83f7e8bdc，镜像
   openlistteam/openlist@sha256:11b490123d57f88c84ecda46285e1921869cf511da3e5bb4062f183e7e1200b7，
   v4.2.7，专用隔离 S3/RustFS。Jellyfin 为
@@ -44,10 +45,10 @@ Planner / Reviewer: B
   5/5，以及移动生成／扫描／旧路径清理／恢复原树及恢复后播放的证据；B 独立真实复现尚未运行。
 - 目标 get 没有可用 SHA-1；用户已允许验收侧计算自有本地合成媒体真实哈希，不再以此
   作为“无法构造输入”的范围阻塞。已有派生输入和 Go 比较通过，但实际插件两行仍 NOT RUN。
-- 当前剩余：本轮 B 实证的凭据接线／非零子进程／超时标记三项修正、凭据事件处置、
-  两行真实插件观察和 B 独立一份媒体链路。B 已完成本地门禁裁定及完整 Base..Head 审查，
-  真实必验未满足，不能签完整 T4／Task PASS。本会话所需专用凭据未在进程
-  环境注入；不从文件／生产配置恢复，不把未运行写成通过。
+- 当前剩余：凭据事件处置（历史出口的轮换／移除仍开放，交 B／A），两行真实插件观察
+  和 B 独立一份媒体链路。B 已对上一候选完成本地门禁裁定及完整 Base..Head 审查并保留三个
+  P1；Developer 第五轮已按此最小修正。真实必验未满足，不能签完整 T4／Task PASS。本会话
+  所需专用凭据未在进程环境注入；不从文件／生产配置恢复，不把未运行写成通过。
 
 ## 最简执行与实施边界
 
@@ -155,10 +156,89 @@ B 自己负责一份真实链路、两行实际 SHA-1 插件观察、逐项全�
 API／DB，不接生产状态。生成器不下载媒体计算哈希；测试侧本地真实内容计算只按用户授权。
 不运行代理；ARM64 实机、规模测量与 registry 发布不属本 Task，不据此撤销后续目标。
 
-## Developer Completion Report（本轮第三修正，2026-10-19）
+## Developer Completion Report（本轮第五修正，2026-10-19）
 
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
+Implementation Head: 5d6b1911913294a0134cc92f499e4bee20a84895
+本轮 Base（B 上一轮审查 HEAD）: 393f96518f59fe5a5671677b41ca7e3f2da77f87
+证据索引: artifacts/validation-evidence/dev5-20261019-234921/INDEX.md（本机、Git 忽略）
+```
+
+只修 B 第四轮的三条 P1 与直接受影响的失败路径；不改产品 Go、插件、V4.3 协议、比较规则、
+删除／锁／归属／SQLite 边界，不扩建通用秘密识别／日志关联／补偿框架，不动暂缓三项。
+
+### 1. AC-1／RO-1：环境秘密接入同一脱敏集合（B P1-1 关闭）
+
+新增 `register_environment_secrets()`，由**正常入口** `resolve_credentials()` 在认证与任何
+子进程之前调用，把既有 `SECRET_ENV_KEYS`（`OPENLIST_TOKEN`、`JF_PASSWORD`、
+`JF_PLAYBACK_PASSWORD`、S3 密钥等）全部注册进既有脱敏集合。不新建秘密识别／派生追踪机制；
+`admin_token` 的单点注册并入该入口。
+
+回归 `CredentialScrubbingWiringTests`（4 项）全部走正常入口且**不手工 register_secret**：
+环境秘密全部进入集合并被 `scrub` 消除；子进程 JSON `error` 回显播放口令被脱敏；
+`Failure` 文本不含 `OPENLIST_TOKEN`；Recorder 拒绝写入环境秘密。
+
+B 反例复跑：`resolved_env_password_reaches_child_error_output`、
+`resolved_env_openlist_token_reaches_failure_text` 均由 true 变为 **false**；
+S3 密钥与 JSON 转义形态另列为 true（已被消除）。
+
+### 2. AC-5／RO-4：非零播放子进程不再是播放证据（B P1-2 关闭）
+
+`jellyfin_playback` 先判 `returncode != 0` 即 `Failure`，再判空输出；原「非零或空输出」
+的合并措辞拆成两条准确判定。回归 `PlaybackExitStatusTests`（3 项）：exit=7 且 stdout 为
+`results:[{advanced:true}]` 时 `jellyfin_playback` 与 `playback_item` 均为 `Failure`；
+exit=0 的成功载荷仍接受（未误伤正常路径）。B 反例
+`nonzero_child_with_success_json_accepted` 由 true 变为 **false**。
+
+### 3. AC-6／RO-5：普通超时进入既有失败处理并恢复夹具（B P1-3 关闭）
+
+`run_cli` 与新增的 `_rclone`（`copyto`／`moveto` 共用）在调用边界把
+`subprocess.TimeoutExpired` 与 `OSError` 分类为 `Failure`，因此 `scenario_move` 既有的
+`except Failure` 恢复／标记路径可达；`finally` 的配置复原同步失败改写
+`ro5_move_config_restore_failure`，不再静默；URL-change／Size-change 的复原同步同样改捕获
+`(Failure, OSError)`。
+
+回归 `MoveFailureRecoveryTests` 新增 3 项：move 成功后同步超时 → 分类 `Failure`、远端对象
+被移回、写 `ro5_move_failure.json` 且 `fixture_restored=true`；rclone 超时被分类；rclone
+错误文本脱敏。B 反例：`timeout_after_move_skips_remote_restore` 由 true 变 **false**、
+`timeout_after_move_has_failure_marker` 由 false 变 **true**、逃逸类型由
+`TimeoutExpired` 变为经分类的 `Failure`。
+
+### 4. 验证（Developer 反馈层；产品 T4 仍归 B）
+
+| 项 | 结果 |
+|---|---|
+| `python3 scripts/check_governance.py` | exit 0，PASS（仅合同一致性） |
+| `python3 -m unittest discover -s tests -p 'test_run_isolated_target_integration.py' -v` | exit 0，**55 项 OK**（原 45，+10），0.159 s |
+| `python3 -m unittest discover -s tests -p 'test_governance.py'` | exit 0，14 项 OK |
+| `python3 -m py_compile` 两文件 | exit 0 |
+| `git diff --check` | exit 0 |
+| B 三条反例复跑（合成数据，派生自 B 的脚本） | 三条 P1 全部关闭，见 JSON |
+
+**未运行：** 真实 OpenList／Jellyfin／播放链路、两行真实 SHA-1 插件观察（本轮进程环境
+`OPENLIST_TOKEN`／`JF_*`／`RUSTFS_*` 全部 absent，仅核对名字不读值；不从文件／容器环境
+恢复秘密）；Go 全量／race／构建、本地 sync／serve／容器／镜像（归 B）；暂缓三项未执行。
+
+### 5. 凭据事件（脱敏；不宣称从未泄露）
+
+`/tmp/t41env.sh` 仍存在（mode 644，size 790，mtime 2026-10-19 14:56:51），本轮未读取、
+未 source、未删除；round-2 证据索引仍含历史口令字面量，未重印。轮换需从文件恢复秘密，
+删除属未授权破坏性清理，故仍为 **B／A 处置的开放项**。本轮只关闭当前可复现出口。
+
+### 6. 风险与未决
+
+- 三条 P1 已由合成反例与定向回归关闭，但**真实链路证据仍 NOT RUN**；AC-2／AC-4／AC-5 的
+  真实部分、B 独立一份媒体链路与两行 SHA-1 观察均未完成，不得据本轮判 Task PASS。
+- 两行 SHA-1 派生输入与移动首播／URL-change／Size-change 状态不变（BLOCKED／DEFERRED），
+  未因本轮改变。
+- 本轮测试执行合计约 0.9 s（含反例复跑），保守回合分母约 780 s，占比约 0.1%，远低于 30%；
+  无空等凑比例。
+
+## Developer Completion Report（第三修正，历史事实）
+
+```text
+State: 当时交 READY FOR B REVIEW，随后 B 第四轮判 FIX REQUIRED
 Implementation Head: a213e227b2e84675205110e7a51aee94a300acd9
 本轮 Base（B 上轮已审 HEAD）: f828c7f008be4abcf6bef73009c4d8526b768256
 证据索引: artifacts/validation-evidence/task-4.1-dev3-20261019-232352/INDEX.md（本机、Git 忽略）
