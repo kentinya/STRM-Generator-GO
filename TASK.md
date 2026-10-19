@@ -158,6 +158,15 @@ result with HTTP 500), which per the TASK rule prevents a PASS and is handed to 
 patched. Evidence is in `artifacts/validation-evidence/task-4.1-dev-20261019-065651/`. No
 production service, config, media, or `/opt/jf-strm-probe` was touched; no proxy was started.
 
+## 用户决定 — 第二项暂时接受（2026-10-19）
+
+用户明确指示："第二项先搁置临时接受"。本决定仅针对本次 B 审查第二项中的两个外部兼容场景：URL-change 与 hash 不可比时的 Size-change；不冻结整个 Task 4.1。
+
+- 两行保留原始 `BLOCKED` 结果：已观察到 native probe 启动，但后续播放／结果接受未成功。用户暂时接受此已知风险，因此这两行暂不作为本 Task 后续 B 门禁的阻断项；不将其改写为测试 `PASS`，也不宣称根因已由 B 独立复现确认。
+- 适用输入仍为插件源码 `2afc6517fda5a7b4170ebea625619a552c47dabc`、Jellyfin 镜像及 S3/RustFS 专用隔离目标；原始证据保留在 `artifacts/validation-evidence/task-4.1-dev-20261019-065651/target/ro3_url_change.json` 和 `ro3_size_change.json`。不得以此授权修改插件、服务、生产配置或 Go 产品规则。
+- 本轮不为这两行继续调查、修复或重跑；后续跟进交 A 协调，待用户恢复要求或 A 在授权范围内明确处置后再执行。A 收口时须将这项用户临时例外及未通过事实显式协调进 Slice 合同／Closure Packet，不得据此声称原合同全部 RO 已验证。B 不代签 A 的合同修订或最终审查。
+- 此决定不豁免其他插件矩阵行、移动／恢复、凭据安全、候选身份、匹配输入的全量门禁或 B 独立真实链路复现。Task 仍为 `FIX REQUIRED`，修正继续同一 Task，不新建 Task。
+
 ## B Review Result
 
 ```text
@@ -167,11 +176,11 @@ Decision: FIX REQUIRED
 AC-1: FIX REQUIRED — scripts/run_isolated_target_integration.py:jellyfin_playback writes a JSON scenario containing the Jellyfin password to /tmp; this violates the Task's process-only credential and artifacts-only state boundary. Move the scenario exchange to a credential-free mechanism or an artifacts-owned, permissioned temporary input with no secret persisted, add a regression test, and rerun the affected native-playback evidence.
 AC-2: PASS by matched developer evidence; B independent target reproduction NOT RUN because the current session has no authorized target credentials in its process environment.
 AC-3: PASS by matched provenance evidence; the pinned source SHA, archive SHA-256, and installed-file comparison are consistent.
-AC-4: FIX REQUIRED — URL-change and Size-change rows are BLOCKED by the real pinned plugin/Jellyfin interaction; the Task contract requires every matrix row to be observed or explicitly resolved before PASS. Do not patch the plugin in this repository; hand the external-component scope to A, or provide an A-approved contract disposition.
+AC-4: PARTIAL — URL-change and Size-change retain BLOCKED test results but are temporarily accepted/non-blocking by the user's 2026-10-19 decision above. No additional plugin matrix requirement is waived; remaining required evidence is still subject to B review. Do not patch the plugin in this repository.
 AC-5: PASS by matched native scan/playback evidence; B independent playback NOT RUN for the same credential precondition.
-AC-6: FIX REQUIRED — change/recovery coverage is incomplete because the blocked URL/Size rows are not accepted; preserve the recorded failure and rerun after the approved resolution.
-AC-7: FIX REQUIRED — the candidate is not eligible for final T4/B gate while AC-1, AC-4, AC-6 remain unresolved; the Developer report's Head SHA `2531032c88182ab2078cf2d155724f80e7529e49` is stale versus the reviewed commit `c769840378ccc6d366c1b9959a0b7b768ab6da85` and must be corrected.
-Slice Required Outcomes all satisfied: NO — RO-1, RO-3, RO-5 and RO-6 remain unresolved/partial; RO-2 and RO-4 are supported only by matched developer evidence.
+AC-6: PARTIAL — the failed URL/Size change and associated recovery closure are temporarily accepted only to the extent covered by the user's second-item disposition; other repeat/move/recovery requirements remain unchanged. Preserve all original failures; the two deferred rows do not require reruns in this round.
+AC-7: FIX REQUIRED — credential safety, candidate/evidence identity, matching-input final gates and B independent reproduction remain required. The Developer report's Head SHA `2531032c88182ab2078cf2d155724f80e7529e49` is stale versus the reviewed commit `c769840378ccc6d366c1b9959a0b7b768ab6da85` and must be corrected. The two temporarily accepted rows are no longer a reason to withhold the remaining gates.
+Slice Required Outcomes all satisfied: NO — RO-1 and RO-6 remain unresolved; RO-3/RO-5 retain the user's limited temporary exception rather than full behavioral PASS. Other existing evidence and remaining requirements are unchanged.
 Independent B reproduction: NOT RUN (authorized target credentials absent from this session); no external or production service was accessed.
-Required correction: remain in Task 4.1. Remove secret-bearing /tmp scenario persistence and add a regression test; correct the candidate/evidence SHA references; resolve or obtain A disposition for the pinned-plugin URL/Size BLOCKED rows; then rerun only affected native target scenarios plus the specified full T4 gates as required by input changes, and return READY FOR B REVIEW.
+Required correction: remain in Task 4.1. Remove secret-bearing /tmp scenario persistence and add a regression test; correct the candidate/evidence SHA references; Developer runs affected feedback validation and returns a fixed candidate READY FOR B REVIEW. B owns the specified matching-input final full gates, evidence-reuse decisions and independent key reproduction; do not hand the full gates back to Developer. Exclude only the two temporarily accepted URL/Size rows from this round's blocking reruns, and hand their follow-up/contract reconciliation to A.
 ```
