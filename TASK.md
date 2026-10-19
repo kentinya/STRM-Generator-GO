@@ -407,3 +407,47 @@ Next: Developer continues the same Task 3.2 correction. Do not weaken the plain-
   if satisfying it conflicts with the accepted environment-token/read-only deployment contract, refer the
   contract conflict to A before changing scope. Then submit a new correction candidate for B review.
 ```
+
+## Developer Escalation — Compose Plain-Config Redaction Conflict (2026-10-19)
+
+Escalation status: **BLOCKED on RO-4 / AC-2 / RO-6**; RO-1 verified PASS. Same Task 3.2,
+no scope expansion, no product code changed to weaken the criterion. Repository
+HEAD at capture `666bc205809c0ebbfd9c2883ecdf0b53e23c247d`.
+
+Evidence: `artifacts/validation-evidence/task-3.2-correction-escalation-20261019/`
+(ENVIRONMENT.txt, ro1-interval.txt, plan-gate-repro.txt,
+compose-rendered-plain.yaml, compose-rendered-nointerp.yaml,
+compose-mechanism-matrix.txt).
+
+- **RO-1 PASS:** `bash scripts/go-local test -count=1 ./internal/config ./cmd/strmgen`
+  exits 0; `TestSyncAcceptsZeroInterval` and
+  `TestServeRejectsZeroIntervalBeforeAnySideEffect` pass. The reviewed candidate
+  `410fc0e0a8964046de4707d58c0c7505385c6002` satisfies the B plan's fixed
+  behavior #1; no RO-1 work remains.
+- **RO-4 / AC-2 / RO-6 BLOCKED:** The B plan's literal gate (plain
+  `docker compose config` must never show the runtime value, plus
+  `! grep -F '<token>' rendered.yaml`) cannot be satisfied on the installed
+  Docker Compose `5.1.3` without changing the accepted deployment contract.
+  Against the committed `deploy/compose.yaml`, plain `config` exits 0 and prints
+  `OPENLIST_TOKEN: <value>`; the repo file itself contains no value. A full
+  mechanism matrix shows every service `environment:` form (value interpolation,
+  pass-through declaration, list form, `env_file`) is resolved against the
+  operator's host environment by design, so plain `config` prints the value. The
+  only plain-`config`-safe mechanism, `secrets: {environment: ...}`, is rejected
+  at `up` in a `read_only: true` service
+  (`cannot create secret ... in read-only service: 'file' is the sole supported
+  option`). Passing the gate therefore requires either dropping
+  `read_only: true` or sourcing the token from a file, both of which contradict
+  the accepted environment-token / read-only contract.
+- The committed pass-through form still satisfies the security intent: no value
+  in file, image layer, repo `.env`, command line or log; a redacted render
+  (`config --no-interpolate`) shows only `null`; the driver proves runtime
+  injection with a `TOKEN_SET` boolean marker and no value echo. The residual
+  gap is only the operator's own deliberate plain `config`.
+- **Decision needed before Developer proceeds:** (1) accept
+  `config --no-interpolate` as the redaction render mode for the gate and
+  evidence (recommended; preserves environment-only token and `read_only`), or
+  (2) keep the literal plain-config gate, which requires an A-level contract
+  change (allow `read_only: false`, or accept a file-sourced token). Developer
+  will not choose (2) silently and signs no PASS. Task 3.2 remains FIX REQUIRED;
+  the unaffected RO-2/RO-3/RO-5 evidence and Task 3.1 reuse stand.

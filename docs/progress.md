@@ -34,6 +34,27 @@ RO-6／AC-2 仍被 P1 阻断。B 独立聚焦 Go 测试、治理与候选容器 
 Task 3.2 `FIX REQUIRED`，无 Closure Packet；若满足 token 环境注入、只读部署与无普通渲染泄露
 三项产生合同冲突，应交 A 决定，不得由 B 弱化验收。
 
+**Developer 合同冲突升级（2026-10-19）：** B 已明确指示，若普通 `config` 脱敏门与已接受的环境
+注入／只读部署合同冲突，应交 A 决定而非弱化验收。Developer 在同一 Task 3.2 内确认该冲突并提交
+升级，未改动任何可执行输入来回避门禁：
+
+- **RO-1 PASS：** `bash scripts/go-local test -count=1 ./internal/config ./cmd/strmgen` 退出 0；
+  `TestSyncAcceptsZeroInterval`、`TestServeRejectsZeroIntervalBeforeAnySideEffect` 通过。已审候选
+  `410fc0e0a8964046de4707d58c0c7505385c6002` 满足 B 计划的固定行为 #1。
+- **RO-4／AC-2／RO-6 BLOCKED：** 对已提交 `deploy/compose.yaml`，普通
+  `docker compose config`（Compose v5.1.3）退出 0 并打印 `OPENLIST_TOKEN: <值>`；仓库文件本身
+  不含值。机制矩阵证明服务 `environment:` 的每种形式（值插值、透传声明、列表形式、`env_file`）
+  都会按设计解析宿主环境，普通 `config` 必然打印该值；唯一普通 `config` 安全的
+  `secrets: {environment: ...}` 在 `read_only: true` 服务上 `up` 直接失败（只支持 `file`）。
+  因此通过字面门只能放弃 `read_only: true` 或改用文件来源 token，二者都改变已接受的部署合同。
+  透传声明仍满足安全意图：文件／镜像层／`.env`／命令行／日志均无值，`--no-interpolate` 渲染仅
+  显示 `null`，驱动以 `TOKEN_SET` 布尔标记证明运行注入且不回显；残余缺口仅是操作者本人主动
+  运行的普通 `config`。
+- **需 A／B 裁决：**（1）接受 `config --no-interpolate` 作为门禁与证据的脱敏渲染方式（推荐，
+  保留环境 token 与 `read_only`）；或（2）保留字面普通 `config` 门，需 A 级合同变更（允许
+  `read_only: false`，或接受文件来源 token）。Developer 不自行选择（2），不签发 PASS；Task 3.2
+  保持 FIX REQUIRED。证据：`artifacts/validation-evidence/task-3.2-correction-escalation-20261019/`。
+
 ## Slice 3 A Final Review（2026-10-19，FIX REQUIRED）
 
 A 审查完整范围 `ca9f91e10a0fc6c28679b5827f453e632eb9854a..2131b54bcec1cd43769d239a30456b4a8607f4aa`，核对 Task 3.1／3.2 B 结论及本机原始 T4 证据。发现两项 P1：共享 `config.Load` 对所有命令拒绝 `sync.interval_minutes: 0`，回退 Slice 3 要求保持的 `sync` 配置行为；Compose 将运行时 `OPENLIST_TOKEN` 插值到 `docker compose config` 输出，且容器验收器断言该 token 出现在渲染结果，违反 Task 3.2 AC-2。Slice 3 保持原 Base／Implementation Head，不关闭；RO-1、RO-4、RO-6 待修正与复验。
