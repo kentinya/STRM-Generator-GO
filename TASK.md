@@ -115,7 +115,49 @@ B 审查完整 Task Base..Implementation Head 和上表 AC／RO 映射，确认�
 - Changed Files / Implemented：PENDING
 - Tests and Results / Evidence：PENDING
 - Decisions / Risks / Remaining Required Outcomes：PENDING
-- Head SHA：NOT SET
+## Developer Completion Report
+
+**Status: BLOCKED on the user-supplied target identity — not READY FOR B REVIEW.**
+
+Per TASK 4.1 admission rules (lines 22–26, 30) the target OpenList driver/provider, dedicated
+test mount, isolated API + stable unsigned `/d/` base, and Jellyfin-network reachability must be
+provided by the user before any external service work. None were supplied this session
+(`artifacts/validation-evidence/task-4.1-dev-20261019-043534/admission/target-driver-admission.txt`).
+AGENTS/SLICE forbid inferring them from production config/services, so no external target
+scenario was started. AC-2..AC-6 are BLOCKED and AC-7's real-service portion is NOT RUN; the
+Task is deliberately left `PLANNED` for B to re-drive once the identity is available.
+
+- Changed Files / Implemented: No product Go change. Executed only the admission-independent
+  subset: (1) plugin source pinned at `2afc6517fda5a7b4170ebea625619a552c47dabc` into
+  `artifacts/task-4.1/plugin-source/` (tracked worktree clean, tree
+  `710c190d0643cca3bffa613c4989d32647c4b5b2`); (2) pinned .NET SDK `10.0.401` installed by the
+  plugin's own verified tool; (3) plugin package built with the exact TASK command
+  `python3 scripts/package_plugin.py --configuration Release --runtime linux-x64 --output-dir artifacts/releases`,
+  archive SHA-256 `382d3ef106ed8534b06ab5bff614d826e602a29703dadddbe3ef2e9864bd06d8`, sidecar
+  manifest records `sourceRevision` = the pinned SHA and `--verify` exits 0; (4) candidate amd64 +
+  testhooks binaries built from HEAD.
+- Tests and Results / Evidence: `artifacts/validation-evidence/task-4.1-dev-20261019-043534/`
+  (local, Git-ignored). Governance PASS; `go vet` exit 0; gofmt clean (44 files); `quality.py`
+  exit 0; `race` exit 0 (9 packages); Python regression 112 tests OK. Total test wall-clock ≈53s,
+  under 30% of this round. Full T4 / real-service gates NOT RUN.
+- Decisions / Risks / Remaining Required Outcomes: The Go product tree is byte-identical to the
+  Slice 3 reviewed candidate `410fc0e0a8964046de4707d58c0c7505385c6002` (`go.mod`/`go.sum` blobs
+  match; 0 product files differ), so its reviewed T4 evidence is reusable once an external target
+  exists. Remaining: AC-2..AC-6 target OpenList→STRM→plugin→Jellyfin native playback; AC-7 full
+  real-service evidence. Blocking input needed from the user: target driver/provider, dedicated
+  test mount + synthetic-object method, isolated OpenList API, stable unsigned `/d/` base,
+  Jellyfin-network reachability, and a process-env credential injection channel.
+- Head SHA: `2531032c88182ab2078cf2d155724f80e7529e49` (no product change; TASK report checkpoint
+  follows).
+
+## Developer Blocked Note (2026-10-19)
+
+No target OpenList driver/provider or dedicated test mount identity was provided, so per the
+Task admission rule no external service, container, or target credential was started or inferred.
+Evidence of the admission check and of the executable subset (plugin provenance/build, static
+checks, local regression) is in `artifacts/validation-evidence/task-4.1-dev-20261019-043534/`.
+This is not a product or review PASS; B should keep Task 4.1 `PLANNED` until the user supplies the
+missing target identity, then re-drive it.
 
 ## B Review Result
 
