@@ -160,7 +160,7 @@ API／DB，不接生产状态。生成器不下载媒体计算哈希；测试侧
 
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
-Implementation Head: 见本轮提交（本报告所在检查点）
+Implementation Head: 37c38d8471afbf332aeea1e102da4c8dc81a6278
 本轮 Base（B 上一轮审查 HEAD）: 9e91eaf7be67cc956d0bc34412089b4ad59af31c
 证据索引: artifacts/validation-evidence/task-4.1-dev6-20261020-001445/INDEX.md（本机、Git 忽略）
 ```
