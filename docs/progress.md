@@ -1,6 +1,19 @@
 # 进度
 
-## 当前：Task 4.1 第四轮 B 复审（2026-10-19）
+## 当前：Task 4.1 第五轮B复审（2026-10-20）
+
+完整审查Task Base 527570df75ab469eb204d6a42b2d1b4eb07f71e6 至实现Head
+5d6b1911913294a0134cc92f499e4bee20a84895，Decision **FIX REQUIRED**，继续同一Task。
+B独立确认旧三项反例闭合；新复现rclone moveto超时可能已提交远端变更，runner却因
+object_moved=false误记remote_object_restored／fixture_restored=true。仅要求最小未知／未恢复
+标记与直接回归，可核对恢复或弃用，不要求补偿框架、不运行移动首播。
+本轮quality 163 Python（目标55）及Go静态／测试／构建PASS；B4 4123份摘要匹配，未变
+mod／race／uncached／构建／sync组合11/11（保留首败）／serve6/6／镜像／容器5/5逐项复用。
+B真实一份链路及SHA-1两行因进程凭据未注入仍NOT RUN，历史处置授权交A，三项暂缓不计PASS。
+本机证据artifacts/validation-evidence/task-4.1-b5-20261019-235201/INDEX.md；未改产品／runner／测试，
+未新建Task／推送／关闭Slice，Closure／A Final仍PENDING。测试耗时见同目录timing.json，小于50%，无空等。
+
+## 历史：Task 4.1 第四轮 B 复审（2026-10-19）
 
 固定审查 Task Base 527570df75ab469eb204d6a42b2d1b4eb07f71e6 至实现 Head
 a213e227b2e84675205110e7a51aee94a300acd9，Decision FIX REQUIRED，继续同一 Task；未新造任务／关闭 Slice。

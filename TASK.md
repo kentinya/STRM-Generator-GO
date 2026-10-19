@@ -7,7 +7,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 87be914349db70929461d306e1d183c8e560cd68
 Difficulty: High
@@ -330,7 +330,57 @@ Size-change／移动首播（三项用户暂缓）、Go 全量／race／构建�
   元数据 201、字节 5/5、重复零写、原生播放 5/5；移动生成／扫描／清理／恢复证据保留，首播 BLOCKED。
 - 凭据回显／临时文件事件及轮换为 Developer 报告，B 未独立确认全部处置，不保留“从未泄露”的断言。
 
-## B Review Result（第四轮固定候选复审，2026-10-19）
+## B Review Result（第五轮固定候选复审，2026-10-20）
+
+- Reviewed Range：527570df75ab469eb204d6a42b2d1b4eb07f71e6..5d6b1911913294a0134cc92f499e4bee20a84895。
+  完整18文件范围：B4已审前段补丁SHA256实测一致，补审全部后继与两文件完整修正；
+  988ddd3609b3a2f56179de19495b50e192cde39b仅TASK报告，不移动Base／Contract Checkpoint。
+- Decision：**FIX REQUIRED**，继续同一Task 4.1；Slice 4 ACTIVE，不新造Task、不代A关闭。
+- 原始证据：artifacts/validation-evidence/task-4.1-b5-20261019-235201/INDEX.md（本机、Git忽略）。
+
+### 已闭合与必须修正
+
+旧三项反例由B独立确认闭合：正常凭据入口注册环境秘密并脱敏；非零播放子进程即使携带
+成功JSON也被拒绝；已完成移动后CLI普通超时进入失败标记／恢复。JSON转义拒写未回退。
+只证明合成失败路径，不是实际插件／播放PASS。
+
+**P1 / AC-6 / RO-5：不确定rclone超时误记夹具已恢复。**
+scripts/run_isolated_target_integration.py:925..927,1054..1086 的object_moved在moveto
+成功返回后才置true；但TimeoutExpired不保证远端没有提交。B独立模拟moveto已改变
+自有合成远端位置后抛实际TimeoutExpired，得到failed_step=remote move、
+recovery_attempted=false，却remote_object_restored=true／fixture_restored=true；
+只有一次正向moveto及正常sync，未确认原路径。新_rclone的“不确定”分类被此默认值抵消。
+最小修正：尝试过但未确认的远端变更必须标未知／未恢复，停止且不带污染续验；
+核对恢复或明确弃用重建即可，**不要求自动补偿、反向移动平台或逐阶段矩阵**。
+该反例只测远端操作失败标记，未运行用户暂缓的移动首播。
+
+历史凭据事件仍OPEN：只stat已知外部文件（存在mode644），未读值／source／删除／轮换，
+未重印历史秘密。授权／历史接受交A，不把已披露当已处置。
+
+### Developer受影响验证与B最终门禁
+
+Developer仅修现有runner的不确定状态标记，补一条直接回归；完成move后同步超时的既有
+修复应保持。仍执行目标工具unittest（或quality覆盖不重复），不改产品、不触及三项暂缓、
+不扩建框架、不接走B的本地／真实全量。修正留同一Task，再交READY FOR B REVIEW。
+
+B本轮quality PASS：163 Python（目标55）+ AST/Bash/gofmt/vet/Go test/build，未重复聚焦。
+B4 4123份证据／产物摘要全匹配，源码、依赖、工具版本、配置、二进制、镜像与保留夹具核对后
+逐项复用mod download／verify、race／uncached、amd64／testhooks构建、serve6/6、镜像与
+容器5/5。sync保留原首败9/11及精确失败子集2/2，组合11/11，不改成首跑全绿。
+Mounts仅输出顺序不同，规范化挂载对相同。命令／结果／复用矩阵见证据目录。
+完整T4不签PASS；旧原始链路证据有限复用，不代替当前runner或B独立复现。
+
+### 全部RO与交接
+
+RO-1固定输入成立／旧当前出口修复，历史处置未完成；RO-2匹配201项、五类字节及零重写
+可复用；RO-3原始重用保留，但实际SHA-1两行NOT RUN；RO-4旧播放5/5保留，但B独立
+一份链路NOT RUN；RO-5旧移动生成／清理／恢复有效，不确定超时误标仍阻断；RO-6本地
+门禁及完整范围审查完成，真实独立必验仍缺。专用进程凭据未注入（node当前PATH也缺失），
+不从文件／容器Env／生产配置恢复秘密；B继续负责真实一份链路及两行SHA-1观察。
+三项用户暂缓未运行、不计PASS、非本轮阻断。全部RO未满足，Slice Final／Closure Packet／
+A Final Review PENDING，不能返回SLICE READY FOR A REVIEW。
+
+## B Review Result（第四轮固定候选复审，历史，2026-10-19）
 
 - Reviewed Range：527570df75ab469eb204d6a42b2d1b4eb07f71e6..a213e227b2e84675205110e7a51aee94a300acd9。
   已审完整 18 文件差异及提交序列，不仅最后一笔修正。44b40bddd4e3c4a29ae92c5bc0d8d294e1d86d69
@@ -408,3 +458,7 @@ B 不对自己编写的测试修正自签独立 PASS，Task 4.1 仍 FIX REQUIRED
 证据：artifacts/validation-evidence/task-4.1-test-governance-20261019-230741/INDEX.md（本机）。
 含基线的验证进程总耗时 3.189 秒，保守回合分母 125.242 秒，占 2.55%，低于 50%；无空等。
 本轮未运行 Go 全量、race、Docker／真实 OpenList／Jellyfin 或播放，不签完整 T4／Task PASS。
+
+## 第五轮B验证耗时（2026-10-20）
+
+本轮截至 2026-10-20T00:03:17+08:00，验证进程保守上界 11.854 秒 / 实际轮次 676.228 秒，占 1.75%，小于50%；含5秒未单独计时检查余量，无空等，提交后治理另计。
