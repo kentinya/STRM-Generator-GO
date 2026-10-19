@@ -1,172 +1,123 @@
-# Slice 3 — 定时与部署
+# Slice 4 — 隔离真实服务端到端兼容验收
 
 ```text
-Slice ID: 3
+Slice ID: 4
 Owner: A
-Status: PASS / CLOSED
-Base SHA: ca9f91e10a0fc6c28679b5827f453e632eb9854a
-Implementation Head: 410fc0e0a8964046de4707d58c0c7505385c6002
+Status: ACTIVE
+Base SHA: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63
+Implementation Head: NOT SET
 ```
 
 ## 用户目标
 
-管理员可以继续使用一次性的 `sync`／`sync --dry-run`，也可以使用同一份经过
-校验的配置运行长期 `serve`。`serve` 首轮立即执行，之后按 `sync.interval_minutes`
-有界地触发同步；手动与定时轮次共用同一互斥资源，不重叠、不积压未界定的 tick，
-忙碌时给出可解释的跳过／忙碌结果。收到停止或取消信号时，当前轮按既有取消语义
-结束，不提交不完整轮，释放锁，后续重启或手动同步可以正常收敛。
+管理员能在专用隔离环境中确认生成器与固定 OpenList 服务、V4.3 插件及 Jellyfin／代理
+实际协同：从已授权的 OpenList 测试挂载读取元数据，生成稳定且不含签名的 `/d/` STRM，
+由固定插件解析并按既有 URL／SHA-1／Size 规则决策，最终经隔离 Jellyfin／代理链读取
+并播放合成媒体。此 Slice 交付的是可追溯兼容证据，不修改或控制生产服务。
 
-管理员还可以获得可追溯的 Linux amd64／arm64 构建和 Docker 运行包，明确 token、
-输出、SQLite 数据库、临时目录及共享锁资源的挂载边界；镜像不携带凭证，不把容器
-私有的同名 `/tmp` 锁误称为跨容器协调。部署说明能区分一次性／常驻运行、状态和
-恢复方式，但不把本 Slice 的构建或夹具结果写成真实播放或外部兼容验收。
+## 已接受基线与选择
 
-## 已接受基线与本轮选择
+Slice 1、2、3 已 PASS / CLOSED。Slice 3 的完整 A 审查范围为
+`ca9f91e10a0fc6c28679b5827f453e632eb9854a..410fc0e0a8964046de4707d58c0c7505385c6002`；
+Task 3.1／3.2 均有独立 B PASS。现有本地产品、Mirror 清理、serve、双架构交叉构建、
+amd64 容器运行及部署挂载证据按原输入身份保留；均不等于真实端到端播放。
 
-2026-10-19 A 在 Slice 2 关闭后的独立回合选择本 Slice。Base 固定为选择前真实
-HEAD `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，即 Slice 2 A 关闭检查点；合同、
-路线图和当前状态文档的提交不移动 Base。
+2026-10-19 A 在 Slice 3 关闭后的独立选择回合，将真实服务端到端兼容选为当前 Slice。
+Base 固定为选择前真实 HEAD `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`。本合同、
+Roadmap 和当前状态文档提交不移动 Base。A 将 ARM64 原生实机和 10 万至 100 万规模
+测量分为后续 Slice 5，以便独立验收其硬件与性能结果；没有撤销或降低这两项目标。
 
-Slice 2「安全目录镜像与清理恢复」已 PASS / CLOSED，产品实现 Head 为
-`d0a0f6db5447f38467c67612ed7173d77e6bea27`，关闭协调提交为本合同 Base。Task 2.1／
-2.2 均有独立 B PASS，三轮缺失、源根／目标 Get 简化判定、本地安全删除、移动收敛、
-dry-run 和正常清理失败恢复不在本 Slice 重做。当前代码仍明确拒绝 `serve`；
-`sync.interval_minutes` 只被解析为兼容字段，`internal/scheduler` 尚无产品实现。
-
-本 Slice 承接路线图中尚未交付的定时与部署结果。A 不在合同中预设包拆分、调度器
-接口、镜像基础层或 Task 数量；B 必须先按真实代码规划可整体审查的实施闭环。
+固定参考源保持不变：OpenList 源码 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`、
+已实证 OpenList 镜像 `openlistteam/openlist@sha256:11b490123d57f88c84ecda46285e1921869cf511da3e5bb4062f183e7e1200b7`
+（v4.2.7）、插件源码 `kentinya/jellyfin-strm-probe@1bdb79082c4945e126611f217200555d53c31367`。
+这些固定身份不表示已有目标驱动、Jellyfin 或代理端到端证据。B 规划时必须为拟用
+OpenList 驱动／挂载、Jellyfin、代理和测试媒体记录可追溯的版本／镜像 digest、来源与
+配置身份；不得使用 `latest`。不能从生产配置推断或复制用户凭据。未取得匹配的隔离
+目标驱动、代理链或身份时，停止相关外部场景并如实交 A，不以 Local／WebDav 结果或
+合成 API 代替目标部署兼容结论。
 
 ## Required Outcomes / Surfaces
 
-- **RO-1 配置与操作入口：** `sync`、`sync --dry-run` 的既有行为和退出约定保持不变；
-  `serve --config <file>` 接受同一 YAML、环境变量 token、sources、Mirror／清理与
-  数据库边界。`sync.interval_minutes` 缺省为 60 分钟，单位在配置／帮助／运行说明中
-  一致；
-  `serve` 拒绝非正或溢出的间隔，并在任何输出／数据库变更前报告配置错误。首轮
-  立即运行，后续按固定间隔触发；不提供单轮 force、热改配置或绕过现有安全校验的
-  入口。
-- **RO-2 定时与互斥闭环：** 每个定时 tick 最多产生一个待运行轮次；同一 `serve`
-  进程不会重叠运行或创建无界 goroutine／队列。手动 `sync` 与 `serve` 使用相同的
-  输出／数据库锁资源；锁忙时不进入 Reconciler，报告忙碌／跳过并继续后续调度，
-  不把跳过伪称成功轮。不同输出范围仍遵守既有安全边界，不能用各容器私有 `/tmp`
-  的同名锁声称跨容器协调。
-- **RO-3 停止、取消与重启恢复：** `SIGINT`／`SIGTERM` 或父 context 取消正在执行的
-  轮次时，沿用现有 context 传播、清理和数据库提交边界；不提交完整轮、缺失次数或
-  删除资格，不启动下一轮，释放共享锁并以非零运行错误／取消结果可识别地退出。
-  已完成轮次只计一次；进程重启后不凭内存 tick 补计数、不引入媒体版本／调度状态机，
-  下一次正常同步按 Slice 1／2 的恢复和最终一致性收敛。常驻进程遇到单轮 API、文件
-  或数据库失败须记录失败并继续后续间隔，除配置／锁／不可恢复启动错误外不静默退出。
-- **RO-4 部署与构建包：** 提供可复现的 Linux amd64／arm64 `CGO_ENABLED=0` 产品构建，
-  与适用的 Dockerfile／Compose 或等价运行包。运行包以非特权、无凭证镜像方式装配，
-  token 只从环境注入；输出根、SQLite 文件及其 sidecar、临时写目录和锁目录的挂载／
-  权限／备份边界有明确说明。共享同一输出的多个容器必须显式共享同一锁资源，单容器
-  私有 `/tmp` 不得被文档当作互斥保证。构建和包检查不得修改生产 OpenList、Jellyfin、
-  代理或媒体树。
-- **RO-5 可观测性与有界资源：** 一次性与常驻模式的 stdout／stderr 摘要区分成功轮、
-  失败轮、忙碌跳过、取消、下一次调度时间及已完成的新增／更新／跳过／清理计数；不
-  输出 token、签名 URL 或私有完整路径。调度 timer、round context、目录 worker、
-  HTTP 响应和日志诊断保持既有上限；停止后没有泄漏的 timer、goroutine、文件句柄或
-  数据库连接。不存在未定义的后台重试、指数队列或全库驻留状态。
-- **RO-6 分层验证与交接：** 提供可重复的隔离 CLI／多进程／信号／重启证据，覆盖
-  `sync` 回归、`serve` 首轮和间隔、忙碌跳过、单轮失败后继续、取消不提交、锁释放、
-  Docker 配置／挂载／凭证注入及 amd64／arm64 构建。T4 证据需区分本地实现、隔离
-  OpenList、容器环境和未运行的真实外部依赖；不把交叉构建、环境 smoke 或 Python
-  夹具写成 ARM64 实机、稳定 `/d/` 播放、插件解析、Jellyfin／代理或规模通过。
+- **RO-1 固定隔离输入：** 建立只使用本仓库 `artifacts/` 的一次性隔离环境和合成媒体；
+  固定 OpenList、插件、Jellyfin、代理、驱动、镜像／源码、配置和工具身份。认证只用
+  专用测试身份与进程环境变量，不把 token／Cookie／签名 URL 或私有完整路径写入仓库、
+  stdout、日志或证据。不得接入生产端点、真实媒体或宿主服务状态。
+- **RO-2 真实 OpenList 到稳定 STRM：** 在已明确的目标 OpenList 驱动与隔离挂载上，
+  用发布 CLI 验证认证、list／分页、get、路径编码及可用 hash／size 元数据；至少包含
+  普通文件和中文／空格／`#`／`%` 名称。生成 STRM 使用配置的稳定公开 `/d/` 地址，
+  不含 `raw_url`、签名查询或凭证；测试可验证 HTTP(S) 路径实际返回与隔离源文件一致的
+  字节。若目标挂载本身要求临时签名地址，按当前合同记为不满足前提，不绕过鉴权。
+- **RO-3 固定插件实际解析与决策：** 将生成的原始 STRM 输入固定 V4.3 插件，在隔离
+  Jellyfin 中实证解析成功及必要主媒体流；通过产品可观察行为覆盖稳定 URL、URL 改变、
+  同 URL／同有效 SHA-1／不同 Size、哈希不同、哈希不可比时有效 Size 改变等合同矩阵。
+  不以 Go 测试、手写解析器、源码静态阅读或插件内部未公开接口替代实际插件证据。
+- **RO-4 Jellyfin／代理／播放闭环：** 隔离 Jellyfin 扫描生成目录并加载固定插件；分别
+  验证 Jellyfin 直接路径和目标隔离代理路径均可读取及播放合成媒体，内容身份一致；记录
+  两条入口的 HTTP 状态、播放结果、必要流及插件探测／重用结果。代理身份或隔离实例
+  不可用时此 outcome 为 BLOCKED／NOT RUN，不得以 Jellyfin 直连结果替代代理通过。
+- **RO-5 可重复性与安全边界：** 首轮、稳定重复同步、URL 变化／媒体变化和目录移动后的
+  预期 STRM／插件行为在专用隔离实例可重放；不发生 token、Cookie、签名 URL 或私有
+  完整路径泄露。同步成功、STRM 可解析、Jellyfin 入库、代理响应和真实播放分别记录，
+  不相互推断。
+- **RO-6 全范围回归与证据：** 对最终产品候选执行匹配输入的 T4 质量／回归门槛，覆盖
+  既有 sync、Mirror 清理、dry-run、锁、恢复、serve、Docker／Compose 和故障场景；保留
+  隔离 OpenList 服务、固定插件、Jellyfin／代理、播放和本地产品结果各自的原始证据与
+  NOT RUN 原因。每项记录源码／镜像／配置／夹具身份、命令与 cwd、退出码、计数、耗时、
+  首次失败和重跑；绝不把环境 smoke、交叉构建或合成夹具标为真实服务 PASS。
 
 ## 约束与安全不变量
 
-遵守 [需求 R-01..R-12、SW-1..SW-6](docs/requirements.md)、[用户旅程](docs/product-experience.md)、
-[架构](docs/architecture.md) 和 AGENTS。Slice 1／2 已接受的协议、URL → SHA-1 → Size
-比较、可靠归属、输出／符号链接边界、dry-run 零写、源隔离、完整轮与简化 Get 清理
-规则、共享锁、目录并发和有界资源均不得回退。
+遵守 [AGENTS.md](AGENTS.md)、[需求 R-01..R-12 与 SW-1..SW-6](docs/requirements.md)、
+[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md) 及固定 V4.3 方案。
+不修改原方案、稳定 STRM 协议、比较规则、归属／删除安全、锁、SQLite 持久事实边界或
+既有 Slice 结果。任何改变稳定需求、架构或验收含义的需要，必须先交 A 协调，不得在
+Task 内弱化门槛。
 
-`serve` 只是复用同一个同步入口的调度外壳，不另造文件发现、媒体版本、删除或远端
-版本状态机。定时 tick 不改变对账 epoch；只有完整成功轮按既有规则提交 round／缺失
-事实。常驻失败不把部分轮标成成功；关闭清理、源根不可读、列表不完整、必要本地
-处理失败及 dry-run 的既有语义保持。消费者只读，生成器共享同一锁对象；不增加 UID／
-mode 强制检查、消费者 OS 拒写实验或绕过锁外部写者的绝对防护承诺。
+真实服务只可在专用隔离实例运行；只创建、停止及清理本 Task 在 `artifacts/` 下明确标记
+归属的容器、网络、临时配置和合成媒体。不得读取／修改 `/opt/jf-strm-probe`、运行中的
+Jellyfin、OpenList、代理、生产配置、生产媒体或用户状态。部署目标凭据不进文件或证据，
+运行时通过环境注入；日志只保留脱敏标识和必要摘要。正常服务必须具有版本和来源身份，
+不能跟随 `latest` 漂移。
 
-仅操作本仓库 `artifacts/` 下的临时输出、状态、镜像构建和隔离服务；不修改
-`/opt/jf-strm-probe`、生产 OpenList、Jellyfin、代理或生产媒体。所有真实服务、
-播放和发布证据必须在专用隔离实例中取得并分层记录。
+生成器不运行 ffprobe、不下载媒体计算哈希、不操作 Jellyfin 数据库、不调用插件内部
+接口、不改写 JellyfinProxy。插件解析／播放是隔离验收端的独立观测，不成为生成器运行时
+依赖或新产品职责。目标驱动的选择不能通过访问生产配置或服务来猜测。
 
-## 排除范围与取舍
+## 排除范围与后续顺序
 
-不重做 Slice 1／2 的协议、目录镜像、清理、持久化或故障恢复；其完整回归是本 Slice
-门槛。运行包不承诺 Kubernetes／systemd 的专属控制器、远程管理 API、HTTP health／
-metrics、配置热重载、动态 token 轮换、自动备份或发布到 registry；这些需要独立
-需求与证据时另行规划。不会为了调度再增加媒体状态表、跨资源事务或远端锁。
+本 Slice 不实施新调度、清理、媒体版本状态、插件或代理功能；只允许在现有需求和架构
+范围内修复被真实隔离测试证实的产品缺陷。若问题需要改变稳定需求或外部组件，停止并交
+A 协调合同，不自行扩张。
 
-真实 OpenList 驱动／鉴权、无签名 `/d/` 播放、固定插件实际解析、Jellyfin／代理联调、
-ARM64 实机运行、十万／百万规模和正式发布留在 Slice 4；Docker 在本 Slice 只验证
-构建、最小隔离运行和挂载／停止行为，不宣称生产兼容。
+ARM64 原生实机运行、10 万至 100 万目录／文件规模测量与资源画像保留给规划中的
+Slice 5；本 Slice 的 amd64 隔离结果、Go 交叉构建或 OCI manifest 不替代这些验收。正式
+registry 发布亦不属于 Slice 4／5 的隐含门槛。
 
 ## 验收与最终验证
 
-本 Slice 为调度、并发、停止恢复、打包部署 T4。B 在本 ACTIVE 合同提交后依据真实
-实现制定准确 Task、命令和证据计划；A 不预设接口、文件拆分或 Task 数量。
-
 Slice Final 必须覆盖：
 
-1. 既有 `sync`／`sync --dry-run`、协议／比较、Mirror、dry-run 零写、未归属保护、
-   输出边界、跨进程锁和正常恢复全量回归；Serve 配置缺失、非法／零／过大间隔及
-   缺失 token 在触碰输出／数据库前失败。
-2. `serve` 首轮立即执行、按最小隔离 interval 触发后续轮；稳定输入的重复轮保持
-   skip／零写，失败轮输出脱敏摘要且下一 tick 仍可运行；不产生重叠轮、无界队列或
-   timer／goroutine 泄漏。
-3. 手动 `sync` 与 `serve` 争用同一固定锁：忙碌时只报告跳过／忙碌，不触碰输出／DB；
-   锁释放后下一轮可运行，独立进程重启不重复提交已完成 round。
-4. 在列表／本地／数据库／取消故障以及 SIGTERM／SIGINT 窗口中，当前轮不提交不完整
-   round／缺失计数／删除；进程退出后重启或手动同步按已有事实安全恢复。保留首次
-   失败与重跑，不宣称跨文件事务回滚。
-5. Linux amd64／arm64 产品构建、镜像构建／配置检查、非特权最小运行、环境 token
-   注入、输出／DB／锁挂载、容器停止与重新启动证据完整且可追溯；共享输出的多容器
-   互斥说明和实际隔离验证一致。ARM64 运行标为 NOT RUN，除非有真实目标机证据。
-6. 全套质量门槛、格式／vet／test／build、依赖校验、显式 CGO race、适用多进程／
-   Docker／故障恢复验证及 `git diff --check`；准确源码／二进制／配置／镜像身份、
-   命令／cwd、退出码／计数／耗时和原始日志进入证据索引。真实 OpenList、插件、
-   Jellyfin／代理、播放、性能和正式发布单列 PASS／NOT RUN／BLOCKED。
+1. RO-1 所有输入身份、配置摘要和隔离归属可核验；运行仅使用专用合成媒体、测试凭据和
+   `artifacts/` 数据。任何生产状态被触碰或秘密进入证据均为阻断项。
+2. RO-2 目标驱动真实 OpenList 接入与 stable `/d/` 输出通过；页面／对象内容身份、编码
+   边界、API 认证、元数据与实际内容逐项核验。目标存储不支持稳定无签名 `/d/` 时记录
+   不满足前提，不伪造可用播放地址。
+3. RO-3 使用固定插件部署验证原始生成 STRM 的解析和必要决策矩阵；必须能从 Jellyfin／
+   插件实际可观察状态判定，而非只调用生成器测试桩或插件内部接口。
+4. RO-4 从隔离 Jellyfin 直连及经目标隔离代理分别到合成媒体完成实际播放，核对内容、
+   必要流与探测／重用结果；没有任一路径的代理或播放证据时此 RO 不通过。
+5. RO-5 首次、重复、更新、移动的端到端结果稳定，敏感值和私有路径脱敏，层级结果互不
+   冒充。
+6. RO-6 指定的全量 T4 门槛及独立 B 复审完成；候选后任何可执行输入变化按影响重跑。
+   真实目标输入不可用的场景为 BLOCKED／NOT RUN，不能作为 PASS 或被环境 smoke 替代。
 
-Slice Final 仍审查固定 Base..Implementation Head 全范围；P2 的部署润色、非必要
-平台集成或可选证明不阻止 PASS，但任何调度重叠、取消提交、锁失效、凭证泄露、
-越界挂载或既有清理安全回退均为 P0/P1 阻断。
-
-## Closure Packet
+Slice 为隔离真实外部依赖的 T4。B 按实际源代码、固定身份与隔离能力规划 Task、准确命令、
+故障／成功案例和证据路径；Task 计划不得降低上述验收。若固定目标驱动、隔离 Jellyfin 或
+代理身份未能合法取得，B 应在计划或准备阶段明确列出阻塞和所需用户输入，不启动生产
+联调；只有用户明确授权后才可补充目标身份或变更合同。
 
 ```text
-Packet Status: PASS / CLOSED
-Slice Base: ca9f91e10a0fc6c28679b5827f453e632eb9854a
-Reviewed Implementation Head: 410fc0e0a8964046de4707d58c0c7505385c6002
-Task Index: Task 3.1 PASS (ee5001646d4239755606c28b61f340d795ee7014..b18caba6fd786bfe589f6ac29c2a2e779a5a1628); Task 3.2 PASS (8fc3a3ad8a720e9ca4c832967fdf39874581beff..410fc0e0a8964046de4707d58c0c7505385c6002)
-Required Outcomes: RO-1..RO-6 PASS after the in-Slice Task 3.2 correction and B independent re-review
-Final Evidence: artifacts/validation-evidence/task-3.1-final-bgG1Ej/INDEX.md; artifacts/validation-evidence/task-3.2-correction-dev/INDEX.md; artifacts/validation-evidence/task-3.2-b-userdecision-20261019/summary.json; B review recorded in TASK.md
-Independent A checks: governance PASS; Go test ./... PASS; Go race ./... PASS; quality.py PASS; Python 112 tests PASS; Compose --no-interpolate redaction PASS
-Invariants: PASS; existing sync/mirror/dry-run/ownership/path/lock/round boundaries retained; serve uses the same lock and round entry; deployment uses runtime token, read-only config, explicit persistent mounts, and shared lock object for multi-container output
-Known limitations / deferred: real OpenList, unsigned /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 hardware, scale and formal publication remain NOT RUN for Slice 4
-Documentation coordination: SLICE, TASK, README, architecture CURRENT, Roadmap, Progress, environment handoff and test matrix reconciled at this closure checkpoint; no new Slice was activated
-A Final Review: PASS / CLOSED (2026-10-19)
-Next Action: A SELECTS THE NEXT LARGE SLICE
-```
-
-## A Final Review
-
-```text
-Reviewed Range: ca9f91e10a0fc6c28679b5827f453e632eb9854a..410fc0e0a8964046de4707d58c0c7505385c6002
-Decision: PASS
-P0/P1 Blockers: none
-
-The prior A blockers against 2131b54bcec1cd43769d239a30456b4a8607f4aa were re-reviewed across
-the complete correction range. `sync` and `sync --dry-run` accept interval_minutes: 0 while
-serve rejects zero, negative and duration-overflow values before token lookup, locking, output,
-database or remote work. The user-selected Compose resolution preserves runtime environment
-token injection and read_only deployment; `config --no-interpolate` is the redacted render gate,
-and the driver uses boolean token markers without echoing the value.
-
-Task 3.1 and corrected Task 3.2 have independent B PASS decisions. B's fresh replay covered
-the full candidate gates, dual-architecture builds, six container scenarios, serve 6/6, and
-serial sync 11/11. A independently reran governance, Go tests, race tests, quality, Python
-tests, and the redacted Compose assertion. No required outcome or invariant regressed.
-
-External OpenList, unsigned /d/ playback, plugin parsing, Jellyfin/proxy, ARM64 hardware,
-scale and formal publication remain NOT RUN and are explicitly outside this Slice's acceptance.
+Closure Packet: PENDING
+A Final Review: PENDING
+Next Action: B PLANS TASK 4.1 AFTER THIS CONTRACT CHECKPOINT
 ```

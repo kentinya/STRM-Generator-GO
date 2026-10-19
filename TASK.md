@@ -1,5 +1,9 @@
 # NO ACTIVE IMPLEMENTATION TASK
 
+Slice 4「隔离真实服务端到端兼容验收」已 ACTIVE，Base 为
+`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；当前无活动实施 Task。Next Action: B PLANS
+TASK 4.1 AFTER THIS CONTRACT CHECKPOINT。外部目标身份和隔离资源未固定前，不启动服务联调。
+
 ## Closed Task 3.2 — Linux 双架构运行包与容器部署边界
 
 遵循[开发流程](docs/development-workflow.md)，范围 authority 为已提交的

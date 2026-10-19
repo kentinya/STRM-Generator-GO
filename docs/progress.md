@@ -1,5 +1,23 @@
 # 进度
 
+## Slice 4 A 选择与激活（2026-10-19）
+
+A 在 Slice 3 关闭后的独立回合选定「隔离真实服务端到端兼容验收」，固定 Base 为选择前
+真实 HEAD `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`。Slice 4 已 ACTIVE，Implementation
+Head 为 NOT SET；当前无活动实施 Task，下一步为 B 规划 Task 4.1。Required Outcomes 覆盖
+隔离输入身份、目标 OpenList 驱动及稳定 `/d/` STRM、固定插件实际解析／决策、隔离
+Jellyfin／代理实际播放、重复／更新／移动和全范围 T4 证据。均为 PENDING／NOT RUN，未
+有新的产品实现或外部服务运行。
+
+为保持结果可独立验收，A 将 ARM64 原生实机与 10万至100万规模测量分入计划 Slice 5；
+这些目标未撤销或降级。不得接触 `/opt/jf-strm-probe`、运行中 Jellyfin／OpenList／代理、
+生产配置或媒体；Slice 4 所有外部实例、数据和运行器仅位于本仓库 `artifacts/`。目标
+OpenList 驱动、Jellyfin、代理及隔离身份须在 Task 规划中固定；缺失即明确 BLOCKED／
+NOT RUN，不用本地驱动、合成 API、直连结果或环境 smoke 替代。
+
+治理 `python3 scripts/check_governance.py` 在激活前 PASS（仅合同一致性，不是产品或审查
+验收）。本次未运行产品、Docker 或外部服务测试，未改产品源码，未创建下一 Slice Task。
+
 ## Slice 3 A Final PASS / CLOSED (2026-10-19)
 
 A 审查完整范围 `ca9f91e10a0fc6c28679b5827f453e632eb9854a..410fc0e0a8964046de4707d58c0c7505385c6002`，

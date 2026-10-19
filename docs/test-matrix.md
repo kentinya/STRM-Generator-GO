@@ -1,6 +1,6 @@
 # 测试矩阵
 
-下表是目标验证矩阵，不是通过清单；Slice 1、Slice 2 与 Slice 3 均 PASS / CLOSED，Slice 3 的 Task 3.1／3.2 均经独立 B PASS，A 已审查完整范围并关闭。Slice 2 的完整证据与 A 决定保留于其关闭检查点；Task 2.1／2.2 均有独立 B PASS，Task 2.2 的 T4 证据索引为 `artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md`（本机证据）。工具层与环境 smoke 不代替产品验收，测试结果不跨层自动继承。
+下表是目标验证矩阵，不是通过清单；Slice 1、Slice 2 与 Slice 3 均 PASS / CLOSED，Slice 3 的 Task 3.1／3.2 均经独立 B PASS，A 已审查完整范围并关闭。Slice 4「隔离真实服务端到端兼容验收」当前 ACTIVE，Base 为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，等待 B 规划；Slice 2 的完整证据与 A 决定保留于其关闭检查点，Task 2.2 的 T4 证据索引为 `artifacts/validation-evidence/task-2.2-final-7TWPAV/INDEX.md`（本机证据）。工具层与环境 smoke 不代替产品验收，测试结果不跨层自动继承。
 
 | 范围 | 关键风险／验证 | 等级／阶段 |
 |---|---|---|
@@ -16,11 +16,11 @@
 | Mirror／持久化／恢复 | 旧库／映射缺失／历史轮次不追认、归属／输出边界／符号链接／类型／未知暂存保护、删除／目录sync／DB／SIGKILL窗口、跨文件部分完成后停止与重试收敛、原库及预览零写、观察和候选有界 | Slice 2 RO-5／RO-6，T4故障及发布二进制重启 |
 | OpenList Get／缓存实证 | 固定隔离版本／驱动的源根存在／缺失、目标存在／未读到、父目录删除、相同错误响应与缓存滞后；所有列表含分页不强刷；隐藏／虚拟挂载／缓存文件读取反例属用户接受局限，不冒充已辨别成功 | Slice 2 RO-6 必要实证；Task 2.1 已独立 B PASS，仅远端判定层；实际 CLI 清理由 Task 2.2 验证 |
 | 调度／并发 | 手动与serve／多进程排他、有界 tick 与工作池、忙碌跳过、停止不提交完整轮、恢复下一轮 | Slice 3 RO-2／RO-3，T4 race＋多进程集成；Task 3.1 B PASS，含 scheduler 单元、隔离 serve 驱动及独立 SIGINT 复现 |
-| 性能 | 十万／百万、宽目录／深目录、512MB限制、RSS／队列／吞吐、失败和恢复 | Slice 4真实测量 |
-| 发布 | Linux amd64／arm64构建、Docker权限、token／输出／DB／锁挂载、停止／重启与包恢复 | Task 3.2 的 Dockerfile／Compose／双架构镜像与隔离容器验收经 B 独立 PASS；用户保留环境 token 注入与 `read_only`，Compose 脱敏采集使用 `config --no-interpolate`。本机 amd64 容器实测，arm64 仅 OCI manifest／ELF 核对，ARM64 实机留 Slice 4 |
-| 联调 | 生成→Jellyfin扫描→插件解析／按需探测→正确播放；URL换址同哈希；目录移动重新入库 | Slice 4固定隔离版本 |
+| 性能 | 十万／百万、宽目录／深目录、512MB第一档压力点、RSS／队列／吞吐、失败和恢复 | 计划 Slice 5 真实测量；512MB 不作为未验证的产品保证 |
+| 发布 | Linux amd64／arm64构建、Docker权限、token／输出／DB／锁挂载、停止／重启与包恢复 | Task 3.2 的 Dockerfile／Compose／双架构镜像与隔离容器验收经 B 独立 PASS；用户保留环境 token 注入与 `read_only`，Compose 脱敏采集使用 `config --no-interpolate`。本机 amd64 容器实测，arm64 仅 OCI manifest／ELF 核对，原生 ARM64 实机留计划 Slice 5 |
+| 联调 | 目标 OpenList 驱动与稳定无签名 `/d/` → 原始 STRM → 固定插件解析／决策 → 隔离 Jellyfin／代理播放 | Slice 4 ACTIVE；要求固定隔离版本和合成媒体，所有环节分别保留原始证据 |
 
-真实插件行为须检查当次与重启后的播放地址、必要媒体流和探测计数，分别注明原生／代理链。同步成功不等于播放成功。清理安全须检查最终文件／库状态，不能仅依据日志计数。
+真实插件行为须检查当次与重启后的播放地址、必要媒体流和探测计数，分别注明原生／代理链。同步成功不等于播放成功。清理安全须检查最终文件／库状态，不能仅依据日志计数。Slice 4 的外部服务必须是专用隔离实例；生产端点、配置、媒体和进程不在准入范围。
 
 2026-10-18 用户最终指令撤回此前权威刷新列表、最终 500 有限例外及刷新预算方案。B 须显式重映射旧用例：源根不可读保留、不计数；源根可读时目标未读到（含权限、应用码／HTTP 错误、驱动／缓存及单请求失败）按相同缺失观察；目标成功／类型冲突保留；所有 list 请求 refresh:false。整轮取消／deadline、列表失败／不完整分页、本地 I/O／DB 故障仍不提交新计数；三轮阈值、再出现清零、dry-run 零写及本地安全／恢复门槛保持。
 
