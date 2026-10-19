@@ -2,8 +2,8 @@
 
 Slice 4「隔离真实服务端到端兼容验收」已 ACTIVE，Base 为
 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；A 按用户授权将外部范围修订为目标 OpenList、
-由配套仓库当前源码构建的插件包与 Jellyfin 原生扫描／播放，不验证代理。当前无活动实施
-Task。Next Action: B PLANS TASK 4.1 AFTER THE A CONTRACT CHECKPOINT。插件源码／产物、外部目标身份
+由配套插件远程仓库锁定 SHA 构建的插件包与 Jellyfin 原生扫描／播放，不验证代理。当前无活动实施
+Task。Next Action: B PLANS TASK 4.1 AFTER THE A CONTRACT CHECKPOINT。远程插件源码／产物、外部目标身份
 和隔离资源未固定前，不启动服务联调。
 
 ## Closed Task 3.2 — Linux 双架构运行包与容器部署边界

@@ -2,13 +2,14 @@
 
 ## Slice 4 A 用户授权合同修订（2026-10-19）
 
-用户明确授权本 Slice 不验证代理，只验证 Jellyfin 原生链路；插件使用配套
-`jellyfin-strm-probe` 仓库当前源码构建。A 修订合同为：目标 OpenList 驱动及稳定无签名
-`/d/` 输出、当前源码构建插件包的真实解析／决策、隔离 Jellyfin 原生扫描和实际播放，以及
+用户明确授权本 Slice 不验证代理，只验证 Jellyfin 原生链路；随后明确插件代码从配套
+`jellyfin-strm-probe` 远程仓库拉取并构建。A 修订合同为：目标 OpenList 驱动及稳定无签名
+`/d/` 输出、远程仓库锁定 SHA 构建插件包的真实解析／决策、隔离 Jellyfin 原生扫描和实际播放，以及
 完整 T4 与独立 B 审查仍是验收要求；代理不再是 Required Outcome、阻断条件或需要运行的服务。
 旧参考 SHA `1bdb79082c4945e126611f217200555d53c31367` 仅用于 V4.3 协议／决策对照。B 在
-Task 4.1 计划中须固定当前源码 checkout、分支／commit SHA／补丁摘要、构建工具／命令和产物
-SHA-256。Slice 4 Base 仍为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，没有活动 Task；
+Task 4.1 计划中须从远程默认分支解析并锁定仓库 URL、分支／commit SHA；实施在 `artifacts/`
+内获取该 SHA 源码副本，记录构建工具／命令和产物 SHA-256。Slice 4 Base 仍为
+`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，没有活动 Task；
 合同检查点后由 B 规划 Task 4.1。
 
 本次修改只协调合同与状态文档，没有产品代码改动、没有运行 OpenList／插件／Jellyfin，

@@ -6,7 +6,7 @@
 
 当前 [Slice 2](../SLICE.md) 已 PASS / CLOSED：安全目录镜像与清理恢复，Base 为上述关闭检查点，Implementation Head 为 `d0a0f6db5447f38467c67612ed7173d77e6bea27`。范围包括完整成功轮与连续缺失、精确映射及旧库兼容、源根／Get重核、归属／边界内删除、移动旧路径收敛、dry-run 和正常清理失败恢复；固定隔离 OpenList 的 Get／缓存行为实证已完成；用户已选择源根可读、目标未读到即计缺失且所有列表 refresh:false，撤回权威刷新列表及请求预算方案。Task 2.1 与 2.2 均获独立 B PASS，A 已完成最终审查。Slice 3「定时与部署」也已 PASS / CLOSED，Base 为关闭协调检查点 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，A 审查完整范围至 Implementation Head `410fc0e0a8964046de4707d58c0c7505385c6002`；用户保留环境 token 注入与 `read_only`，Task 3.2 的 `config --no-interpolate` 门禁获 B 独立 PASS。
 
-Slice 4「隔离真实服务端到端兼容验收」当前 ACTIVE，Base 固定为 A 选择前 HEAD `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，Implementation Head 为 NOT SET；当前无活动实施 Task，合同检查点后由 B 规划。按用户授权，范围是隔离目标 OpenList 驱动、由配套插件仓库当前源码构建的插件包，以及 Jellyfin 原生扫描和实际播放合成媒体；不验证代理。插件源码／构建产物与目标服务身份须在 Task 计划中锁定。ARM64 原生实机与 10 万至 100 万规模测量排入后续 Slice 5，未取消门槛；真实服务与播放仍 NOT RUN。
+Slice 4「隔离真实服务端到端兼容验收」当前 ACTIVE，Base 固定为 A 选择前 HEAD `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，Implementation Head 为 NOT SET；当前无活动实施 Task，合同检查点后由 B 规划。按用户授权，范围是隔离目标 OpenList 驱动、从配套插件远程仓库锁定 SHA 构建的插件包，以及 Jellyfin 原生扫描和实际播放合成媒体；不验证代理。远程源码／构建产物与目标服务身份须在 Task 计划中锁定。ARM64 原生实机与 10 万至 100 万规模测量排入后续 Slice 5，未取消门槛；真实服务与播放仍 NOT RUN。
 
 产品范围：OpenList list／get 元数据；稳定 `/d/` URL；版本化 STRM；目录镜像；增量比较与原子更新；SQLite 最小归属／轮次；经过完整成功对账的安全清理；单轮互斥、有界目录并发；手动／预览／定时；Linux amd64／arm64 容器与二进制；最终一致性和分层验收。
 

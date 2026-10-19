@@ -12,9 +12,10 @@
 
 ## 配套项目
 
-Slice 4 部署包按合同从配套仓库当前源码构建。规划／实施须记录实际 checkout 的源仓库、
-分支、commit SHA、必要补丁摘要、构建工具与命令、产物 SHA-256；不得把下方固定参考提交
-误称为当前部署包，也不得用来源不明的预构建包替代。
+Slice 4 部署包按合同从 `https://github.com/kentinya/jellyfin-strm-probe.git` 远程仓库获取
+并构建。B 规划时解析远程默认分支当前 HEAD 并锁定仓库 URL、分支和 commit SHA；实施只在
+本仓库 `artifacts/` 下获取该 SHA 源码副本并构建，记录工具与命令、产物 SHA-256。不得使用
+本地配套仓库 checkout 或把下方固定参考提交误称为部署包，也不得用来源不明的预构建包替代。
 
 - [AGENTS](https://github.com/kentinya/jellyfin-strm-probe/blob/1bdb79082c4945e126611f217200555d53c31367/AGENTS.md) 与 [开发流程](https://github.com/kentinya/jellyfin-strm-probe/blob/1bdb79082c4945e126611f217200555d53c31367/docs/development-workflow.md)：复用 Slice／Task、三职责、状态、Git、分级测试、证据与关闭门槛；本地重新编写，不迁入插件历史授权。
 - [STRM reader](https://github.com/kentinya/jellyfin-strm-probe/blob/1bdb79082c4945e126611f217200555d53c31367/src/Jellyfin.Plugin.StrmProbeOptimizer/Services/StrmManifestReader.cs)：版本、UTF-8、65,536字节、SHA-1、Int64、URL 与重复标记。

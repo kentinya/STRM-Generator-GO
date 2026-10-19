@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-Slice 1、Slice 2 与 Slice 3 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」Base 为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，A 审查完整范围至 Implementation Head `410fc0e0a8964046de4707d58c0c7505385c6002`；Task 3.1／3.2 均有独立 B PASS。用户已保留环境 token 注入与 `read_only`，Compose 脱敏渲染使用 `config --no-interpolate`。当前可运行入口为 `cmd/strmgen` 的 `sync`、`sync --dry-run` 与 `serve --config <file>`。Slice 4「隔离真实服务端到端兼容验收」已 ACTIVE，Base 为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；合同按用户授权修订为目标 OpenList、当前源码构建的插件包与 Jellyfin 原生扫描／播放，不验证代理，等待 B 规划 Task 4.1；ARM64 原生实机与规模测量留给后续 Slice。
+Slice 1、Slice 2 与 Slice 3 均已 PASS / CLOSED；Slice 2 的 A 审查范围为 `930782035615512be811a7b8bcc8416050f0c12f..d0a0f6db5447f38467c67612ed7173d77e6bea27`，Task 2.1／2.2 均有独立 B PASS。Slice 3「定时与部署」Base 为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，A 审查完整范围至 Implementation Head `410fc0e0a8964046de4707d58c0c7505385c6002`；Task 3.1／3.2 均有独立 B PASS。用户已保留环境 token 注入与 `read_only`，Compose 脱敏渲染使用 `config --no-interpolate`。当前可运行入口为 `cmd/strmgen` 的 `sync`、`sync --dry-run` 与 `serve --config <file>`。Slice 4「隔离真实服务端到端兼容验收」已 ACTIVE，Base 为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；合同按用户授权修订为目标 OpenList、由配套插件远程仓库锁定 SHA 构建的插件包与 Jellyfin 原生扫描／播放，不验证代理，等待 B 规划 Task 4.1；ARM64 原生实机与规模测量留给后续 Slice。
 
 `internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 
@@ -28,7 +28,7 @@ Slice 1、Slice 2 与 Slice 3 均已 PASS / CLOSED；Slice 2 的 A 审查范围�
 
 未归属文件、归属丢失与确实无法解释的路径／类型冲突保守保留；合法 STRM、名字、哈希或 OS UID 本身不建立归属。已有可靠归属的可再生成内容出现可识别偏差，不等于必须丢弃旧 ownership 重建。无条件保护任意外部注入的所有字节不是本架构目标，也不能把同一干预转为静态 legacy 状态重新要求。扫描期间变化依现有比较规则后续纠正，不每次写入前查远端、不引入远端锁。
 
-CURRENT 与 TARGET 的剩余差距由后续 Slice 分别验收：Slice 4 覆盖隔离真实 OpenList、配套仓库当前源码构建的插件包、Jellyfin 原生扫描与实际播放；不验证代理。计划中的 Slice 5 覆盖 ARM64 原生实机与规模测量。本地单轮生成／更新／Mirror 清理／正常中断恢复和 Slice 3 的调度部署已分别接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
+CURRENT 与 TARGET 的剩余差距由后续 Slice 分别验收：Slice 4 覆盖隔离真实 OpenList、从配套插件远程仓库锁定 SHA 构建的插件包、Jellyfin 原生扫描与实际播放；不验证代理。计划中的 Slice 5 覆盖 ARM64 原生实机与规模测量。本地单轮生成／更新／Mirror 清理／正常中断恢复和 Slice 3 的调度部署已分别接受。下文保留长期结构和安全要求，不构成新的活动 Task。每目标枚举所在目录的累计成本尚无规模承诺。
 
 ```text
 CLI / YAML / env

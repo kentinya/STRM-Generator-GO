@@ -1,6 +1,6 @@
 # 协议与兼容性
 
-协议／决策规则的固定对照来源为配套插件提交 `1bdb79082c4945e126611f217200555d53c31367`，不是 Slice 4 实际部署包身份，也不是插件发布版本承诺。Slice 4 按合同从配套仓库当前源码构建插件包，并记录源码 SHA／补丁、构建命令及产物 SHA-256。源码依据见 [references](references.md)。
+协议／决策规则的固定对照来源为配套插件提交 `1bdb79082c4945e126611f217200555d53c31367`，不是 Slice 4 实际部署包身份，也不是插件发布版本承诺。Slice 4 按合同从配套插件远程仓库获取锁定 SHA 的源码副本并构建插件包，记录远程 URL／分支／SHA、构建命令及产物 SHA-256。源码依据见 [references](references.md)。
 
 ```text
 # strm-probe-version:1
@@ -21,7 +21,7 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 |---|---|
 | 解析器／决策源码人工对照 | 已完成源码核对 |
 | Python list/get 合成夹具 | 可用于开发工具验证，不是 OpenList 兼容证据 |
-| 生成器实际输出被当前源码构建的插件包解析 | NOT RUN（已有生成器实现及本地协议回归，未构建／运行 Slice 4 插件包） |
+| 生成器实际输出被远程仓库锁定 SHA 构建的插件包解析 | NOT RUN（已有生成器实现及本地协议回归，未获取／构建／运行 Slice 4 插件包） |
 | 真实 OpenList 驱动／鉴权／无签名 `/d/` | NOT RUN（仅 Source Root／Target Get 判定在固定隔离 Local／WebDav 驱动上有实证） |
 | Jellyfin 原生库扫描／客户端播放／插件检查 | NOT RUN |
 | JellyfinProxy 等外部代理链 | 不在 Slice 4 范围；未验证 |
