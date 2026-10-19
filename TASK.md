@@ -300,3 +300,42 @@ B 核对 410fc0e0a8964046de4707d58c0c7505385c6002 与本候选：54 个 Go 产�
 - **剩余：** RO-3 两行 BLOCKED（目标无 SHA-1）、两行 DEFERRED（用户决定）、移动首播 BLOCKED
   （同一外部原因），均交 A 协调；RO-6 的匹配输入全量 T4、证据复用判定与独立真实复现由 B 执行。
   本轮未重跑 URL／Size 暂缓项。测试执行远低于本轮 30% 的时间预算。
+
+## B Review Result — 第二轮修正候选复审（2026-10-19）
+
+- Reviewed Range: 527570df75ab469eb204d6a42b2d1b4eb07f71e6..83e5b1901e1c306d1f48fcde92786b353eb3d5e3
+- Decision: **FIX REQUIRED**；继续 Task 4.1，不新造 Task。Slice 4 ACTIVE，Closure Packet／A Final Review PENDING。
+- Evidence: artifacts/validation-evidence/task-4.1-b3-20261019-223640/INDEX.md（本机、Git-ignored）。
+
+完整范围仅涉及 TASK、environment-spec 和目标 runner／测试，均已审查。runner、测试、两个 CLI、插件 ZIP 的 SHA-256 同 Developer 第二轮证据匹配；插件源码为锁定 SHA 且 tracked clean。env-only CLI 与 stdin 交换的修正有效，但不能据此断言全部凭据出口或 RO 已通过。
+
+### P1 — 同一 Task 实施修正
+
+1. **AC-1／RO-1：凭据过滤仍可绕过。** scripts/run_isolated_target_integration.py:114-117,272-281 在 JSON 序列化后查找原始凭据，合法凭据含引号／反斜线时转义后可写入证据；B 用纯合成值独立复现。:425,478,955-956 将子进程 stdout 的 JSON error 原样提升为顶层 stderr，绕过 Recorder；B 复现敏感哨兵沿该路径输出（仅保存布尔结果，不用真实凭据）。现有测试只覆盖普通字符串和空 stdout 的 URL 错误。须在结构化值／异常输出边界统一拒绝或脱敏，覆盖 JSON error、非 JSON／超时／非零退出、转义凭据及运行时派生 token，避免异常／argparse 再次回显值；不改固定插件源码。
+2. **AC-6／RO-5：移动失败未恢复远端对象。** :746-748 移动成功后，:858-860 的 finally 仅恢复配置并 sync，没有反向恢复对象。B 注入“移动后首个 CLI 失败”，模拟对象仍留在 Moved 路径，只有一次 move。真实失败会污染后续输入，违反既定失败／恢复闭环。须跟踪已完成步骤，失败时按当前 Task 自有对象身份安全补偿／恢复并验证；补偿失败明确报告，不掩盖首次异常或盲目覆盖目标。补移动后 sync、扫描／播放、清理／恢复阶段故障测试；只操作隔离夹具，不新造产品状态机。
+3. **AC-4／RO-3：矩阵仍可错关联。** :652-700 仅以不同 item 数量覆盖 names 数量，未关联期望播放 item／指纹；B 给一个期望文件及一个完全无关 item，稳定行仍为 PASS。:785-796 只观察任意 probe 就固定写“HTTP 500／同一外部原因”，未核对目标 item 的失败／接受证据。须将行关联实际 item、本次输入及窗口；仅 probe-start 不证明拒绝原因，更不能扩大用户例外。补无关 item、混合／轮转日志和只有 probe-start 而无失败证据的回归。
+
+### A 范围协调包 — B 不降级合同
+
+- **RO-3 两行 BLOCKED：** target/ro3_hash_input.json 的五项没有可用 SHA-1，ro3_decision_rows.json 的同 URL／同 SHA-1／不同 Size 与 SHA-1 改变均 BLOCKED。当前目标不能提供合法输入；不伪造哈希、不手改 STRM、不让 Developer 无限重跑。交 A 决定合法补充目标或合同／范围处置，先提交合同修订再调整 Task；当前 RO-3 不能 PASS。
+- **RO-5 移动首播 BLOCKED：** target/ro5_move_closure.json 的 moved_playback=BLOCKED、second_decision=null、恢复原路径 replay=PASS。保留生成／扫描／清理／恢复部分证据，但原路径恢复播放不等于移动路径播放成功。用户只暂缓 URL-change／Size-change 两行，未暂缓移动首播；报告称同因不构成扩展授权，交 A 处置。
+- **RO-1 历史凭据事件：** Developer 已披露口令／JWT 回显与临时凭据文件，报告“无秘密进入文件”不能同时作为从未泄露结论。轮换／失效属于 Developer 报告，B 无凭据未独立复验；需仅含摘要／布尔、受限原件位置及处置的脱敏记录，不回显秘密、不删除历史失败来伪装无泄露。是否接受已处置事件由 A 协调，B 不自签无泄露 PASS。
+
+### 反馈、门禁与复用
+
+- **Developer 受影响反馈：** 先治理；仅修正本 Task runner／测试及报告。执行 python3 -m unittest discover -s tests -p 'test_run_isolated_target_integration.py' -v、受影响安全／移动故障夹具及已授权真实非暂缓场景；保留原始日志、退出码、耗时、首次失败及重跑，给出固定新 Head。不能合法运行的哈希／移动首播交 A；不重跑两项用户暂缓行，不改产品规则、插件或生产服务。
+- **B 已执行：** python3 scripts/quality.py 原始环境 exit 0：148 Python 测试（包含全部 34 个目标 runner 测试）、语法／格式、gofmt、vet、Go test／build；不重复聚焦测试。独立合成反例见 reproduce.py／independent-reproductions.json，不是目标链路 PASS。首跑 B 设置 TMPDIR 改变既有夹具假设导致两项断言失败；恢复原始环境后通过，首次日志保留，不归咎产品、不弱化断言。
+- **B 最终门禁：** 明确 P1 按流程第 4 节提前拒绝；race、uncached test、构建、local-sync、serve、container、完整复用裁定及 Slice Final 本轮 NOT RUN，不把全量交回 Developer。新固定候选且前提满足后由 B 执行原定完整门禁和独立真实关键链路；完整覆盖的聚焦测试不重复。Go／依赖、既有本地驱动及容器输入 Git blob 同 Slice 3 仅证明源码子集匹配，工具链／二进制／配置／夹具／镜像／命令尚未完整匹配，不签 T4 复用 PASS。
+- **独立真实链路 NOT RUN：** 本会话 OpenList、Jellyfin、播放、RustFS 凭据环境变量均未注入；未从文件／生产配置恢复、未访问外部服务。后续授权进程环境注入专用身份后，B 自行复现 OpenList→CLI STRM→稳定字节→Jellyfin 扫描／实际播放及关键重用；Developer 报告不能替代。
+
+| AC／RO | 本轮结论 |
+|---|---|
+| AC-1／RO-1 | FIX REQUIRED：env／stdin 修正认可；序列化／异常出口及事件证据未闭合。 |
+| AC-2／RO-2 | 保留匹配 Developer 分页／元数据／5 项字节证据；B 独立真实复现 NOT RUN。 |
+| AC-3 | 源码／归档与候选摘要匹配；此前部署来源证据有限认可，不冒充本轮新部署。 |
+| AC-4／RO-3 | 未满足：稳定逐项重用证据保留；两行 BLOCKED、两行暂缓；错关联需修正。 |
+| AC-5／RO-4 | 匹配 Developer 5 项原生播放证据保留；独立真实扫描／播放 NOT RUN。 |
+| AC-6／RO-5 | 未满足：移动生成／清理／恢复部分保留；首播 BLOCKED，失败补偿缺失。 |
+| AC-7／RO-6 | 未满足：B quality PASS，其他全量／独立真实门禁未完成。 |
+
+全部 RO 尚未满足；不造 Task 4.2，不提交 Closure Packet，不返回 SLICE READY FOR A REVIEW，不自行关闭。修正继续 Task 4.1；范围阻塞交 A。测试时间与保守分母计时在 B 索引内，低于本轮 50%，没有空等凑比例。
