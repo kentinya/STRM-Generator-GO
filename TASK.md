@@ -7,7 +7,7 @@
 ```text
 Task ID: 4.1
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 527570df75ab469eb204d6a42b2d1b4eb07f71e6
 Contract Checkpoint: 87be914349db70929461d306e1d183c8e560cd68
 Difficulty: High
@@ -159,7 +159,7 @@ API／DB，不接生产状态。生成器不下载媒体计算哈希；测试侧
 ## Developer Completion Report（本轮第六修正，2026-10-20）
 
 ```text
-State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
+State: READY FOR B REVIEW（Developer handoff snapshot；本轮 B 决定后 Task 状态为 FIX REQUIRED）
 Implementation Head: 37c38d8471afbf332aeea1e102da4c8dc81a6278
 本轮 Base（B 上一轮审查 HEAD）: 9e91eaf7be67cc956d0bc34412089b4ad59af31c
 证据索引: artifacts/validation-evidence/task-4.1-dev6-20261020-001445/INDEX.md（本机、Git 忽略）
@@ -420,7 +420,83 @@ Size-change／移动首播（三项用户暂缓）、Go 全量／race／构建�
   元数据 201、字节 5/5、重复零写、原生播放 5/5；移动生成／扫描／清理／恢复证据保留，首播 BLOCKED。
 - 凭据回显／临时文件事件及轮换为 Developer 报告，B 未独立确认全部处置，不保留“从未泄露”的断言。
 
-## B Review Result（第五轮固定候选复审，2026-10-20）
+## B Review Result（第六轮固定候选复审，2026-10-20）
+
+- Reviewed Range：`527570df75ab469eb204d6a42b2d1b4eb07f71e6..e26d64c0e02f57af96f04ec1ae56221bf76bca52`；
+  可执行 Implementation Head 为 `37c38d8471afbf332aeea1e102da4c8dc81a6278`，`e26d64c` 仅更新
+  Developer 报告的指针。B5 已审完整范围的 Base..5d6 补丁 SHA-256 仍为
+  `576f61428975185c21f1f530542298d12f2158efb76ec26761ce398190bbca8e`；本轮补审其后完整提交序列、
+  `TASK.md`／`docs/progress.md` 报告差异及 runner／测试完整修正，不只审最新提交。
+- Decision：**FIX REQUIRED**；继续同一 Task 4.1。Slice 4 保持 ACTIVE，不新增 Task、不关闭 Slice。
+- 证据：`artifacts/validation-evidence/task-4.1-b6-20261019-232042/INDEX.md`（本机、Git 忽略）。
+
+### 已闭合：AC-6／RO-5 本轮已知 P1
+
+第六修正把 `scenario_move` 从“成功返回后才置已移动”的布尔值改为
+`original`／`moved`／`unconfirmed`。B 在自有合成远端状态中令 `moveto` 已改位置后抛实际
+`subprocess.TimeoutExpired`，同脚本分别回放旧／新实现：旧实现 `remote_object_restored=true`、
+`fixture_restored=true` 且多执行一次 sync；新实现明确 `remote_state=unconfirmed`，两项 restored
+均 false，不反向移动、不在未知夹具上 sync。双失败回归还确认配置文本在 finally 重试恢复时，
+未知远端不触发 sync，且失败另行标记；已确认成功路径仍保留原恢复结果。该关键合成反例现闭合，
+不代表真实移动链路／移动首播通过。
+
+### B 最终门禁与输入匹配裁定
+
+本轮 `python3 scripts/check_governance.py` 退出 0；`python3 scripts/quality.py` 由 B 重跑退出 0，
+覆盖 **166/166 Python**（目标工具 **58/58**）及 AST、Bash、gofmt、Go vet、Go test、Go build。
+不再单独重复该质量套件已覆盖的目标测试。完整 T4 各门禁由 B 持有，未交回 Developer：
+
+| 门禁 | 本轮结果 |
+|---|---|
+| `go mod download`／`go mod verify` | 按 B4/B5 对应原件复用；`go.mod`、`go.sum` 与 Go 产品输入未变 |
+| `quality.py` | 本轮重跑 PASS，166 Python；含目标工具全部 58 项及 Go 静态／普通测试／构建 |
+| race `-count=1`／uncached `-count=1` | 按 B4/B5 匹配证据复用；本轮未重跑 |
+| amd64 release／testhooks 构建 | 按 B4/B5 匹配原件复用；当前发布／testhooks 二进制 SHA-256 仍分别为 `16b70e13…`／`c6222a14…` |
+| local-sync | 按 B4/B5 复用 11/11 组合原件：保留首次 9/11 失败及无并发精确子集 2/2；不改写首次失败为全绿 |
+| serve／Docker build／container | 按 B4/B5 证据复用，分别 6/6、镜像 build 成功、5/5；消费源码、镜像和驱动未变 |
+| 本轮关键独立复现 | B 实跑旧／新同输入合成对照，旧 counterexample=true → 新 false |
+
+复用边界：B5 的输入审计及 4123 项既有产物清单核对结果仍可用；第六轮相对前候选仅新增
+目标 runner／目标测试与 Task／进度报告，local-sync、serve、container、Go 产品／依赖与镜像构建
+输入未改。当前发布二进制、testhooks 二进制、插件 ZIP 与插件源码 SHA 及隔离媒体数量已复核；
+三个 Task 隔离容器仍使用固定 OpenList／RustFS／Jellyfin 镜像。历史 B4 local-sync 首败及准确重跑
+记录均保留，B5 复用依据见 `task-4.1-b5-20261019-235201/gate-disposition.json` 与
+`reuse-input-comparison.json`。未机械重跑无输入变化的 Final 门禁。
+
+### RO／AC 未完成项与本轮决定
+
+- **RO-1／AC-1：** 固定目标及隔离输入身份已复核；本轮环境泄露出口反例保持已修复。专用真实链路
+  凭据仍未注入，历史凭据事件及授权／风险接受仍开放，依合同交 A；B 未读取、source、删除或轮换历史文件。
+- **RO-2／AC-2：** 已有匹配 Developer 原始目标证据（201 项分页、五类编码字节 5/5、稳定 URL、
+  重复零写）可有限复用；本轮未重跑真实 OpenList list/get 链路。
+- **RO-3／AC-3／4：** 锁定插件源码／包及安装身份匹配，已有原始稳定复用观察可保留；经授权的两行
+  真实 SHA-1 插件决策仍 **NOT RUN**。Go 比较不替代实际插件观察。
+- **RO-4／AC-5：** 既有原生扫描／播放 5/5 证据保留；本轮 B 独立一份 OpenList→原始 STRM→字节→
+  Jellyfin 原生播放及逐项日志重用仍 **NOT RUN**，不把 GET／旧播放结果计作 B 独立复现。
+- **RO-5／AC-6：** 既有成功移动／清理／恢复证据及本轮不确定失败最小修正／回归可复用；移动首播仍按用户
+  暂缓，不运行、不计 PASS。
+- **RO-6／AC-7：** 本地门禁、完整 Task Base..Head 审查与本轮合成关键复现已完成；因真实必验缺失，
+  不能签发 Task／T4 PASS。
+
+当前进程环境仅检查变量名，`OPENLIST_TOKEN`、`JF_PASSWORD`、`JF_PLAYBACK_PASSWORD`、
+`JF_ADMIN_TOKEN`、`RUSTFS_ACCESS_KEY`、`RUSTFS_SECRET_KEY`、`RUSTFS_ENDPOINT` 全部 absent；
+因此真实 OpenList／Jellyfin／播放与两行 SHA-1 插件观察均未执行。未从文件、容器配置或生产配置恢复秘密。
+用户暂缓三项（URL-change、哈希不可比 Size-change、移动路径首次播放）继续保持 DEFERRED／原始 BLOCKED，
+未调查、未执行、不计 PASS。
+
+### Developer 受影响验证、交接与耗时
+
+第六轮已知 runner 缺陷闭合，没有新增代码修正要求；当前阻断为缺少授权的专用进程凭据／真实必验以及
+历史事件由 A 处置，不得从本地文件自助取值。Developer 若后续因有效新证据发现代码缺陷，应只修同一
+Task 的受影响路径，运行治理和目标工具测试（或由 `quality.py` 覆盖而不重复），提交新实现 Head 再交 B；
+不运行暂缓项、不接管 B 的全量门禁。下一步先由用户／A 按授权途径落实隔离凭据与历史事件裁定，再由 B
+独立完成真实一份媒体链路和两行 SHA-1 观察并重评全部 RO；无新范围问题，不交 A 修改范围。
+
+本轮检查始于 `2026-10-19T23:16:09Z`；最终时间、门禁运行耗时及本轮测试占比见证据目录
+`timing.json`。测试运行小于本轮总用时 50%，未空等凑比例。因 RO 未全部满足，Closure Packet／
+A Final Review 保持 PENDING；不返回 `SLICE READY FOR A REVIEW`。
+
+## B Review Result（第五轮固定候选复审，历史，2026-10-20）
 
 - Reviewed Range：527570df75ab469eb204d6a42b2d1b4eb07f71e6..5d6b1911913294a0134cc92f499e4bee20a84895。
   完整18文件范围：B4已审前段补丁SHA256实测一致，补审全部后继与两文件完整修正；

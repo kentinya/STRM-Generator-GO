@@ -1,17 +1,30 @@
 # 进度
 
-## 当前：Task 4.1 第五轮B复审（2026-10-20）
+## 当前：Task 4.1 第六轮 B 复审（2026-10-20）
 
-完整审查Task Base 527570df75ab469eb204d6a42b2d1b4eb07f71e6 至实现Head
-5d6b1911913294a0134cc92f499e4bee20a84895，Decision **FIX REQUIRED**，继续同一Task。
-B独立确认旧三项反例闭合；新复现rclone moveto超时可能已提交远端变更，runner却因
-object_moved=false误记remote_object_restored／fixture_restored=true。仅要求最小未知／未恢复
-标记与直接回归，可核对恢复或弃用，不要求补偿框架、不运行移动首播。
-本轮quality 163 Python（目标55）及Go静态／测试／构建PASS；B4 4123份摘要匹配，未变
-mod／race／uncached／构建／sync组合11/11（保留首败）／serve6/6／镜像／容器5/5逐项复用。
-B真实一份链路及SHA-1两行因进程凭据未注入仍NOT RUN，历史处置授权交A，三项暂缓不计PASS。
-本机证据artifacts/validation-evidence/task-4.1-b5-20261019-235201/INDEX.md；未改产品／runner／测试，
-未新建Task／推送／关闭Slice，Closure／A Final仍PENDING。测试耗时见同目录timing.json，小于50%，无空等。
+B 审查完整 Task Base `527570df75ab469eb204d6a42b2d1b4eb07f71e6` 至 Developer 实现 Head
+`37c38d8471afbf332aeea1e102da4c8dc81a6278`，并核对纯报告后继
+`e26d64c0e02f57af96f04ec1ae56221bf76bca52`，Decision **FIX REQUIRED**，继续同一 Task。
+第六轮修复已闭合 B 第五轮唯一合成 P1：远端变更后 `rclone moveto` 超时会令位置 `unconfirmed`、
+不反向移动／同步，且不再谎报夹具已恢复；B 复跑同一旧／新合成反例为 counterexample true→false。
+B 的当前 quality 166 Python（目标工具 58）及 Go 静态／普通测试／构建 PASS；B4／B5 匹配的
+mod、race／uncached、构建、sync 11/11（保留首败）、serve 6/6、镜像／container 5/5 逐项复用。
+真实 OpenList/Jellyfin 独立一份媒体链路及两行 SHA-1 插件观察因专用进程凭据 absent 仍 NOT RUN；
+历史凭据事件／接受交 A；URL-change、哈希不可比 Size-change、移动首播维持授权暂缓，不计 PASS。
+RO 未满足，Task 保持 FIX REQUIRED，Slice 4 ACTIVE；无新 Task、Closure Packet 或 A Final，本轮不自关。
+本机证据 `artifacts/validation-evidence/task-4.1-b6-20261019-232042/INDEX.md`；测试时间／轮次比例见
+`timing.json`，小于 50%，未空等。
+
+## 历史：Task 4.1 第五轮 B 复审（2026-10-20）
+
+完整审查 Task Base 527570df75ab469eb204d6a42b2d1b4eb07f71e6 至实现 Head
+5d6b1911913294a0134cc92f499e4bee20a84895，Decision **FIX REQUIRED**，继续同一 Task。
+B 独立确认旧三项反例闭合；新复现 `rclone moveto` 超时可能已提交远端变更，runner 却因
+`object_moved=false` 误记恢复。仅要求最小未知／未恢复标记与直接回归，可核对恢复或弃用，不要求补偿框架、不运行移动首播。
+当时 quality 163 Python（目标 55）及 Go 静态／测试／构建 PASS；B4 4123 份摘要匹配，未变
+mod／race／uncached／构建／sync 组合 11/11（保留首败）／serve 6/6／镜像／容器 5/5 逐项复用。
+B 真实一份链路及 SHA-1 两行因进程凭据未注入仍 NOT RUN，历史处置授权交 A，三项暂缓不计 PASS。
+本机证据 `artifacts/validation-evidence/task-4.1-b5-20261019-235201/INDEX.md`。
 
 ## 历史：Task 4.1 第四轮 B 复审（2026-10-19）
 
