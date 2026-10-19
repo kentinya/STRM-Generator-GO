@@ -1,6 +1,6 @@
 # Slice 路线图
 
-状态表由治理工具读取；Slice 1、Slice 2 与 Slice 3 均 PASS / CLOSED。Slice 3 的 Task 3.1／3.2 均有独立 B PASS，A 已审查完整范围至 `410fc0e0a8964046de4707d58c0c7505385c6002` 并关闭 Slice。Task 2.1／2.2 均 PASS，用户最终改为源根／目标 Get 简化判定，所有列表关闭强刷；撤回前两次权威列表／500 例外和刷新预算决定，已关闭 Slice Base 不变。Slice 4 当前 ACTIVE，Base 固定为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；用户授权的合同修订检查点后，等待 B 规划 Task 4.1。
+状态表由治理工具读取；Slice 1、Slice 2 与 Slice 3 均 PASS / CLOSED。Slice 3 的 Task 3.1／3.2 均有独立 B PASS，A 已审查完整范围至 `410fc0e0a8964046de4707d58c0c7505385c6002` 并关闭 Slice。Task 2.1／2.2 均 PASS，用户最终改为源根／目标 Get 简化判定，所有列表关闭强刷；撤回前两次权威列表／500 例外和刷新预算决定，已关闭 Slice Base 不变。Slice 4 当前 ACTIVE，Base 固定为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；Task 4.1 FIX REQUIRED，按用户授权最简方案继续；独立 B 门禁和实际插件 SHA-1 两行未完成。
 
 | Slice | 名称 | Status | 依赖 | 原方案映射与结果 |
 |---|---|---|---|---|
@@ -31,7 +31,11 @@ Task 4.1 规划须获取远程默认分支当前 HEAD 并记录仓库 URL、解�
 SHA-256。旧参考 SHA 仍用于 V4.3 协议／决策规则对照，
 但不代表实际部署包身份。Slice 4 Base 不变，RO 与 T4 门槛保持真实 OpenList、当前源码
 插件解析／决策、Jellyfin 原生扫描／实际播放、分层证据及完整回归；代理从验收和阻断条件中
-移除。合同检查点后由 B 规划 Task 4.1，当前尚未开始实施或启动外部服务。
+移除。该检查点时尚未开始实施；随后 Task 4.1 已实施并产生真实隔离证据，当前状态以上方摘要及下节为准。
+
+## 2026-10-19 用户授权最简验收（B 记录）
+
+当前沿用 Task 4.1，固定插件源码为 2afc6517fda5a7b4170ebea625619a552c47dabc，目标为隔离 S3/RustFS；不重新选择远程 HEAD。复用匹配的原始链路／移动／回归证据，B 独立重现一份合成媒体，补真实内容 SHA-1 的两行实际插件观察。允许标注派生 STRM，不改变生成器职责。URL-change、hash 不可比 Size-change、移动首播暂缓，保留 BLOCKED 而非 PASS。只修实际阻断，不扩建验证框架；B 执行最终门禁与完整 Base..Head 审查，满足后交 Closure Packet 给 A，不自行关闭。此记录落实用户直接授权，不代签 A Final Review。
 
 ## 2026-10-18 A 选择与重排
 

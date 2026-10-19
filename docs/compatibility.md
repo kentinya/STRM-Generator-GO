@@ -21,8 +21,23 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 |---|---|
 | 解析器／决策源码人工对照 | 已完成源码核对 |
 | Python list/get 合成夹具 | 可用于开发工具验证，不是 OpenList 兼容证据 |
-| 生成器实际输出被远程仓库锁定 SHA 构建的插件包解析 | NOT RUN（已有生成器实现及本地协议回归，未获取／构建／运行 Slice 4 插件包） |
-| 真实 OpenList 驱动／鉴权／无签名 `/d/` | NOT RUN（仅 Source Root／Target Get 判定在固定隔离 Local／WebDav 驱动上有实证） |
-| Jellyfin 原生库扫描／客户端播放／插件检查 | NOT RUN |
+| 生成器实际输出被远程仓库锁定 SHA 构建的插件包解析 | Task 4.1 已有原始 STRM 解析／稳定重用证据，B 最终审查未完成 |
+| 真实 OpenList 驱动／鉴权／无签名 `/d/` | Task 4.1 已有目标 S3/RustFS 分页／稳定无签名字节证据，B 独立复现 NOT RUN |
+| Jellyfin 原生库扫描／客户端播放／插件检查 | Developer 证据播放 5/5；B 独立真实复现 NOT RUN |
 | JellyfinProxy 等外部代理链 | 不在 Slice 4 范围；未验证 |
 | ARM64 产品实机／压力与发布 | NOT RUN |
+
+## 当前最简验收边界（2026-10-19）
+
+沿用插件源码 2afc6517fda5a7b4170ebea625619a552c47dabc、归档 SHA-256
+382d3ef106ed8534b06ab5bff614d826e602a29703dadddbe3ef2e9864bd06d8，
+不重新取远程 HEAD。既有原始链路证据见 artifacts/validation-evidence/task-4.1-fix2-20261019-215918/INDEX.md。
+
+目标 get 未提供有效 SHA-1。用户授权仅测试侧从自有本地合成媒体计算真实 SHA-1，
+以明确标注的独立 STRM 副本观察同哈希／Size 异常复用及异哈希探测；这不证明 OpenList
+原生 hash，也不改变生成器职责。现有 Go 比较证据已通过，实际插件两行仍 NOT RUN。
+不同内容必须与同一稳定 URL 实际服务字节相符，探测启动不等于结果接受／播放成功。
+
+URL-change、hash 不可比 Size-change、移动路径首次播放保留原始 BLOCKED，按用户决定
+暂缓且非本轮阻断，不重跑、不计 PASS。其余必验不豁免；具体门槛以 [Slice](../SLICE.md)
+及 [Task](../TASK.md) 为准。此文档更新不签发 B／A 通过结论。

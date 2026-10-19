@@ -1,6 +1,16 @@
 # 进度
 
-## Slice 4 A 用户授权合同修订（2026-10-19）
+## 当前：Task 4.1 最简方案落实（2026-10-19，B）
+
+用户要求将最简方案落实到合同与相关文档。Slice 4 ACTIVE、Task 4.1 FIX REQUIRED；Slice／Task Base 不变，A Final Review 与 Closure Packet 仍 PENDING。以下早期激活记录是历史，不代表当前无活动 Task。
+
+- 已有第二轮证据：目标 S3/RustFS 201 项分页、五类名称字节 5/5、重复同步零重写、原生播放 5/5；移动生成／扫描／清理／恢复部分有效。证据：artifacts/validation-evidence/task-4.1-fix2-20261019-215918/INDEX.md。不是 B 独立真实复现 PASS。
+- 插件源 2afc6517fda5a7b4170ebea625619a552c47dabc，归档 SHA-256 382d3ef106ed8534b06ab5bff614d826e602a29703dadddbe3ef2e9864bd06d8，沿用既有隔离服务，不重选版。
+- 用户允许本地自有合成媒体真实 SHA-1＋标注派生 STRM；已有本地 Go 比较通过，实际插件两行仍 NOT RUN。URL-change、hash 不可比 Size-change 和移动首播暂缓，原 BLOCKED 保留，不计 PASS。
+- 剩余：实际凭据出口／事件记录、夹具失败最小处置与准确报告、两行实际插件证据、B 独立一份媒体链路、完整 T4 匹配复用裁定与 Task Base..Head 审查。凭据未在本会话进程环境注入，不从文件恢复。
+- 只用既有命令与人工核对，不新增通用验证／补偿／日志框架；B 持有全量门禁，满足后交 Closure Packet，不自关 Slice。此次仅文档协调，没有新产品或真实服务测试，没有新增行为 PASS。
+
+## Slice 4 A 用户授权合同修订（2026-10-19，历史）
 
 用户明确授权本 Slice 不验证代理，只验证 Jellyfin 原生链路；随后明确插件代码从配套
 `jellyfin-strm-probe` 远程仓库拉取并构建。A 修订合同为：目标 OpenList 驱动及稳定无签名
@@ -19,7 +29,7 @@ Task 4.1 计划中须从远程默认分支解析并锁定仓库 URL、分支／c
 下方“Slice 4 A 选择与激活”记录的是原始激活范围；其关于固定插件 SHA／代理的计划已由本
 用户授权修订取代，历史记录不代表当前验收条件。
 
-## Slice 4 A 选择与激活（2026-10-19）
+## Slice 4 A 选择与激活（2026-10-19，历史）
 
 A 在 Slice 3 关闭后的独立回合选定「隔离真实服务端到端兼容验收」，固定 Base 为选择前
 真实 HEAD `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`。Slice 4 已 ACTIVE，Implementation
