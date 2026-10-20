@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.4
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Contract Checkpoint: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Difficulty: High
@@ -168,8 +168,31 @@ State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Decision: PENDING
+Reviewed: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4..01104ed2c879ae36b28ac8cacea301296272c92f
+Document Successor: 995fac81905f71bc90cfe351f8ca3d61f96a090a
+Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: RESOLVE CREDENTIAL BLOCKER FOR AC-3, THEN INDEPENDENT B REVIEW
+Next: FIX TASK 4.4 IN PLACE; DO NOT ACTIVATE TASK 4.5
 ```
+
+独立 B 复核见 [审查记录](docs/task-4.4-b-review.md)。B 已执行本候选指定 quality 全量门禁、
+11 项工具测试、语法检查和真实 OpenList 样本复核；门禁通过不能抵扣未完成的 AC。
+
+同一 Task 必须修正：P1 F-01 远端万文件／最终清单未固定；P1 F-02 临时名前缀误删既有
+文件；P1 F-03 候选复用时已有符号链接导致根外写入；P1 F-04 样本核对失败仍退出 0，
+且只列源根不能证明 bulk/ 的完整数据集。AC-3／AC-4／AC-6 留在 4.4 完成，不能移交
+4.5 才补齐。本轮未改产品实现、未启停服务、未变更合同范围。
+
+Developer 先在独立小夹具修正及回归 F-02..04，再用原候选恢复剩余 S3／OpenList 对账，
+保留现有 10000 本地文件、201 原件及所有首败证据。凭据只从当前专用进程环境提供，
+不得从历史文件或容器 Env 恢复；无法提供则保持未完成，若需改变范围交 A。
+
+Developer 受影响验证：补缺失／重复零写／冲突／中断重试，既有临时前缀文件保留，
+候选复用与 verify-only 的静态根／祖先符号链接拒绝，清单位于媒体根外、同目标映射冲突
+在写入前拒绝；取证工具覆盖样本 Get／类型／Size／字节失败非零、完整递归分页及清单
+集合比较（含 bulk/、B 和特殊名），全程 refresh:false。不增加并发外部写者／权限加固要求。
+
+B 最终门禁仍由 B 对新的固定实施 Head 执行：本 Task 已列出的 quality／治理／语法／
+空白，新增直接工具回归及独立关键复现，10000 S3 清单／本地内容与最终清单身份、
+完整 OpenList 集合及 A／B 样本和原件保留复核；输入相同的原始证据按审查记录匹配复用。
+不把 B 全量门禁交还 Developer，不在此运行 4.5／4.6 或机械重跑 Slice Final。

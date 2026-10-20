@@ -2,14 +2,14 @@
 
 ## 当前（2026-10-20）
 
-- 当前依据 V4.4，Slice 4 ACTIVE；原 Base 不变，Implementation Head 为 NOT SET。
+- 当前依据 V4.4，Slice 4 ACTIVE；原 Base 不变，Implementation Head 为 `01104ed2c879ae36b28ac8cacea301296272c92f`。
 - 按用户明确要求，旧 4.1／4.2／4.3 撤出当前任务安排；其任务、审查、修复或完成结论均不继承，只保留后续需要的实际成果。
-- 当前合同检查点 `77fc768790a1c1ba6f0700c0aab294d3237cf7e4`；4.4 资产复用／固定万文件数据集：PLANNED，实施 NOT RUN，独立 B PENDING。
+- 当前合同检查点 `77fc768790a1c1ba6f0700c0aab294d3237cf7e4`；4.4 已有部分实现，独立 B **FIX REQUIRED**，继续同一 Task，见 [审查记录](task-4.4-b-review.md)。
 - 4.5 万文件生成／最少同步：候选未激活，实施 NOT RUN。
 - 4.6 最少原始扫描／完整决策：候选未激活，实施 NOT RUN。
-- 已补充 [4.4 开发实施指南](task-4.4-implementation.md)，细化脚本／清单／上传／核对／直接测试与交付；本次只写指南，Task 仍 PLANNED。
-- 当前输入资产：已有隔离环境、media/ 201 个文件、media-src/ 1 份源媒体、生成／启动／停止脚本、固定插件源码／包，以及 Slice 1–3 产品与适用验证工具。
-- 本次仅协调合同与计划，未操作环境／媒体／脚本，未执行真实验收。当前任务与候选见 [TASK](../TASK.md)／[4.5](../Task/4.5-generation-sync-plan.md)／[4.6](../Task/4.6-plugin-decisions-plan.md)。
+- [4.4 开发实施指南](task-4.4-implementation.md) 是规划时快照；现已适配生成工具，形成 10000 本地候选，201 原件保留。S3 补传／最终清单因专用环境凭据缺失 BLOCKED，B 当前真实 OpenList 仅见 201 文件。
+- B 已执行指定 quality 全量门禁及 11 项工具测试，通过；独立小夹具发现前缀误删、候选复用根外写入、probe 失败仍退出 0。门禁通过不抵扣未完成 AC，产品与真实服务分层记录。
+- 未启停／重建隔离服务，未改真实媒体或远端对象；没有产品实现变更。当前任务与候选见 [TASK](../TASK.md)／[4.5](../Task/4.5-generation-sync-plan.md)／[4.6](../Task/4.6-plugin-decisions-plan.md)。全部 RO 未满足，尚不交 A 最终审查。
 
 ## 已接受的产品基线
 
