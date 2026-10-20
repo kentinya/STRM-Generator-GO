@@ -157,7 +157,8 @@ class TestPlanAndFill(ToolTestCase):
         candidate = self.base / "dataset" / "manifest.candidate.jsonl"
         gm.write_manifest(candidate, records)
         first = records[0]
-        gm._publish(sources[first["content_id"]], self.media / first["path"])
+        gm._publish(sources[first["content_id"]], self.media / first["path"],
+                    self.media, first["path"])
         plan_before = candidate.read_bytes()
         code, out, err = self.run_tool(*self.args(8, "--prepare"))
         self.assertEqual(code, 0, err)
@@ -211,6 +212,44 @@ class TestRejection(ToolTestCase):
         code, _out, err = self.run_tool(*self.args(8, "--prepare"))
         self.assertNotEqual(code, 0)
         self.assertIn("conflict", err)
+
+    def test_unknown_temp_prefix_file_is_preserved_and_rejected(self):
+        # F-02: a pre-existing temp-prefixed file has no proof this run created
+        # it; it must never be unlinked and must be reported as a conflict.
+        unknown = self.media / (gm.TEMP_PREFIX + "preserved-original.mkv")
+        unknown.write_bytes(b"unowned bytes")
+        code, _out, err = self.run_tool(*self.args(8, "--prepare"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("conflict", err)
+        self.assertTrue(unknown.exists())
+        self.assertEqual(unknown.read_bytes(), b"unowned bytes")
+
+    def test_candidate_reuse_static_symlink_rejected_before_write(self):
+        # F-03: with a saved candidate and a static symlinked media subtree, no
+        # object may be published through the link before the failure.
+        self.run_tool(*self.args(8))
+        records, sources = gm.build_plan(self.media, 8, self.source, self.alternate)
+        candidate = self.base / "dataset" / "manifest.candidate.jsonl"
+        gm.write_manifest(candidate, records)
+        outside = self.base / "outside"
+        outside.mkdir()
+        (self.media / "bulk").symlink_to(outside, target_is_directory=True)
+        code, _out, err = self.run_tool(*self.args(8, "--prepare"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("conflict", err)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_manifest_inside_media_root_rejected_before_write(self):
+        inside = self.media / "dataset" / "manifest.jsonl"
+        code, _out, err = self.run_tool(
+            "--source", str(self.source), "--alternate-source", str(self.alternate),
+            "--media-dir", str(self.media), "--count", "2",
+            "--manifest", str(inside), "--prepare",
+        )
+        self.assertNotEqual(code, 0)
+        self.assertIn("usage", err)
+        self.assertFalse(inside.exists())
+        self.assertEqual(self.snapshot(), {})
 
     def test_manifest_inside_media_root_is_not_required_but_unsafe_path_rejected(self):
         code, _out, err = self.run_tool(

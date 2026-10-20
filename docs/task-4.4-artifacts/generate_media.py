@@ -57,6 +57,40 @@ def _safe_rel(rel):
     return pure
 
 
+def _is_within(path, parent):
+    """True when path resolves inside parent (used to keep manifests out)."""
+    try:
+        Path(path).resolve().relative_to(Path(parent).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _assert_owned_path(media_dir, rel):
+    """Reject links/type conflicts on the media root and every path ancestor.
+
+    A static symlink below the media root must be rejected before any write, so
+    candidate reuse cannot publish one object through the link and only fail on
+    a later enumeration. Concurrent external replacement is out of scope.
+    """
+    pure = _safe_rel(rel)
+    if media_dir.is_symlink() or not media_dir.is_dir():
+        raise ToolError("input", "media root is not a regular directory")
+    current = media_dir
+    for part in pure.parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            raise ToolError("conflict", f"symbolic link in path: {rel}")
+        if current.exists() and not current.is_dir():
+            raise ToolError("conflict", f"non-directory in path: {rel}")
+    target = media_dir / pure
+    if target.is_symlink():
+        raise ToolError("conflict", f"symbolic link is not allowed: {rel}")
+    if target.exists() and not target.is_file():
+        raise ToolError("conflict", f"non-regular file is not allowed: {rel}")
+    return target
+
+
 def iter_media(media_dir):
     """Return sorted relative paths of regular media, rejecting links/oddities."""
     if not media_dir.exists():
@@ -76,9 +110,11 @@ def iter_media(media_dir):
                 )
         for name in files:
             candidate = root_path / name
-            if name.startswith(TEMP_PREFIX):
-                continue
             rel = candidate.relative_to(media_dir).as_posix()
+            if name.startswith(TEMP_PREFIX):
+                # Never delete a temp file we cannot prove this run created; an
+                # unknown object is a conflict to keep, not to sweep away.
+                raise ToolError("conflict", f"unowned temporary file present: {rel}")
             if candidate.is_symlink():
                 raise ToolError("conflict", f"symbolic link is not allowed: {rel}")
             if not candidate.is_file():
@@ -181,19 +217,8 @@ def write_manifest(path, records):
     os.replace(tmp, path)
 
 
-def clean_stale_temps(media_dir):
-    if not media_dir.exists():
-        return 0
-    removed = 0
-    for root, _dirs, files in os.walk(media_dir, followlinks=False):
-        for name in files:
-            if name.startswith(TEMP_PREFIX):
-                (Path(root) / name).unlink()
-                removed += 1
-    return removed
-
-
-def _verify_target(path, record):
+def _verify_target(media_dir, path, record):
+    _assert_owned_path(media_dir, record["path"])
     if not path.exists():
         raise ToolError("missing", f"missing media: {record['path']}")
     if path.is_symlink() or not path.is_file():
@@ -204,7 +229,8 @@ def _verify_target(path, record):
         raise ToolError("conflict", f"content mismatch: {record['path']}")
 
 
-def _publish(source, target):
+def _publish(source, target, media_dir, rel):
+    _assert_owned_path(media_dir, rel)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.parent / (TEMP_PREFIX + str(os.getpid()) + "-" + target.name)
     try:
@@ -229,25 +255,31 @@ def _reconcile_present(media_dir, records):
 
 
 def prepare(media_dir, records, sources):
-    removed = clean_stale_temps(media_dir)
+    if media_dir.is_symlink():
+        raise ToolError("input", "media root is a symbolic link")
+    media_dir.mkdir(parents=True, exist_ok=True)
+    # Validate every planned target and ancestor before any write, so a static
+    # symlink/type conflict cannot be traversed for an earlier object first.
+    for record in records:
+        _assert_owned_path(media_dir, record["path"])
     created = 0
     for record in records:
         target = media_dir / _safe_rel(record["path"])
         if target.exists():
-            _verify_target(target, record)
+            _verify_target(media_dir, target, record)
             continue
         content = record["content_id"]
         if content not in sources:
             raise ToolError("missing", f"cannot reproduce media: {record['path']}")
         try:
-            _publish(sources[content], target)
+            _publish(sources[content], target, media_dir, record["path"])
             created += 1
         except FileExistsError:
-            _verify_target(target, record)
+            _verify_target(media_dir, target, record)
     _reconcile_present(media_dir, records)
     for record in records:
-        _verify_target(media_dir / _safe_rel(record["path"]), record)
-    return removed, created
+        _verify_target(media_dir, media_dir / _safe_rel(record["path"]), record)
+    return created
 
 
 def verify_only(media_dir, manifest):
@@ -255,7 +287,9 @@ def verify_only(media_dir, manifest):
     if records is None:
         raise ToolError("manifest", "final manifest does not exist")
     for record in records:
-        _verify_target(media_dir / _safe_rel(record["path"]), record)
+        _assert_owned_path(media_dir, record["path"])
+    for record in records:
+        _verify_target(media_dir, media_dir / _safe_rel(record["path"]), record)
     _reconcile_present(media_dir, records)
     return len(records)
 
@@ -294,6 +328,8 @@ def main(argv=None):
             raise ToolError("usage", "--manifest is required")
         media_dir = Path(args.media_dir)
         manifest = Path(args.manifest)
+        if _is_within(manifest, media_dir):
+            raise ToolError("usage", "manifest must not be inside the media root")
         candidate = manifest.with_name(manifest.stem + ".candidate" + manifest.suffix)
         if args.verify_only:
             total = verify_only(media_dir, manifest)
@@ -331,10 +367,10 @@ def main(argv=None):
             raise ToolError("manifest", "final manifest already exists; use --verify-only")
         if not candidate.exists():
             write_manifest(candidate, records)
-        removed, created = prepare(media_dir, records, sources)
+        created = prepare(media_dir, records, sources)
         print(
             f"prepared {len(records)} media (preserved {preserved}, planned-new {added}, "
-            f"created {created}); cleaned {removed} stale temp file(s)"
+            f"created {created})"
         )
         return 0
     except ToolError as error:

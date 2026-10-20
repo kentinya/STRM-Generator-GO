@@ -8,8 +8,6 @@ Base SHA: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63
 Implementation Head: 01104ed2c879ae36b28ac8cacea301296272c92f
 ```
 
-## 用户目标
-
 依据 [V4.4](<STRM Generator Go.md>)，复用已经完成的隔离环境、媒体原件及媒体生成／
 启动／停止脚本，固定一批 10000 个 S3 媒体文件，经真实 OpenList 生成 10000 个 STRM；
 同批最少样本证明同步、Jellyfin 原始产物扫描与插件完整探测／复用决策。
@@ -19,8 +17,9 @@ Implementation Head: 01104ed2c879ae36b28ac8cacea301296272c92f
 
 按用户最新澄清，旧 4.1／4.2／4.3 从当前任务安排中撤下；不继承其待审事项、修复清单
 或验收结论。历史记录留在 Git 与原始证据中，当前只保留后续需要的实际成果。
-Slice 1–3 PASS / CLOSED 与原 Slice Base 不变。新 4.4／4.5／4.6 均未实施；
-Implementation Head 为 NOT SET，待新任务产生实际实现检查点后填写。
+Slice 1–3 PASS / CLOSED 与原 Slice Base 不变。新 4.4 已有实际实现检查点并处于同一 Task
+的修正回合（本地部分已实施，远端固定因凭据缺失 BLOCKED）；4.5／4.6 尚未实施。
+Implementation Head 指向当前实际实现检查点，待本轮修正提交后更新。
 
 可复用成果仅作为输入资产：隔离环境、媒体原件、生成／启动／停止脚本、固定插件源码／
 包及当前适用的产品／测试工具。当前 RO 的结果由新任务取得，不以旧任务记录抵扣。
@@ -76,6 +75,8 @@ Implementation Head 为 NOT SET，待新任务产生实际实现检查点后填�
 [4.5](Task/4.5-generation-sync-plan.md)、[4.6](Task/4.6-plugin-decisions-plan.md)。
 候选不提前填写不存在的 Base／实施 Head，前序 PASS 后由 B 基于真实仓库正式规划提交。
 本次仅重规划，不执行建集、生成、启动／停止或真实验收，不宣称新的环境／产品 PASS。
+当前实际状态：4.4 已完成本地适配与 10000 本地候选、只读 probe 核对；远端 S3 固定与最终
+清单因专用凭据缺失仍 BLOCKED，4.5／4.6 未激活。
 
 ## 比较与证据判定
 
