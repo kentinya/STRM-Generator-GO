@@ -13,6 +13,12 @@
 - B3 审完整 Base..12a9c4f，执行指定 quality 全量及23项直接测试／语法门禁，独立复现关闭 F-02／F-05，F-03／F-04保持关闭；当前S3集合／Size10000与最终清单一致，独立A/B／特殊名稳定字节匹配，完整分页与内容证据准确匹配复用。首轮原生 /ScheduledTasks 401 保留；B4 官方恢复后的临时认证读取 21 项，确认 STRM 媒体信息检查存在／Idle，撤销验证 401，F-06 关闭。未运行扫描／任务。
 - 未启停／重建隔离服务，未改真实媒体或原有远端对象；没有产品实现变更。当前任务与候选见 [TASK](../TASK.md)／[4.5](../Task/4.5-generation-sync-plan.md)／[4.6](../Task/4.6-plugin-decisions-plan.md)。RO-1／2 已验收，RO-3..5 仍 NOT RUN，尚不交 A 最终审查；4.5 Base 为 `5182443d0c34215deb7bb1e74a413564aa8e6422`，见根 TASK；4.4 完成报告保留于该检查点。
 
+## 2026-10-21 Task 4.5 第二次独立B复审
+
+- 完整审查原Base至9cdfde2及文档后继2317047，结论FIX REQUIRED，见[第二次审查](task-4.5-b-review-2.md)。新跑quality（111项Python等）与10000输出校验，通过；完整Go／race／构建、11项同步／6项serve、15项辅助测试逐项匹配复用；固定真实Get／缓存八场景11项匹配复用。打包产物身份匹配后B新跑现有容器门禁6/6通过，F-45-02指定全量已齐备。
+- 新真实运行摘要有效，但delete/restore没有移动新路径；删除后新建行不证明正缺失保留行清零；逐轮DB／Get、S3变更恢复及dry-run后／稳定前后原始证据不齐。0600凭据临时文件与仅内存授权不一致，历史计时仍超限，不由B追认或倒改。Developer续修受影响证据，B保留全量及真实独立关键复现（本轮明确阻断后NOT RUN）。
+- 无产品／固定数据集／既有服务修改、无读取容器Env或远端变更；打包验证仅用新建合成夹具容器。RO-1／2保留PASS，RO-3／6部分，RO-4／5 NOT RUN；不激活4.6、不提交Closure Packet或关闭Slice。
+
 ## 2026-10-20 Task 4.5 Developer 真实样本闭环（本轮续修 2）
 
 - Developer 按本 Task 独立容器 Env 授权完成 AC-3／4／5 最小样本真实闭环并交 READY FOR B REVIEW（B 决定 PENDING）：UPDATE（050 A→B→A）、SKIP（051／053）、MOVE-ASIDE（052）、三完整轮计数 1→2→3、阈值后下一成功轮删除收敛（deleted=1）、逐场景恢复、再出现（created=1 updated=1、计数清零）、populated dry-run 零写、最终稳定重复 0／0／10000 与树校验 10000／10000。首败 cleanup-round1（慢速分页超时 exit 1、未提交轮）已保留。无产品改动。原始证据根 `artifacts/validation-evidence/task-4.5-dev2-20261020T1345Z/`，交接见 [续修 2](task-4.5-developer-followup-2.md)。

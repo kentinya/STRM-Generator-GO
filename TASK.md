@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.5
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 5182443d0c34215deb7bb1e74a413564aa8e6422
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -245,16 +245,27 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 
 ```text
 Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
-Document Successor: 9e37f4a6ecf9925e6e05a9acfbddd419867d960c
+Document Successor: 23170475617cf987f639dd53f34ca41a239e2176
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: DEVELOPER CONTINUES TASK 4.5 WITH EXPLICIT ENV AUTHORIZATION; B RETAINS FINAL GATES
+Next: SAME TASK 4.5; DEVELOPER FIXES AFFECTED EVIDENCE; B RETAINS FINAL GATES
 ```
 
-独立结论与逐项门禁见 [Task 4.5 B审查](docs/task-4.5-b-review.md)。B完成quality、
-完整非缓存Go／race、双架构／testhooks构建、11项同步／6项serve集成、15项辅助测试及
-10000产物／保留状态独立核对，不交回Developer全量。AC-3／4／5真实样本变更／清理／
-恢复及B真实关键复现仍BLOCKED；AC-6剩余固定真实Get／部署证据完整匹配或补跑由B
-保留，不能签完整T4 PASS。后续用户已明确授予Developer本Task独立容器Env取用权限，
-见授权专节；仅解除授权前置，实际凭据／鉴权及闭环仍未验证，不改称PASS。
-原Base／实施Head不变，4.6未激活，Slice ACTIVE，Closure Packet PENDING。
+当前独立结论、准确复用、受影响验证与B最终门禁见
+[第二次B审查（2026-10-21）](docs/task-4.5-b-review-2.md)。
+第一轮及授权登记保留于[原审查](docs/task-4.5-b-review.md)，其旧时点“Developer尚未获授权”
+不代表当前事实；新授权和真实运行不自动构成AC通过。
+
+B本轮确认全部既有执行输入匹配，复用完整Go／race／构建、11项同步／6项serve与15项
+辅助测试；新跑quality（111项Python等）及10000输出校验，通过。固定真实Get／缓存
+八场景11项精确复用；打包产物身份匹配后B新跑现有容器门禁6/6通过，
+F-45-02指定全量已齐备，不再退回Developer。
+
+同Task必须修正：实际delete/restore不等于移动到新路径；删除后created=1不等于同一
+归属的正缺失计数再出现清零；逐轮DB／Get、S3变更恢复和dry-run后／最终稳定前后
+原始状态不足。另有凭据0600临时文件与仅内存授权不一致、历史测试时间超限，不能
+由B豁免或倒改。Developer只补受影响证据／必要验证，不退回全量；B保留指定全量与
+真实独立关键复现（本轮明确阻断后NOT RUN）。需要授权／范围取舍交用户／A。
+
+原Task Base／实施Head不变，4.6未激活，RO-3／6部分、RO-4／5 NOT RUN；
+Slice ACTIVE，Closure Packet／A Final Review PENDING。
