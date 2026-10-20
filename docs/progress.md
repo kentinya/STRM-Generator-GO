@@ -13,6 +13,11 @@
 - B3 审完整 Base..12a9c4f，执行指定 quality 全量及23项直接测试／语法门禁，独立复现关闭 F-02／F-05，F-03／F-04保持关闭；当前S3集合／Size10000与最终清单一致，独立A/B／特殊名稳定字节匹配，完整分页与内容证据准确匹配复用。首轮原生 /ScheduledTasks 401 保留；B4 官方恢复后的临时认证读取 21 项，确认 STRM 媒体信息检查存在／Idle，撤销验证 401，F-06 关闭。未运行扫描／任务。
 - 未启停／重建隔离服务，未改真实媒体或原有远端对象；没有产品实现变更。当前任务与候选见 [TASK](../TASK.md)／[4.5](../Task/4.5-generation-sync-plan.md)／[4.6](../Task/4.6-plugin-decisions-plan.md)。RO-1／2 已验收，RO-3..5 仍 NOT RUN，尚不交 A 最终审查；4.5 Base 为 `5182443d0c34215deb7bb1e74a413564aa8e6422`，见根 TASK；4.4 完成报告保留于该检查点。
 
+## 2026-10-20 Task 4.5 Developer 真实样本闭环（本轮续修 2）
+
+- Developer 按本 Task 独立容器 Env 授权完成 AC-3／4／5 最小样本真实闭环并交 READY FOR B REVIEW（B 决定 PENDING）：UPDATE（050 A→B→A）、SKIP（051／053）、MOVE-ASIDE（052）、三完整轮计数 1→2→3、阈值后下一成功轮删除收敛（deleted=1）、逐场景恢复、再出现（created=1 updated=1、计数清零）、populated dry-run 零写、最终稳定重复 0／0／10000 与树校验 10000／10000。首败 cleanup-round1（慢速分页超时 exit 1、未提交轮）已保留。无产品改动。原始证据根 `artifacts/validation-evidence/task-4.5-dev2-20261020T1345Z/`，交接见 [续修 2](task-4.5-developer-followup-2.md)。
+- 计时：回合约 12390s；失败／重跑／只读验收计入后测试类上限约 7610s（约 61%），不满足用户 30% 上限亦超计划 50%，如实报告由 B 裁定。AC-6（B 指定全量＋独立关键复现）与 RO-4／5（4.6）仍待后续；不自判 PASS。
+
 ## 2026-10-20 Task 4.5 独立B审查
 
 - 审查后用户明确给Developer授权：核对既有专用project／RustFS服务／锁定镜像／挂载后，可从该RustFS/S3容器Env选择性内存取用必要凭据，完成同Task最少自有样本S3变更／恢复；完整边界见根TASK。只解除授权前置，本次未读凭据或操作远端，Task仍FIX REQUIRED，B门禁不变。

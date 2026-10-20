@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.5
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 5182443d0c34215deb7bb1e74a413564aa8e6422
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -220,6 +220,24 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
   原始墙钟合计2899.638s，旧回合5533s，仅此已≥52.4%，不满足本轮用户30%上限
   （也超出旧计划50%）。保留原始记录并报告B，不倒改历史或宣称达标；本轮将失败、
   重跑、只读验收、治理一并计入，实测详见续修证据。
+
+## Developer 本轮续修 2（2026-10-20，真实样本闭环）
+
+- 依据用户本 Task 独立容器 Env 授权，用最小自有样本完成 AC-3／4／5 真实闭环：
+  UPDATE（050 A→B→A，STRM size 24404→24430→24404）、SKIP（051／053 稳定）、
+  MOVE-ASIDE（052 暂删）、三完整轮计数 1→2→3（轮次 4／5／6，三轮前保留）、
+  阈值后下一成功轮删除收敛（deleted=1，052 STRM／归属移除）、逐场景恢复
+  （S3 10000、字节 sha256 与 A 一致）、再出现（created=1 updated=1、计数清零）、
+  populated dry-run 零写（exit 0、DB／输出／轮次不变）、最终稳定重复 0／0／10000
+  与树校验 10000／10000、0 问题。首败（cleanup-round1 慢速分页超时 exit 1、
+  未提交轮）已保留，同库重试恢复。无产品改动；清理配置仅存证据根。
+- 原始证据根 `artifacts/validation-evidence/task-4.5-dev2-20261020T1345Z/`
+  （本机、Git 忽略，INDEX 含命令／退出码／计数／耗时／RSS／首败／恢复映射）。
+  详见[续修交接 2](docs/task-4.5-developer-followup-2.md)。
+- 计时：回合约 12390s；按 Task 定义计入失败／重跑／只读验收后测试类上限约
+  7610s（约 61%），**不满足用户 30% 上限（亦超计划 50%）**，如实报告由 B 裁定。
+- AC-6（B 指定全量＋独立关键复现）与 RO-4／5（4.6）仍待 B／后续任务；
+  不自判 PASS，未启动 4.6。
 
 ## B Review Result
 
