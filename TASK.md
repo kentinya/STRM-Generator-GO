@@ -185,7 +185,7 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
   - 4.4 已 PASS；RO-3 部分满足（生成／稳定重复已实证，样本变更闭环 BLOCKED）；RO-4／RO-5 交 4.6。
   - 首败已保留：首次真实同步在慢速 S3 分页（~13–18s/200 条）超过 30s 客户端超时，未提交轮；
     重试从同一 DB／输出继续，未重生成媒体。
-- Head SHA：见 SLICE.md Implementation Head（提交后回填）。
+- Head SHA：0a6f8e9cc2a7e92842ac590cb7936741d7fedfa1
 
 ## B Review Result
 
