@@ -113,5 +113,5 @@ B 审查各 Task 完整 Base..Head，关键真实行为独立复现；新任务�
 Closure Packet: PENDING
 A Final Review: PENDING
 Decision: PENDING
-Next Action: TASK 4.4 B PASS; B FORMALLY PLANS TASK 4.5
+Next Action: IMPLEMENT TASK 4.5; B OWNS FIXED-CANDIDATE REVIEW
 ```
