@@ -126,10 +126,9 @@ runner、不验证播放／代理、更高规模、ARM64 实机／发布；不�
 
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
-Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
-本轮实现 Head: 待本轮实现提交后由后继文档提交记录（不填自引用 SHA）
+本轮实现 Head: 01104ed2c879ae36b28ac8cacea301296272c92f
 证据索引: artifacts/validation-evidence/task-4.4-IKlUvR/INDEX.md（本机、Git 忽略）
-可审查文本快照: docs/task-4.4-artifacts/（脚本原版／适配版／diff／测试／工具／配置准确字节）
+可审查文本快照: docs/task-4.4-artifacts/（脚本原版／适配版／测试／工具／配置准确字节）
 ```
 
 - Changed Files / Implemented：
