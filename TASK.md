@@ -170,7 +170,7 @@ State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
   - 未运行项：远端 S3 补传／最终清单固定、4.5 生成／同步、4.6 扫描／完整决策、代理与播放。
     NOT RUN／BLOCKED 不作为 PASS。
   - 本次未运行产品全量 quality（B 负责）；未改产品行为，不触发 T4 门槛。
-- Head SHA：见本轮实现提交；后继文档提交记录 Implementation Head。
+- Head SHA：实现提交 `e76a21c8e54a373fe53219b7a1aba5e86036f960`（修正 F-02..F-04、同步快照与事实文档）；本报告后继提交记录该 Implementation Head。
 
 
 ## B Review Result
