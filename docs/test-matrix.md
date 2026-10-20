@@ -76,17 +76,17 @@ D-03 可用同批本地原件的真实 SHA-1 与标注异常 Size 副本；D-04 
 `python3 scripts/quality.py` 聚合 unittest、AST、Bash、空白、gofmt、vet、Go test／build。
 Python 工具单测不启动真实外部服务，不替代四个驱动的实际运行。
 
-| tests 下文件 | 覆盖 | 治理前方法数 |
+| tests 下文件 | 覆盖 | 方法数（治理前→后） |
 |---|---|---|
 | test_development_environment.py | SDK 校验／解压／缓存边界 | 7 |
-| test_governance.py | 当前方案身份、文档链接、Slice／Task 状态和提交边界 | 14 |
+| test_governance.py | 当前方案身份、文档链接、Slice／Task 状态和提交边界；本轮新增版本漂移／缺失／协调升级 | 14→17 |
 | test_mock_openlist.py | 合成 API 鉴权／分页／错误／元数据及故障 hook | 11 |
 | test_run_openlist_absence_integration.py | 固定真实服务驱动前置、失败／SKIP、归属清理与 Get 约束 | 35 |
 | test_run_isolated_sync_integration.py | 发布 CLI 驱动证据边界、STRM／DB、故障与 Mirror 场景 | 19 |
 | test_run_serve_integration.py | 调度驱动证据边界、计数、场景与 hook 隔离 | 9 |
 | test_run_container_integration.py | 容器驱动证据边界、ELF／DB、镜像与 Compose 脱敏 | 13 |
 
-### 四个集成驱动：治理后保留
+### 四个集成驱动：保留
 
 | scripts 下文件 | 适用 Slice／用途 |
 |---|---|
@@ -100,12 +100,12 @@ mock_openlist.py、dev/fixtures/openlist.json、dev/compose.yaml 是 Slice 1–3
 不能仅因名称相同删除。真实服务驱动的隐藏／同码／虚拟挂载案例保留为用户接受的局限，
 不改称已权威辨别。正常中断恢复、未归属保护和 dry-run 等安全要求保持。
 
-| Task 4.2 拟撤下的工具／测试 | 原职责／处置理由 | 当前覆盖／历史 |
+| 撤下的工具／测试 | 原职责／处置理由 | 当前覆盖／历史 |
 |---|---|---|
 | scripts/run_isolated_target_integration.py（1256 行） | 旧 Task 4.1 五服务目标入口，混合播放／会话、暂缓行、远端移动恢复；与 V4.4 验收不一致 | 分页／字节／扫描／移动原件按复用账本保留；新矩阵用 CLI、S3 工具和原生检查人工取证 |
-| tests/test_run_isolated_target_integration.py（898 行、58 项） | 仅测试被撤入口的凭据接线、播放子进程、日志窗口和移动故障，不是产品行为回归 | 治理时随入口撤下；不得宣称这些旧失败已修复，产品安全与 Go 比较回归继续保留 |
+| tests/test_run_isolated_target_integration.py（898 行、58 项） | 仅测试被撤入口的凭据接线、播放子进程、日志窗口和移动故障，不是产品行为回归 | 随入口撤下；不得宣称这些旧失败已修复，产品安全与 Go 比较回归继续保留 |
 
 治理前实际 Python 为 166 项（旧文档 139 为历史计数），撤下 58 后保留 108 项；
-当前版本身份检查的新增覆盖与最终实跑计数见 [Task](../TASK.md) 完成报告。
+新增 3 项版本身份回归后为 111 项；最终实跑计数见 [Task](../TASK.md) 完成报告。
 不删除历史 artifacts／旧失败，不读取历史秘密或重新运行退出范围的场景。
 旧治理明细留在 `f0767f0:docs/test-matrix.md`；当前工具清单以本页为准。

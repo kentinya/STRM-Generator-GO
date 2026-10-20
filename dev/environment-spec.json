@@ -144,9 +144,8 @@
     "docs/deployment.md",
     "scripts/run_container_integration.py",
     "tests/test_run_container_integration.py",
-    "scripts/run_isolated_target_integration.py",
-    "tests/test_run_isolated_target_integration.py",
-    "docs/slice-4-evidence.md"
+    "docs/slice-4-evidence.md",
+    "Task/4.3-validation-plan.md"
   ],
   "cc": {
     "version": "0.14.1",

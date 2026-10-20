@@ -174,7 +174,7 @@ Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: t
 
 ## Slice 4 工具治理与下一验收
 
-工具清单以 [测试矩阵](test-matrix.md) 为准。Task 4.2 将撤下旧目标运行器及其专属 Python 测试，
+工具清单以 [测试矩阵](test-matrix.md) 为准。Task 4.2 已撤下旧目标运行器及其专属 Python 测试，
 四个 Slice 1–3 驱动、16 个 Go 测试文件及 testhooks 保留；旧 artifacts 不清理。
 下一真实验收用发布 CLI、既有 S3 工具和 Jellyfin 原生扫描／计划任务逐项记录，
 不建播放运行器、元数据服务或自动补偿框架。固定 10000 文件须一次准备、保留本地原件

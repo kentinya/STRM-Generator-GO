@@ -16,7 +16,7 @@ class GovernanceTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         files = {
-            "STRM Generator Go.md": "# V4.3 test plan\n",
+            "STRM Generator Go.md": "# STRM Generator Go — 开发方案 V4.4\n",
             ".go-version": "1.27.2\n",
             "go.mod": "module test-fixture\n\ngo 1.27.2\n",
             "README.md": "[architecture](docs/architecture.md)\n",
@@ -26,7 +26,7 @@ class GovernanceTests(unittest.TestCase):
             "SLICE.md": "Slice ID: 1\nStatus: PLANNED\nBase SHA: NOT SET\nImplementation Head: NOT SET\n\n## Required Outcomes\nA safe result.\n\n## Closure Packet\nNOT STARTED\n",
             "TASK.md": "# NO ACTIVE IMPLEMENTATION TASK\n",
         }
-        spec = {"plan": {"path": "STRM Generator Go.md", "sha256": hashlib.sha256(files["STRM Generator Go.md"].encode()).hexdigest()},
+        spec = {"plan": {"path": "STRM Generator Go.md", "version": "4.4", "sha256": hashlib.sha256(files["STRM Generator Go.md"].encode()).hexdigest()},
                 "go": {"version": "1.27.2"}, "required_files": [*files, "dev/environment-spec.json"]}
         files["dev/environment-spec.json"] = json.dumps(spec)
         for name, contents in files.items():
@@ -54,9 +54,36 @@ class GovernanceTests(unittest.TestCase):
         self.assertIn("preparation", governance.validate(self.root, True))
 
     def test_changed_plan_is_rejected(self):
-        self.edit("STRM Generator Go.md", "V4.3", "V9.9")
+        self.edit("STRM Generator Go.md", "V4.4", "V9.9")
         with self.assertRaisesRegex(ValueError, "identity"):
             governance.validate(self.root, True)
+
+    def test_version_metadata_must_match_plan_title(self):
+        self.edit("dev/environment-spec.json", '"version": "4.4"', '"version": "9.9"')
+        with self.assertRaisesRegex(ValueError, "version.*title"):
+            governance.validate(self.root, True)
+
+    def test_version_must_be_explicit_and_valid(self):
+        path = self.root / "dev/environment-spec.json"
+        for value in (None, "", "latest", 4.4):
+            with self.subTest(version=value):
+                spec = json.loads(path.read_text())
+                if value is None:
+                    spec["plan"].pop("version", None)
+                else:
+                    spec["plan"]["version"] = value
+                path.write_text(json.dumps(spec))
+                with self.assertRaisesRegex(ValueError, "version.*explicit"):
+                    governance.validate(self.root, True)
+
+    def test_coordinated_plan_upgrade_is_allowed(self):
+        self.edit("STRM Generator Go.md", "V4.4", "V9.9")
+        path = self.root / "dev/environment-spec.json"
+        spec = json.loads(path.read_text())
+        spec["plan"]["version"] = "9.9"
+        spec["plan"]["sha256"] = hashlib.sha256((self.root / spec["plan"]["path"]).read_bytes()).hexdigest()
+        path.write_text(json.dumps(spec))
+        self.assertIn("preparation", governance.validate(self.root, True))
 
     def test_missing_document_is_rejected(self):
         (self.root / "docs/requirements.md").unlink()
