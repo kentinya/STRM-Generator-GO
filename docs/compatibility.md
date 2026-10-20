@@ -22,8 +22,8 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 | 协议／决策源码对照与本地 Go 回归 | 已有验证，保留 Slice 1–3 结论 |
 | Python list/get 合成夹具 | 工具／装配证据，不是实际 OpenList 兼容 |
 | 真实 OpenList 源根／Get／缓存 | Task 2.1 已独立 B PASS；不等于全链路验收 |
-| S3/RustFS／原始 STRM／插件读取 | Task 4.1 有 201 项分页、5 类字节与稳定复用 Developer 原件；最后 FIX REQUIRED |
-| Jellyfin 原始产物扫描 | 旧 Developer 记录保留；新固定数据集最少扫描与独立 B 复现待验 |
+| S3/RustFS／原始 STRM／插件读取 | 环境／媒体／固定包作为输入保留；当前链路 NOT RUN |
+| Jellyfin 原始产物扫描 | 当前 Task 4.6 尚未实施，NOT RUN |
 | 插件完整比较表 | 当前 D-01..08 实际证据未齐，无旧暂缓例外 |
 | 10000 个 STRM／实际耗时和 RSS | NOT RUN |
 | ARM64 产品实机／正式发布 | NOT RUN；不在当前合同 |
@@ -43,8 +43,8 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 先建立匹配的旧基准，变更后可由 UrlChanged 或该变化导致的 NativeUrlMismatch 触发探测，
 不能用无关地址／主流缺失代替该行。逐行恢复基准，用正确 item 的
 当次日志窗口判定。首次信任或没有日志不足以证明比较通过。现有 Go 比较通过不能代替
-真实插件证据。复用原件／摘要／限制见 [复用账本](slice-4-evidence.md)，实施交接见
+真实插件证据。复用原件／摘要／限制见 [保留资产](slice-4-assets.md)，实施交接见
 [Slice](../SLICE.md)／[Task](../TASK.md)。
 
 既有隔离环境、媒体原件和三个辅助脚本按 [资产清单](slice-4-assets.md) 保留复用；
-最新任务顺序为 4.4 资产／建集、4.5 生成／同步、4.6 扫描／决策，旧 4.3 候选已撤回。
+最新任务顺序为 4.4 资产／建集、4.5 生成／同步、4.6 扫描／决策，三个新任务均未实施，旧任务的审查和结论不构成前置。

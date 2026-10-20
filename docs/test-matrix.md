@@ -1,8 +1,9 @@
 # 测试矩阵
 
 当前依据为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 PASS / CLOSED；[Slice 4](../SLICE.md)
-在原 Base 内 ACTIVE。旧 Task 4.1 最后 FIX REQUIRED；历史结论、首次失败和原件保留，
-适用证据见 [复用账本](slice-4-evidence.md)，隔离环境／媒体／三脚本见 [资产清单](slice-4-assets.md)。本表定义覆盖与执行入口，不签发测试或独立审查 PASS。
+在原 Base 内 ACTIVE。4.4／4.5／4.6 均未实施，当前结果由新任务取得；
+所需环境／媒体／三脚本见 [资产清单](slice-4-assets.md)。本表定义当前覆盖与执行入口，
+旧任务记录不作为验收完成或审查前置。
 
 | 范围 | 必须覆盖 | 入口／证据层 |
 |---|---|---|
@@ -47,7 +48,7 @@ D-03 可用同批本地原件的真实 SHA-1 与标注异常 Size 副本；D-04 
 原始 CLI 文件单独留存用于 RO-4，副本不作为生成器同步通过证据。D-02 只有源端 Modified
 变化，STRM 中不增加该字段。全部行实际证据待下一验收 Task，不能由旧例外豁免。
 
-## 工具保留清单与已有治理
+## 当前工具清单
 
 ### Go 产品测试：16 个文件，保留
 
@@ -78,10 +79,10 @@ D-03 可用同批本地原件的真实 SHA-1 与标注异常 Size 副本；D-04 
 `python3 scripts/quality.py` 聚合 unittest、AST、Bash、空白、gofmt、vet、Go test／build。
 Python 工具单测不启动真实外部服务，不替代四个驱动的实际运行。
 
-| tests 下文件 | 覆盖 | 方法数（治理前→后） |
+| tests 下文件 | 覆盖 | 当前方法数 |
 |---|---|---|
 | test_development_environment.py | SDK 校验／解压／缓存边界 | 7 |
-| test_governance.py | 当前方案身份、文档链接、Slice／Task 状态和提交边界；旧 4.2 新增版本漂移／缺失／协调升级 | 14→17 |
+| test_governance.py | 当前方案身份、文档链接、Slice／Task 状态和提交边界；版本漂移／缺失／协调升级 | 17 |
 | test_mock_openlist.py | 合成 API 鉴权／分页／错误／元数据及故障 hook | 11 |
 | test_run_openlist_absence_integration.py | 固定真实服务驱动前置、失败／SKIP、归属清理与 Get 约束 | 35 |
 | test_run_isolated_sync_integration.py | 发布 CLI 驱动证据边界、STRM／DB、故障与 Mirror 场景 | 19 |
@@ -102,15 +103,9 @@ mock_openlist.py、dev/fixtures/openlist.json、dev/compose.yaml 是 Slice 1–3
 不能仅因名称相同删除。真实服务驱动的隐藏／同码／虚拟挂载案例保留为用户接受的局限，
 不改称已权威辨别。正常中断恢复、未归属保护和 dry-run 等安全要求保持。
 
-| 撤下的工具／测试 | 原职责／处置理由 | 当前覆盖／历史 |
-|---|---|---|
-| scripts/run_isolated_target_integration.py（1256 行） | 旧 Task 4.1 五服务目标入口，混合播放／会话、暂缓行、远端移动恢复；与 V4.4 验收不一致 | 分页／字节／扫描／移动原件按复用账本保留；新矩阵用 CLI、S3 工具和原生检查人工取证 |
-| tests/test_run_isolated_target_integration.py（898 行、58 项） | 仅测试被撤入口的凭据接线、播放子进程、日志窗口和移动故障，不是产品行为回归 | 随入口撤下；不得宣称这些旧失败已修复，产品安全与 Go 比较回归继续保留 |
-
-治理前实际 Python 为 166 项（旧文档 139 为历史计数），撤下 58 后保留 108 项；
-新增 3 项版本身份回归后为 111 项；已实跑 111/111，原完成报告保留于 `4f4cfee:TASK.md`；旧 4.2 独立 B 仍 PENDING，转入新 4.4 范围审查。
-不删除历史 artifacts／旧失败，不读取历史秘密或重新运行退出范围的场景。
-旧治理明细留在 `f0767f0:docs/test-matrix.md`；当前工具清单以本页为准。
+当前 Python 共 7 个文件、111 个测试方法；执行结果以新任务报告为准。
+旧目标运行器 `run_isolated_target_integration.py` 及其专属测试已不在当前工具清单，
+后续使用发布 CLI、已有 S3／容器工具和 Jellyfin 原生检查，不恢复播放运行器。
 
 ### Slice 4 明确保留的三个辅助脚本
 
@@ -120,4 +115,4 @@ mock_openlist.py、dev/fixtures/openlist.json、dev/compose.yaml 是 Slice 1–3
 按需使用既有隔离实例，不能为工具验收重建或删数据。保留脚本不恢复播放门槛。
 
 新顺序为 4.4 资产复用与固定数据集 → 4.5 万文件／少量同步 → 4.6 原始扫描／完整决策。
-旧 4.2 待审修改和正式入口治理的边界在 4.4 中独立复核；旧 4.3 单一大任务撤回。
+三项均未实施，按当前目标分别执行与审查；不继承旧任务的审查或修复要求。

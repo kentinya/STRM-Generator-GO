@@ -4,8 +4,8 @@
 **一次性**与**常驻**运行、状态与恢复边界。命令与路径以仓库根目录为基准。当前
 证据层：本机 amd64 容器实测通过；arm64 只验证 OCI manifest／digest 与二进制
 ELF 架构，ARM64 实机与正式发布仍 NOT RUN。Slice 1–3 PASS / CLOSED，当前 Slice 4
-验证固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件决策；旧真实链路原件及限制
-见 [复用账本](slice-4-evidence.md)，不能用容器 smoke 代替该验收。
+验证固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件决策；所需环境／媒体／固定包
+见 [资产清单](slice-4-assets.md)；当前三个任务均未实施，不能用容器 smoke 代替该验收。
 
 ## 构建
 

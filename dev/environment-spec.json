@@ -144,8 +144,6 @@
     "docs/deployment.md",
     "scripts/run_container_integration.py",
     "tests/test_run_container_integration.py",
-    "docs/slice-4-evidence.md",
-    "Task/4.3-validation-plan.md",
     "docs/slice-4-assets.md",
     "Task/4.5-generation-sync-plan.md",
     "Task/4.6-plugin-decisions-plan.md"

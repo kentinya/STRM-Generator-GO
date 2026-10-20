@@ -7,7 +7,7 @@ Slice 4 ACTIVE，按用户本轮要求在原 Base 内完全重规划：保留复
 媒体生成／启动／停止脚本，固定万文件数据集、少量样本同步、原始 STRM 扫描和插件完整决策。
 新顺序为 4.4 资产复用与建集 → 4.5 生成与同步 → 4.6 扫描与决策，详见
 [当前合同](SLICE.md)、[当前 Task](TASK.md) 和 [保留资产](docs/slice-4-assets.md)。
-旧 4.1 FIX REQUIRED、旧 4.2 B PENDING 和未执行的旧 4.3 均保留历史，不补签 PASS。
+4.4／4.5／4.6 均未实施；只复用所需输入资产，不继承旧 4.1–4.3 的待审事项或完成结论。
 当前无播放、代理、旧暂缓例外或更高规模压力门槛；本次规划未执行真实验收。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
