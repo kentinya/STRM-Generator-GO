@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.4
 Parent Slice: 4
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Contract Checkpoint: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Difficulty: High
@@ -124,10 +124,47 @@ runner、不验证播放／代理、更高规模、ARM64 实机／发布；不�
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：NOT RUN，本轮仅提交计划。
-- Tests and Results / Evidence：实施 NOT RUN；规划时的只读资产摘要见 `artifacts/validation-evidence/slice-4-replan-20261020/`，不作为本 Task 验收。
-- Decisions / Risks / Remaining Required Outcomes：RO-1／2 待实际核对／建集与独立 B；RO-3..5 留后续，RO-6 待最终收尾。不继承旧任务完成状态。
-- Head SHA：NOT SET
+```text
+State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
+Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
+本轮实现 Head: 待本轮实现提交后由后继文档提交记录（不填自引用 SHA）
+证据索引: artifacts/validation-evidence/task-4.4-IKlUvR/INDEX.md（本机、Git 忽略）
+可审查文本快照: docs/task-4.4-artifacts/（脚本原版／适配版／diff／测试／工具／配置准确字节）
+```
+
+- Changed Files / Implemented：
+  - `artifacts/task-4.1/isolated-s3/generate_media.py`（Git 忽略）最小适配：保留原路径，拆分
+    可测试函数与 `main`，`__main__` 守卫；新增 `--source/--alternate-source/--media-dir/
+    --count/--manifest/--prepare/--verify-only`；补缺失、冲突拒绝、不覆盖、临时文件后
+    link 发布、稳定 JSONL 候选清单、重复零写与 `--verify-only`。原版另存 `generate_media.py.orig`。
+    准确字节见 `docs/task-4.4-artifacts/generate_media.py`（适配）与 `...orig`（原版）。
+  - `artifacts/task-4.4/tests/test_generate_media.py`：11 项直接行为测试（临时夹具在
+    `artifacts/task-4.4/tests/tmp` 下，非真实媒体）。
+  - `artifacts/task-4.4/tools/openlist_readonly_probe.py`：只读 OpenList 分页／样本／稳定字节核对。
+  - `artifacts/task-4.4/dataset/{manifest.candidate.jsonl,dataset.candidate.json,samples.json}`：
+    10000 文件候选清单与样本（Git 忽略，摘要见证据索引）。
+  - `artifacts/task-4.4/strmgen.yaml`：4.5 专用 CLI 配置（仅写 token 变量名，输出／DB 指向新路径）。
+  - 未改 Go 产品、插件源码、生产配置、Jellyfin DB、bootstrap.sh、teardown.sh。
+- Tests and Results / Evidence：
+  - 治理 `python3 scripts/check_governance.py` PASS；`bash -n` 两脚本、`ast.parse` 适配脚本、
+    `git diff --check` 均退出 0。
+  - 直接工具测试 11/11 PASS（0.168 s）。
+  - 真实本地建集：preserved 201 + created 9799 = 10000（42.7 s）；对候选清单 `--verify-only`
+    10000 PASS（1.6 s）；201 原件字节与 mtime 均未变。
+  - 真实 OpenList 只读：源根为目录、refresh:false 完整分页 total=201、7 个含特殊名样本精确
+    Get 与稳定 `/d/` 字节均与本地内容 SHA-256 匹配。Jellyfin 入口可访问、插件加载身份一致。
+  - 本轮测试类进程合计约 4.7 s，占本轮约 1440 s 的约 0.3%，低于 30%。产品全量回归由 B 负责。
+- Decisions / Risks / Remaining Required Outcomes：
+  - AC-1／AC-2／AC-4 只读部分已完成并有真实证据；AC-3 远端补传 **BLOCKED**。
+  - 阻塞原因：当前进程环境缺少专用凭据（`RUSTFS_ACCESS_KEY`、`RUSTFS_SECRET_KEY`、
+    `RUSTFS_ENDPOINT`、`RUSTFS_BUCKET`、`OPENLIST_TOKEN`、`OPENLIST_ADMIN_PASSWORD`、
+    `OPENLIST_JWT_SECRET`、`RCLONE_REMOTE` 全部 absent；`RCLONE_CONFIG_*`=0）。按指南未从历史
+    文件／容器 Env 恢复秘密。远端仍为 201 对象，缺 9799，`manifest.jsonl` 最终固定未进行。
+  - 未运行项：远端 S3 补传与最终清单固定、4.5 万文件生成／同步、4.6 扫描／完整决策、
+    代理与播放。NOT RUN／BLOCKED 不作为 PASS。
+  - RO-1／RO-2 中本地部分已交付，RO-2 远端固定与 RO-3..5 待凭据恢复后由后续任务完成；
+    请 B 决定凭据提供或范围处置，不代签 PASS。
+- Head SHA：见本轮实现提交；后继文档提交记录 Implementation Head。
 
 ## B Review Result
 
@@ -135,5 +172,5 @@ runner、不验证播放／代理、更高规模、ARM64 实机／发布；不�
 Reviewed: NOT SET
 Decision: PENDING
 Slice Required Outcomes all satisfied: NO
-Next: IMPLEMENT TASK 4.4, THEN INDEPENDENT B REVIEW
+Next: RESOLVE CREDENTIAL BLOCKER FOR AC-3, THEN INDEPENDENT B REVIEW
 ```

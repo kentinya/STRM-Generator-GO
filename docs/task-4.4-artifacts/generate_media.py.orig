@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Create deterministic synthetic media for the isolated Slice 4 target."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+MEDIA = ROOT / "media"
+MEDIA.mkdir(parents=True, exist_ok=True)
+
+special = [
+    "Plain Movie.mkv",
+    "中文电影.mkv",
+    "space name.mkv",
+    "hash#name.mkv",
+    "percent%name.mkv",
+    'quote"name.mkv',
+]
+names = special + [f"Synthetic {index:03d}.mkv" for index in range(1, 202 - len(special))]
+payload = b"STRM-GENERATOR-SLICE4-SYNTHETIC-MEDIA-V1\n" * 64
+for index, name in enumerate(names):
+    path = MEDIA / name
+    path.write_bytes(payload + f"object={index:03d}\n".encode("ascii"))
+
+assert len(names) == 201
+print(f"created {len(names)} synthetic media objects in {MEDIA}")
