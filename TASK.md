@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.5
 Parent Slice: 4
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 5182443d0c34215deb7bb1e74a413564aa8e6422
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -156,10 +156,36 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：NOT RUN，正式计划；尚无实施。
-- Tests and Results / Evidence：NOT RUN。
-- Decisions / Risks / Remaining Required Outcomes：4.4 已 PASS，RO-3 待实证，RO-4／5 交 4.6。
-- Head SHA：NOT SET
+- Changed Files / Implemented：
+  - `artifacts/task-4.5/strmgen.yaml`（派生专用配置：输出 `artifacts/task-4.5/strm-output`，DB `artifacts/task-4.5/state/strmgen.db`，`cleanup=false`）
+  - `artifacts/task-4.5/tools/measure_run.py`（`os.wait4` rusage 包装器：退出码、墙钟、`ru_maxrss` KiB）
+  - `artifacts/task-4.5/tools/verify_strm_tree.py`（10000 STRM 协议／映射／URL 校验）
+  - `artifacts/task-4.5/tests/test_task45_tools.py`（两个辅助工具直接测试，8 项）
+  - `docs/task-4.5-artifacts/`（上述四份 tracked 快照，逐字节匹配工作副本）
+  - 未改 Go 产品、依赖、镜像、插件源码或生产配置；本 Task 无产品代码改动。
+- Tests and Results / Evidence：原始证据根
+  `artifacts/validation-evidence/task-4.5-dev-20261020T093928Z/`（本机、Git 忽略）。
+  - AC-1：初始 dry-run 零写（`pre/post-dryrun-tree.txt` 相同）；真实同步产出恰 10000 STRM
+    与固定清单一一对应（`verify-strm-tree.txt`：10000/10000，0 问题；V1／UTF-8／≤65536／
+    稳定无签名 URL／不伪造 SHA-1）。数据集真实返回 `hashinfo=null`，故只写 Size、省略 SHA-1。
+  - AC-2：`stable-repeat` created=0 updated=0 skipped=10000，退出 0；输出 path+size+mtime_ns
+    聚合 `02189f2f…0356` 前后一致（`output-identity-before/after-stable.txt`）。
+  - 测量：first-sync（首次失败，201 后传输超时、未提交轮）与 first-sync-retry1
+    （created=9799 skipped=201→10000，946.6s，RSS 28684KiB）；stable-repeat 982.5s，RSS 29396KiB；
+    populated dry-run 零写。详见 `results.json`／`timing.txt`。
+  - 聚焦测试：`go test ./internal/strm ./internal/pathmap`、
+    `go test ./internal/reconciler ./internal/storage ./internal/openlist ./internal/config ./cmd/strmgen`
+    均 PASS；`go vet ./...` PASS；gofmt clean；辅助工具直接测试 8/8 PASS；治理 PASS。
+- Decisions / Risks / Remaining Required Outcomes：
+  - AC-3／AC-4／AC-5 需变更远端对象（新增／更新／移动／清理／再出现、三完整轮与删除前 Get、
+    恢复复核）。本 Task 无可用远端写通道：当前进程无 S3 写凭据与 OpenList token；隔离 guest
+    账户只读（`fs/mkdir|remove|rename|copy|move` 均 403）；匿名 S3 拒绝；4.4 容器 Env 授权
+    明确不扩大到 4.5（本文件 48–50 行）；admin 密码已在 B4 轮换且未留存。**这三项记录 BLOCKED，
+    不写成 PASS**。解除需用户明确授权 4.5 读取隔离 rustfs 容器 Env，或安全注入专用凭据到进程环境。
+  - 4.4 已 PASS；RO-3 部分满足（生成／稳定重复已实证，样本变更闭环 BLOCKED）；RO-4／RO-5 交 4.6。
+  - 首败已保留：首次真实同步在慢速 S3 分页（~13–18s/200 条）超过 30s 客户端超时，未提交轮；
+    重试从同一 DB／输出继续，未重生成媒体。
+- Head SHA：见 SLICE.md Implementation Head（提交后回填）。
 
 ## B Review Result
 
@@ -167,5 +193,5 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 Reviewed: NOT SET
 Decision: PENDING
 Slice Required Outcomes all satisfied: NO
-Next: DEVELOPER IMPLEMENTS TASK 4.5; B OWNS FIXED-CANDIDATE FULL GATES
+Next: B REVIEWS TASK 4.5 IMPLEMENTATION HEAD AND BLOCKED AC-3/4/5
 ```

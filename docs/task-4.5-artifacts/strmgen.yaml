@@ -1,0 +1,26 @@
+# Task 4.5 dedicated CLI config for the 10000-object generation / minimal sync run.
+# Derived from artifacts/task-4.4/strmgen.yaml; only the token variable NAME is
+# stored, no secret value lives in this file.
+# Relative output/database paths resolve against the startup working directory.
+openlist:
+  api_url: "http://127.0.0.1:25244"
+  public_url: "http://127.0.0.1:25244"
+  token_env: "OPENLIST_TOKEN"
+
+sources:
+  - remote: "/s3"
+    output: "./artifacts/task-4.5/strm-output"
+
+sync:
+  interval_minutes: 60
+  directory_workers: 4
+  atomic_write: true
+  skip_unchanged: true
+  mirror: true
+
+cleanup:
+  enabled: false
+  missing_confirmations: 3
+
+database:
+  path: "./artifacts/task-4.5/state/strmgen.db"

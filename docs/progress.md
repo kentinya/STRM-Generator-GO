@@ -5,7 +5,8 @@
 - 当前依据 V4.4，Slice 4 ACTIVE；原 Base 不变，Implementation Head 更新为本轮实现提交（见根 TASK 完成报告）。
 - 按用户明确要求，旧 4.1／4.2／4.3 撤出当前任务安排；其任务、审查、修复或完成结论均不继承，只保留后续需要的实际成果。
 - 当前合同检查点 `48ff46a2cfd742190de0e8a673a92ec61c086950`；2026-10-20 用户授权开发者核对专用隔离容器身份后，从其 Env 选择性取用必要凭据，仅在内存／子进程环境中使用，不输出或落盘秘密，不读取生产／其他项目容器或历史秘密文件。本轮已按授权从已核对的 rustfs 容器内存取用 S3 凭据并验证鉴权，未打印／落盘。4.4 经 B4 补证复审为 **PASS**（Task 头部为准）；用户另行明确授权后，官方恢复／临时 Key 验证原生任务 200／Idle，F-06 关闭。隔离 admin 密码已改变且新值未留存，Key 已撤销／会话退出，无后续可复用认证。
-- 4.5 万文件生成／最少同步：B 已从 4.4 PASS 检查点正式规划为当前任务，Status PLANNED，实施 NOT RUN；Developer 负责直接影响验证／真实场景证据，B 负责固定候选全量。
+- 4.5 万文件生成／最少同步：B 已从 4.4 PASS 检查点正式规划为当前任务；Developer 已完成本轮实施，Status READY FOR B REVIEW。真实发布 CLI 经隔离 OpenList 只读 guest 路径对固定数据集生成恰 **10000** 个 STRM，与固定清单一一对应（V1／UTF-8／≤65536／稳定无签名 URL／不伪造 SHA-1；真实 `hashinfo=null` 故只写 Size）；稳定重复 created=0 updated=0 skipped=10000，输出 path+size+mtime_ns 不变；初始与已填充 dry-run 均零写。首轮真实同步在慢速 S3 分页超时后未提交轮，重试从同一 DB／输出继续得到 10000。原始证据根 `artifacts/validation-evidence/task-4.5-dev-20261020T093928Z/`。
+- 4.5 的 AC-3／AC-4／AC-5（样本新增／更新／移动／清理／再出现、三完整轮与删除前 Get、恢复复核）需变更远端对象，本 Task 无可用远端写通道（进程无 S3 写凭据与 OpenList token；隔离 guest 账户只读，`fs/mkdir|remove|rename|copy|move` 均 403；匿名 S3 拒绝；4.4 容器 Env 授权不扩大到 4.5；admin 密码已轮换未留存），记录 **BLOCKED**，交 B 审查，不写成 PASS。
 - 4.6 最少原始扫描／完整决策：候选未激活，实施 NOT RUN。
 - [4.4 开发实施指南](task-4.4-implementation.md) 是规划时快照；生成工具（补缺失、冲突拒绝、静态链接／未知前缀保护、临时名排他创建、同目标映射拒绝）与只读 probe（递归分页／集合比对／失败非零）已适配。
 - 本轮修正 F-01／F-02／F-05：真实 S3 API 对象由 201 补足至 **10000**，`rclone check --download --one-way` 10000/10000 内容匹配，最终 `manifest.jsonl`／`dataset.json`（dataset_id `slice4-v44-378068e3…`）已固定；真实 OpenList 递归完整分页 10000、清单集合／Size 匹配、8 个样本（含 B 与特殊名）精确 Get 与稳定 `/d/` 字节 SHA-256 全部匹配。201 原件字节／mtime 未变，0 临时文件。
