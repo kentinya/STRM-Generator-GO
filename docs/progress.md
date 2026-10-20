@@ -13,6 +13,13 @@
 - B3 审完整 Base..12a9c4f，执行指定 quality 全量及23项直接测试／语法门禁，独立复现关闭 F-02／F-05，F-03／F-04保持关闭；当前S3集合／Size10000与最终清单一致，独立A/B／特殊名稳定字节匹配，完整分页与内容证据准确匹配复用。首轮原生 /ScheduledTasks 401 保留；B4 官方恢复后的临时认证读取 21 项，确认 STRM 媒体信息检查存在／Idle，撤销验证 401，F-06 关闭。未运行扫描／任务。
 - 未启停／重建隔离服务，未改真实媒体或原有远端对象；没有产品实现变更。当前任务与候选见 [TASK](../TASK.md)／[4.5](../Task/4.5-generation-sync-plan.md)／[4.6](../Task/4.6-plugin-decisions-plan.md)。RO-1／2 已验收，RO-3..5 仍 NOT RUN，尚不交 A 最终审查；4.5 Base 为 `5182443d0c34215deb7bb1e74a413564aa8e6422`，见根 TASK；4.4 完成报告保留于该检查点。
 
+## 2026-10-20 Task 4.5 独立B审查
+
+- 审查完整`5182443d..9cdfde2e`及文档后继`9e37f4a6`，结论**FIX REQUIRED**，见[审查](task-4.5-b-review.md)。
+- B执行quality、Go全量／race、双架构／testhooks构建、11项同步／6项serve集成、15项辅助测试；独立核对固定10000产物及保留状态。
+- AC-3／4／5真实样本闭环与B真实复现仍BLOCKED；AC-6剩余全量证据匹配或补跑由B保留，不交回Developer。
+- 不扩大4.4凭据授权；继续同Task。RO-3部分、RO-4／5 NOT RUN、RO-6部分；4.6未激活，不提交Closure Packet或关闭Slice。
+
 ## 已接受的产品基线
 
 | 范围 | 已有结论与索引 |
