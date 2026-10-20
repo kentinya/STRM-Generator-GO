@@ -4,7 +4,7 @@
 
 - 当前依据 V4.4，Slice 4 ACTIVE；原 Base 不变，Implementation Head 为 NOT SET。
 - 按用户明确要求，旧 4.1／4.2／4.3 撤出当前任务安排；其任务、审查、修复或完成结论均不继承，只保留后续需要的实际成果。
-- 4.4 资产复用／固定万文件数据集：PLANNED，实施 NOT RUN，独立 B PENDING。
+- 当前合同检查点 `77fc768790a1c1ba6f0700c0aab294d3237cf7e4`；4.4 资产复用／固定万文件数据集：PLANNED，实施 NOT RUN，独立 B PENDING。
 - 4.5 万文件生成／最少同步：候选未激活，实施 NOT RUN。
 - 4.6 最少原始扫描／完整决策：候选未激活，实施 NOT RUN。
 - 当前输入资产：已有隔离环境、media/ 201 个文件、media-src/ 1 份源媒体、生成／启动／停止脚本、固定插件源码／包，以及 Slice 1–3 产品与适用验证工具。
