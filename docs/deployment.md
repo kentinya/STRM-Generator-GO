@@ -5,7 +5,7 @@
 证据层：本机 amd64 容器实测通过；arm64 只验证 OCI manifest／digest 与二进制
 ELF 架构，ARM64 实机与正式发布仍 NOT RUN。Slice 1–3 PASS / CLOSED，当前 Slice 4
 验证固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件决策；所需环境／媒体／固定包
-见 [资产清单](slice-4-assets.md)；4.4固定数据集已验收，原生任务可用性F-06仍BLOCKED；
+见 [资产清单](slice-4-assets.md)；4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；
 4.5／4.6尚未实施，不能用容器smoke代替该验收。
 
 ## 构建

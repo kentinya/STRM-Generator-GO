@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.4
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: PASS
 Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -219,34 +219,46 @@ State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
 - Head SHA：实现提交 `e76a21c8e54a373fe53219b7a1aba5e86036f960`（修正 F-02..F-04、同步快照与事实文档）；本报告后继提交记录该 Implementation Head。
 
 
+## 2026-10-20 用户授权补充：专用原生账户恢复
+
+用户已明确同意：仅对本任务已核对的专用隔离 Jellyfin，尝试官方管理员账户恢复流程，
+恢复访问后创建临时验收 API Key；不直接改库、不重建容器、不动媒体或生产实例，
+官方流程不能完成即停止。该授权优先于本 Task 先前“不重置用户”的限制，但不授权
+读取历史秘密、改插件、触发扫描／探测／播放或提前放行任何 RO。
+只读取本次官方请求新生成且身份／路径／时间核对通过的恢复文件，PIN／密码／token
+只在进程内存与原生请求中使用，证据仅记脱敏状态。临时 Key 在本次验证结束后撤销；
+不将访问秘密写入仓库、日志或证据。官方恢复／临时认证验证已完成，详见下方 B4。
+隔离 admin 密码已由官方流程更改为内存生成强随机值，未持久保存该值；
+临时 Key 已撤销、恢复会话已退出，没有后续可复用认证留存。
+
 ## B Review Result
 
 ```text
 Reviewed: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4..12a9c4f273efbdb9856a85b9a335528c32585d57
 Document Successor: 23748ea95fbf46748fcfd8935fcd0c7008394115
-Decision: FIX REQUIRED
+Decision: PASS
 Slice Required Outcomes all satisfied: NO
-Next: FIX F-06 IN TASK 4.4; DO NOT ACTIVATE TASK 4.5
+Next: B FORMALLY PLANS TASK 4.5 FROM COMMITTED PASS CHECKPOINT
 ```
 
-当前独立结论见 [B3 固定候选复审](docs/task-4.4-b-review.md#固定候选复审2026-10-20-b3)。
-B已审完整Task范围并执行指定quality全量、23项直接测试及独立关键复现。
-F-01数据集固定、F-02临时名保护、F-05映射拒绝已关闭；F-03／F-04保持关闭。
-最终清单及S3当前恰好10000；完整OpenList分页／内容校验按准确输入匹配复用，
-B当前A/B／特殊名样本匹配。首次12秒样本Get超时保留，默认30秒重试通过。
+当前独立结论见 [B4 原生可用性补证复审](docs/task-4.4-b-review.md#原生可用性补证复审2026-10-20-b4)。
+完整 Task Base..Implementation Head 审查、quality 全量、23 项直接测试及关键独立复现
+由 B3 完成。本轮补审纯文档后继至 `45ff78b02fddf7030181f0bc4b0f9363061f2e07`，
+再次匹配八份实际输入／tracked 快照／实现 Head 字节及固定万文件清单，复用已匹配门禁；
+不机械重跑 quality／17 分钟完整分页，不把全量交回 Developer。
 
-**剩余P1 F-06：AC-1／AC-4／AC-6当前原生任务可用性未确认。** Jellyfin公开入口200、
-固定插件实际挂载DLL与包及同启动窗口加载身份匹配，但当前原生 /ScheduledTasks 为401；
-尚无认证后STRM媒体信息检查任务存在／可用的证据。当前授权渠道未取得对应认证，
-保持BLOCKED，不把环境smoke或旧扫描日志算通过。
+**F-06 已关闭，仅限原生任务可用性。** 经用户明确授权，B 对已核对专用隔离实例执行
+官方恢复／临时 Key 验证：原生 `GET /ScheduledTasks` 200，共 21 项，存在
+`STRM 媒体信息检查`／`StrmProbeOptimizerBatchCheck`，状态 Idle。实际固定 DLL 摘要未变。
+只撤销本次 Key（204），再读 401，恢复会话退出 204。B 此处是获授权的环境验证，
+未修改产品实现，不作为产品实施者自签自己的实现，也不代签 A 最终审查。
 
-Developer受影响验证：只补当前专用原生认证与公开管理任务读取／脱敏证据，不触发扫描／
-探测，不改Jellyfin DB／插件／用户，不从历史文件恢复秘密。Env无所需认证时请用户提供
-当前专用认证；仍不可用如实BLOCKED。保留同一固定数据集，不重建／补传／重跑长扫描。
-若仅证据／事实文档变化，做受影响入口读取及治理／链接／空白；代码改变补直接回归。
-若要求缩减验收，由A先处理范围，不由B自行放行。
+证据：`artifacts/validation-evidence/task-4.4-F06-recovery-20261020-iKiKlR/`（本机、Git 忽略）。
+**隔离 admin 密码确已改变；新强随机值不留存，Key 已撤销，无后续可复用认证。**
+后续原生操作需用户安全注入专用凭据或另获明确授权；不从此次证据恢复秘密、不重复恢复。
+没有直接数据库访问、媒体／服务生命周期改变、扫描、任务执行、探测或播放。
 
-B负责新固定候选的完整原Base..Head审查、入口独立复核及指定全量门禁逐项执行或输入
-匹配复用。纯文档后继不机械再跑quality；未变的10000清单／完整OpenList证据准确匹配
-复用，变化才补受影响验证。全量不交回Developer。4.5／4.6与Slice Final均NOT RUN，
-全部RO未满足，不交Closure Packet或A最终审查，不关闭Slice。
+AC-1..6 均通过本任务限定验收；RO-1／2 满足，RO-3..5 NOT RUN、RO-6 部分。
+4.5／4.6 与 Slice Final 尚未执行，不出 Closure Packet，不返回 SLICE READY FOR A REVIEW，
+不关闭 Slice。B 下一步从已提交 PASS 检查点正式规划 4.5，明确 Developer 受影响验证
+与 B 自有完整范围、独立关键复现及指定全量执行／准确匹配复用门禁。
