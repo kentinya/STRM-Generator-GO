@@ -131,7 +131,7 @@ runner、不验证播放／代理、更高规模、ARM64 实机／发布；不�
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
 上一实现 Head: e76a21c8e54a373fe53219b7a1aba5e86036f960
-本轮实现 Head: 提交后记录于后继文档提交（见下方 Head SHA）
+本轮实现 Head: 12a9c4f273efbdb9856a85b9a335528c32585d57（后继文档提交记录）
 证据索引: artifacts/validation-evidence/task-4.4-8eF41E/（本机、Git 忽略）
 可审查文本快照: docs/task-4.4-artifacts/（脚本原版／适配版／两份测试／工具／配置准确字节）
 ```
@@ -171,8 +171,7 @@ State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
   - 未运行项：4.5 生成／同步／RSS、4.6 扫描／完整决策、代理与播放、产品 race／故障重启。
     NOT RUN 不作为 PASS。
   - 未改产品行为，不触发 T4 门槛。
-- Head SHA：实现提交见下方后继文档提交记录；本轮实现改动为 `generate_media.py`、`test_generate_media.py`
-  与两份 tracked 快照及固定清单／dataset。
+- Head SHA：实现提交 `12a9c4f273efbdb9856a85b9a335528c32585d57`（修正 F-01／F-02／F-05、固定最终清单与 dataset、同步快照与事实文档）；本报告后继文档提交记录该 Implementation Head。
 
 ### 上一轮（F-02..F-04）完成报告（历史保留）
 
