@@ -14,9 +14,9 @@ INDEX.md SHA-256：`9b2787b0955f37d42c318ee451e697dad93cfdbb975440a181178fecf7ba
 
 | 相对原件 | 当前映射与可保留事实 | SHA-256 |
 |---|---|---|
-| `target/ro2_metadata.json` | RO-2／RO-3：201 项、分页 200+1；仅复用分页兼容，不证明 10000 | `07071632e6b50fb0e2d2a0239c51a0b6fafb9202cc070373c58c7ca229cc894d` |
-| `target/ro2_byte_equality.json` | RO-2／RO-4：5 类原始 STRM／稳定 URL 字节；只限旧样本 | `fc3fde175f112aacc41cf15b9a4908f25d83fa3c169107f00144e30084ad9755` |
-| `target/ro5_stable_sync.json` | RO-2／RO-3：旧 CLI 重复零重写；新数据集仍须测量 | `4b1991934adcd7a9cc36e3771c932d2743accb861df7571b546d540e8dfd0993` |
+| `target/ro2_metadata.json` | RO-3：201 项、分页 200+1；仅复用分页兼容，不证明 10000 | `07071632e6b50fb0e2d2a0239c51a0b6fafb9202cc070373c58c7ca229cc894d` |
+| `target/ro2_byte_equality.json` | RO-3／RO-4：5 类原始 STRM／稳定 URL 字节；只限旧样本 | `fc3fde175f112aacc41cf15b9a4908f25d83fa3c169107f00144e30084ad9755` |
+| `target/ro5_stable_sync.json` | RO-3：旧 CLI 重复零重写；新数据集仍须测量 | `4b1991934adcd7a9cc36e3771c932d2743accb861df7571b546d540e8dfd0993` |
 | `target/ro5_move_closure.json` | RO-3：旧移动、4 轮清理与恢复；只复用生成／清理部分 | `421fdfa8792f2ccb45764fad7afe1d70a5f54022b56379bf297fd2bf879456eb` |
 | `target/ro4_native_playback.json` | RO-4：只复用原生扫描、条目与插件读取记录；播放不参与新门槛 | `2317d24d43359a67de81608298bd16038b376bfb6bed163eff70bb7156fba02d` |
 | `target/ro3_decision_rows.json` | RO-5：5 个窗口内决定、0 次探测；仅保留已有复用观察，不能充当完整决策表 | `ef16cccb44759d94aa714bdadae1ca1af875d6f33a994aa766788c33c5b03755` |
@@ -32,3 +32,9 @@ SHA-1 实际验证缺口及旧 BLOCKED 记录均未改称 PASS。历史凭据事
 Slice 1–3 的通过结论与完整 T4 输入身份保留在各关闭检查点；当前工具治理只撤旧 Slice 4
 入口，不删除其产品测试、四个驱动或已有原始证据。后续执行与 RO 映射见
 [测试矩阵](test-matrix.md)、[Slice](../SLICE.md) 和 [Task](../TASK.md)。
+
+本轮完全重规划后 RO-1 为环境／媒体／工具复用，RO-2 为固定数据集，旧生成／同步记录
+映射 RO-3；RO-4／5 的扫描／决策含义保留。已有环境与原件不是待删除旧工具，按
+[资产清单](slice-4-assets.md) 保留复用。旧 4.2 工具实现和 111 项结果保留，但独立 B
+PENDING 未改变，由新 4.4 审查承接；旧 4.3 未执行候选撤回。旧历史任何未完成项均未
+重标 PASS，当前实现 Head 仍指向真实工具提交，不能把本次规划当新实现。

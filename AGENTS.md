@@ -4,7 +4,7 @@
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.4 方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。开发准备及 Slice 1–3 已完成并 PASS / CLOSED，Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。Slice 4 在原 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 内按 V4.4 重规划：固定复用 10000 个隔离 S3 文件、少量同步样本、原始 STRM 扫描和插件完整决策表。旧 Task 4.1 最后 FIX REQUIRED；其历史证据和未完成项不改称 PASS。测试工具治理实现已完成，Task 4.2 READY FOR B REVIEW；先交独立 B，通过后激活已规划的下一真实验收 Task 4.3，准确交接见 SLICE／TASK。当前合同无播放、代理、旧暂缓例外或更高规模压测门槛。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。Slice 1–3 已 PASS / CLOSED，Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。Slice 4 在原 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 内按用户本轮授权完全重规划：保留复用已有隔离环境、媒体原件及 generate_media.py／bootstrap.sh／teardown.sh，固定 10000 个 S3 文件，少量同步及原始扫描／完整插件决策。新顺序为 Task 4.4 资产复用与固定数据集 → 4.5 万文件生成／最少同步 → 4.6 原始扫描／完整决策。旧 4.1 最后 FIX REQUIRED；旧 4.2 实现与 B PENDING 保留、待审范围由 4.4 承接；旧 4.3 候选撤回，均不补签 PASS。当前实施仅以 SLICE／TASK 为准，无播放、代理、旧暂缓例外或更高规模压力门槛。用户会话授权优先于本文件。
 
 ## 固定业务边界
 

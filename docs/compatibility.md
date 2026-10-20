@@ -9,7 +9,7 @@
 https://openlist.example.invalid/d/Movies/Sample.mkv
 ```
 
-生成器输出约束：UTF-8 无 BOM、LF，version 固定1、标记不重复、一个稳定 HTTP(S) URL；SHA-1 为真实40位hex，Size为非负Int64，缺失省略；最多65,536字节。插件 reader 可以读取 BOM／CRLF，对无效可选哈希／Size 按不可用处理，但生成器不能依赖宽松解析输出无效值。
+协议要求 UTF-8，推荐无 BOM／LF，当前生成器按此序列化；version 固定1、标记不重复、一个稳定 HTTP(S) URL；SHA-1 为真实40位hex，Size为非负Int64，缺失省略；最多65,536字节。插件 reader 可以读取 BOM／CRLF，对无效可选哈希／Size 按不可用处理，但生成器不能依赖宽松解析输出无效值。
 
 插件决策先检查必要主流及原生 URL；首次历史为空时默认信任已有主流。URL 变化必探测；同 URL 两侧有效 SHA-1 相同忽略 Size，不同则探测；不可比才比较有效 Size；Modified 无作用。插件 `allowMediaProbe=false` 和成功后持久化指纹等规则不由生成器控制。
 
@@ -39,7 +39,12 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 明确标注的独立 STRM 副本；同哈希不同 Size 标注异常，异内容的真实哈希／Size／服务字节
 必须一致。生成器不下载媒体补算哈希；副本不冒充 CLI 同步结果。原始生成字节单独保留。
 
-比较前先建立历史指纹、必要主媒体流和匹配的原生地址；逐行恢复基准，用正确 item 的
+哈希／Size 比较和不探测行须有历史指纹、必要主媒体流和当前原生地址匹配；URL 变化行
+先建立匹配的旧基准，变更后可由 UrlChanged 或该变化导致的 NativeUrlMismatch 触发探测，
+不能用无关地址／主流缺失代替该行。逐行恢复基准，用正确 item 的
 当次日志窗口判定。首次信任或没有日志不足以证明比较通过。现有 Go 比较通过不能代替
 真实插件证据。复用原件／摘要／限制见 [复用账本](slice-4-evidence.md)，实施交接见
 [Slice](../SLICE.md)／[Task](../TASK.md)。
+
+既有隔离环境、媒体原件和三个辅助脚本按 [资产清单](slice-4-assets.md) 保留复用；
+最新任务顺序为 4.4 资产／建集、4.5 生成／同步、4.6 扫描／决策，旧 4.3 候选已撤回。

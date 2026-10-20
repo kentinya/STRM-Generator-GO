@@ -132,3 +132,9 @@ Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启，
 ARM64 原生实机、正式发布、Kubernetes／systemd 专属控制器、health／metrics、配置热
 重载和自动备份未验收且不属于当前合同。真实服务仅使用 artifacts 下的专用隔离实例，
 不得以交叉构建、环境 smoke 或合成夹具替代实际证据。
+
+
+Slice 4 已有隔离 S3/RustFS、OpenList、Jellyfin 和三个辅助脚本按
+[资产清单](slice-4-assets.md) 原地保留复用。新规划不要求重新部署环境或为验证而停止
+运行实例；按需恢复／停止使用已有脚本，禁止删持久数据。产品发布 Compose 与该隔离
+环境的 Compose 用途分开，不能混用生产或产品部署配置来接管隔离实例。

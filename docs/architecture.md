@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。固定万文件与插件完整决策尚未验收，工具治理已实现待独立 B，当前交接见 [TASK](../TASK.md)，下一验收候选见 [Task 4.3](../Task/4.3-validation-plan.md)。
+Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。固定万文件与插件完整决策尚未验收，当前交接见 [TASK](../TASK.md)。用户本轮要求完全重排为 4.4 资产复用／建集、4.5 生成／同步、4.6 原始扫描／完整决策；旧 4.2 待审范围转入 4.4，旧 4.3 候选撤回。
 
 `internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 
@@ -18,7 +18,9 @@ Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c750
 
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
-测试侧使用既有 CLI／S3 命令和 Jellyfin 原生检查。允许同批本地真实 SHA-1 与标注副本，不让生成器补算哈希；插件完整决策须实际取证。过时目标运行器由工具治理退出，当前工具清单见 [测试矩阵](test-matrix.md)。
+测试侧保留复用已完成的隔离环境、媒体原件、媒体生成／启动／停止脚本；详见
+[资产清单](slice-4-assets.md)。旧生成脚本仍为 201 占位写入，不能重跑覆盖现有媒体；
+按需先保留原版再最小适配，实例运行中不强制重建。测试侧使用既有 CLI／S3 命令和 Jellyfin 原生检查。允许同批本地真实 SHA-1 与标注副本，不让生成器补算哈希；插件完整决策须实际取证。过时目标运行器由工具治理退出，当前工具清单见 [测试矩阵](test-matrix.md)。
 
 ## TARGET
 

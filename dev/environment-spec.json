@@ -2,7 +2,7 @@
   "schema_version": 1,
   "plan": {
     "path": "STRM Generator Go.md",
-    "sha256": "f644e9e77087ec43d6de09c13d89300365824b60deafd82693745f2c10242130",
+    "sha256": "16ba27b6f5deaf609c020628daf791af28197f151e9e08807b6f09cc875e09bc",
     "version": "4.4"
   },
   "probe": {
@@ -145,7 +145,10 @@
     "scripts/run_container_integration.py",
     "tests/test_run_container_integration.py",
     "docs/slice-4-evidence.md",
-    "Task/4.3-validation-plan.md"
+    "Task/4.3-validation-plan.md",
+    "docs/slice-4-assets.md",
+    "Task/4.5-generation-sync-plan.md",
+    "Task/4.6-plugin-decisions-plan.md"
   ],
   "cc": {
     "version": "0.14.1",
