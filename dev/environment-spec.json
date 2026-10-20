@@ -146,7 +146,8 @@
     "tests/test_run_container_integration.py",
     "docs/slice-4-assets.md",
     "Task/4.5-generation-sync-plan.md",
-    "Task/4.6-plugin-decisions-plan.md"
+    "Task/4.6-plugin-decisions-plan.md",
+    "docs/task-4.4-implementation.md"
   ],
   "cc": {
     "version": "0.14.1",

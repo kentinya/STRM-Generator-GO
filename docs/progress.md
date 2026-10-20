@@ -7,6 +7,7 @@
 - 当前合同检查点 `77fc768790a1c1ba6f0700c0aab294d3237cf7e4`；4.4 资产复用／固定万文件数据集：PLANNED，实施 NOT RUN，独立 B PENDING。
 - 4.5 万文件生成／最少同步：候选未激活，实施 NOT RUN。
 - 4.6 最少原始扫描／完整决策：候选未激活，实施 NOT RUN。
+- 已补充 [4.4 开发实施指南](task-4.4-implementation.md)，细化脚本／清单／上传／核对／直接测试与交付；本次只写指南，Task 仍 PLANNED。
 - 当前输入资产：已有隔离环境、media/ 201 个文件、media-src/ 1 份源媒体、生成／启动／停止脚本、固定插件源码／包，以及 Slice 1–3 产品与适用验证工具。
 - 本次仅协调合同与计划，未操作环境／媒体／脚本，未执行真实验收。当前任务与候选见 [TASK](../TASK.md)／[4.5](../Task/4.5-generation-sync-plan.md)／[4.6](../Task/4.6-plugin-decisions-plan.md)。
 
