@@ -46,9 +46,27 @@ OpenList／发布 CLI 生成 10000 个 STRM，记录测量并验证最少样本�
 - cmd／internal、go.mod/go.sum、四个集成驱动相对 Slice3 接受 Head 未变；治理与部分
   Python 测试已变，须匹配具体输入，不能笼统复用整个 Slice3。cc 路径存在，GNU time 缺失。
 - 只用当前进程安全注入的专用凭据或本 Task 明确授权渠道。Task4.4 的容器 Env／官方
-  账户恢复授权不自动扩大为4.5／4.6；缺认证或授权则停止外部动作并记录 BLOCKED，
+  账户恢复授权不自动扩大为4.5／4.6；4.5现有独立新授权见下节。实际凭据或鉴权
+  不可用则停止相关外部动作并记录 BLOCKED，
   不从旧配置／证据／日志恢复秘密，不擅自恢复账户。4.5 不需要 Jellyfin 认证；
   4.4 临时 Key 已撤销，新密码不留存，不承诺4.6已有可复用认证。
+
+## 2026-10-20 用户明确授权 Developer 续修
+
+用户在独立B审查后明确给开发者授权，适用于**同一Task 4.5**：
+
+- 先核对既有专用隔离 Compose project `strmgen-slice4-s3`、RustFS服务、锁定镜像及
+  挂载身份，再从该 RustFS/S3 容器 Env **选择性读取必要凭据**，仅在内存／子进程环境使用。
+- 可按AC-3／4／5，对固定10000对象中的最少已确认自有样本作必要S3新增／内容替换／
+  移动或重命名／删除／恢复；保留原始内容与路径，逐场景确认恢复，复用原输出／DB／
+  source identity，经发布CLI验证更新、清理、再出现与dry-run。
+- 不打印／保存完整Env或秘密，不写秘密到配置、日志、证据或Git，不从历史文件恢复
+  秘密；不碰生产／其他项目容器、未知对象或bucket，不重建数据集，不改其他样本。
+- 不授权Jellyfin账户恢复、服务配置／生命周期变更或4.6。本轮由B登记授权，
+  **尚未读取凭据、验证鉴权或操作远端**；此前报告中的无授权阻塞为当时事实。
+- 授权前置已解除，实际可用性仍须Developer核验。状态仍FIX REQUIRED；取得凭据
+  或完成场景不自动获得PASS。Developer完成受影响验证后交B；指定全量、精确复用
+  和独立关键复现仍由B负责。原Base／实施Head／合同检查点与RO／AC不变。
 
 ## 验收条件
 
@@ -210,12 +228,13 @@ Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d
 Document Successor: 9e37f4a6ecf9925e6e05a9acfbddd419867d960c
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: CONTINUE SAME TASK 4.5; UNBLOCK AUTHORIZED REMOTE WRITE; B RETAINS FINAL GATES
+Next: DEVELOPER CONTINUES TASK 4.5 WITH EXPLICIT ENV AUTHORIZATION; B RETAINS FINAL GATES
 ```
 
 独立结论与逐项门禁见 [Task 4.5 B审查](docs/task-4.5-b-review.md)。B完成quality、
 完整非缓存Go／race、双架构／testhooks构建、11项同步／6项serve集成、15项辅助测试及
 10000产物／保留状态独立核对，不交回Developer全量。AC-3／4／5真实样本变更／清理／
 恢复及B真实关键复现仍BLOCKED；AC-6剩余固定真实Get／部署证据完整匹配或补跑由B
-保留，不能签完整T4 PASS。不继承4.4容器Env授权；解除需要4.5明确授权或安全注入
-专用写凭据。原Base／实施Head不变，4.6未激活，Slice ACTIVE，Closure Packet PENDING。
+保留，不能签完整T4 PASS。后续用户已明确授予Developer本Task独立容器Env取用权限，
+见授权专节；仅解除授权前置，实际凭据／鉴权及闭环仍未验证，不改称PASS。
+原Base／实施Head不变，4.6未激活，Slice ACTIVE，Closure Packet PENDING。

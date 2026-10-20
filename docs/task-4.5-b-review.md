@@ -110,3 +110,13 @@ tracked摘要、工作区diff及buildinfo已保存。不同产物SHA不称为相
 它们未完成所声称动作，不作产品FAIL或测试PASS。
 
 **返回FIX REQUIRED，继续Task 4.5。Slice ACTIVE，A Final Review／Closure Packet PENDING。**
+
+## 审查后用户明确授权（2026-10-20）
+
+用户随后明确给开发者授权。**Developer**可按根[TASK授权专节](../TASK.md#2026-10-20-用户明确授权-developer-续修)，
+核对专用隔离project／RustFS服务／锁定镜像／挂载身份后，从该RustFS/S3容器Env选择性
+内存取用必要凭据，完成同Task AC-3／4／5最少自有样本的S3变更与逐场景恢复。
+这解除F-45-01的“尚无授权”前置；本次仅登记授权，未读取凭据、验证鉴权或操作远端，
+不关闭F-45-01、不改写上述历史观察，也不授予4.6、生产操作或账户恢复权限。
+Task仍FIX REQUIRED；Developer交付后B继续完整范围审查、指定全量及独立关键复现，
+F-45-02与其余门槛不变，不将B职责交回Developer。

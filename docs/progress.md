@@ -15,6 +15,8 @@
 
 ## 2026-10-20 Task 4.5 独立B审查
 
+- 审查后用户明确给Developer授权：核对既有专用project／RustFS服务／锁定镜像／挂载后，可从该RustFS/S3容器Env选择性内存取用必要凭据，完成同Task最少自有样本S3变更／恢复；完整边界见根TASK。只解除授权前置，本次未读凭据或操作远端，Task仍FIX REQUIRED，B门禁不变。
+
 - 审查完整`5182443d..9cdfde2e`及文档后继`9e37f4a6`，结论**FIX REQUIRED**，见[审查](task-4.5-b-review.md)。
 - B执行quality、Go全量／race、双架构／testhooks构建、11项同步／6项serve集成、15项辅助测试；独立核对固定10000产物及保留状态。
 - AC-3／4／5真实样本闭环与B真实复现仍BLOCKED；AC-6剩余全量证据匹配或补跑由B保留，不交回Developer。
