@@ -6,7 +6,7 @@ Status: READY FOR B REVIEW
 Task Base: 5182443d0c34215deb7bb1e74a413564aa8e6422
 Prior Implementation Head: 9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
 Implementation Head: 9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa (unchanged; no product/tool change this round)
-Document Successor: 391040a2b845dd2ea8ec8831170b1299d231d27d (handoff commits)
+Document Successor chain: 19b2ab1 → 6f54c5c → 391040a → 9d71c1c (handoff commits; any later pointer-text fix does not change this chain)
 B Decision: PENDING
 ```
 
