@@ -1,8 +1,12 @@
 # STRM Generator Go
 
-OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。开发依据为原样保留的 [V4.3 方案](<STRM Generator Go.md>)。
+OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。当前依据为 [V4.4 方案](<STRM Generator Go.md>)。
 
-**Slice 1「安全的单轮生成闭环」、Slice 2「安全目录镜像与清理恢复」与 Slice 3「定时与部署」均已 PASS / CLOSED。** Slice 3 的 Base 为 `ca9f91e10a0fc6c28679b5827f453e632eb9854a`，A 已审查完整范围至 Implementation Head `410fc0e0a8964046de4707d58c0c7505385c6002`；Task 3.1／3.2 均有独立 B PASS。用户保留环境 token 注入与 `read_only`，Compose 脱敏使用 `config --no-interpolate`。Slice 4「隔离真实服务端到端兼容验收」已 ACTIVE，Base 为 `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`；按用户授权，当前范围为目标 OpenList、由配套插件远程仓库锁定 SHA 构建的插件包，以及 Jellyfin 原生扫描／播放，不验证代理。当前 Task 4.1 为 FIX REQUIRED；已有目标 S3/RustFS／原始 STRM／原生播放证据，独立 B 门禁未完成。最简方案复用匹配证据，只补关键独立复现与真实 SHA-1 两行；URL-change、hash 不可比 Size-change、移动首播按用户授权暂缓，不计 PASS。详见 [当前 Task](TASK.md)。ARM64 实机与规模测量保留给计划 Slice 5。分层证据见 [当前合同](SLICE.md)。
+**Slice 1–3 已 PASS / CLOSED。** Slice 3 完整 A 审查至 `410fc0e0a8964046de4707d58c0c7505385c6002`。
+Slice 4 ACTIVE，在原 Base 内重规划：固定复用 10000 个 S3 文件生成 STRM、少量样本同步、
+Jellyfin 扫描原始产物及配套插件完整探测／复用决策。已有 201 项等历史链路证据，
+尚无万文件和完整决策实际验收。先治理工具，再推进真实验收，详见 [当前 Task](TASK.md)。
+本次不验证客户端播放、代理或更高规模压力，历史失败／未运行结果保留。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
 
@@ -33,7 +37,7 @@ export OPENLIST_TOKEN=...   # 来自 openlist.token_env 指定变量
 ./artifacts/slice-1/bin/strmgen-amd64 serve --config config.yaml
 ```
 
-成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60；`serve` 要求正整数且不溢出，`sync`／`sync --dry-run` 接受零）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)；真实服务兼容、播放、性能与 ARM64 实机尚未验收。
+成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60；`serve` 要求正整数且不溢出，`sync`／`sync --dry-run` 接受零）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)；V4.4 真实服务／万文件／插件完整决策及 ARM64 实机尚未整体验收。
 
 隔离 CLI 验收（自建动态端口假服务；故障二进制仅供测试）：
 
@@ -76,7 +80,7 @@ python3 scripts/run_container_integration.py --image strmgen:local \
 python3 scripts/mock_openlist.py
 ```
 
-仅监听 `127.0.0.1:15244`，公开假 token 为 `strmgen-fixture-only`，夹具查询方法与可选 Compose 见环境文档。目标配置见 [config.example.yaml](config.example.yaml)，其中 `serve` 与 `sync.interval_minutes` 由当前 Slice 3 实现。真实服务兼容、媒体播放及性能验收均未运行。
+仅监听 `127.0.0.1:15244`，公开假 token 为 `strmgen-fixture-only`，夹具查询方法与可选 Compose 见环境文档。目标配置见 [config.example.yaml](config.example.yaml)，其中 `serve` 与 `sync.interval_minutes` 已由 Slice 3 实现。V4.4 万文件与插件完整决策仍待验收。
 
 ## 安全操作与恢复
 

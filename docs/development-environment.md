@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1、Slice 2 与 Slice 3 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2／3.1／3.2 均有独立 B PASS，A 已完成 Slice 3 最终审查。环境 smoke 不代表真实外部兼容、播放、规模或 ARM64 实机通过。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1、Slice 2 与 Slice 3 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2／3.1／3.2 均有独立 B PASS，A 已完成 Slice 3 最终审查。当前 Slice 4 按 V4.4 验证固定万文件、少量同步与原始扫描／插件决策；环境 smoke 不代表这些产品结果或 ARM64 实机通过。
 
 ## 安装与检查
 
@@ -99,7 +99,7 @@ Slice 1 已 PASS / CLOSED，最终门槛及原始证据索引保留于 `93078203
 
 Slice 2 的 T4 与缺失确认真实 OpenList 实证见其关闭检查点；Slice 3 的调度隔离验收命令与夹具由 Task 3.1 落地，部署镜像、Compose 挂载与容器生命周期由 Task 3.2 落地，两个 Task 均经独立 B PASS，A 已完成最终审查并关闭 Slice。只新建隔离服务并使用 artifacts 下专用媒体／输出／状态，不接管生产 OpenList 或 Jellyfin；交叉构建不替代 ARM64 实机运行。
 
-验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、当前源码插件解析、Jellyfin 原生扫描或播放通过。Slice 4 不验证代理。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
+验证证据在本机 `artifacts/validation-evidence/`，可能被 Git 忽略且不可远程读取；索引应记录源码／二进制哈希、命令／cwd、依赖和夹具身份、计数、退出码、首次失败及重跑。合成夹具不代表真实 OpenList、固定源码插件解析、Jellyfin 原生扫描／决策或万文件通过。Slice 4 不验证客户端播放或代理。测试输出、交叉编译和环境 smoke 均不得替代这些独立证据。
 
 本仓库原先无 Git；用户提供身份后只在本仓库配置 Git 身份，开发准备文件已提交在本地 main。未配置远程、未推送。当前 Slice／Task 生命周期与审查结论以 [SLICE.md](../SLICE.md) 和 [TASK.md](../TASK.md) 为准；旧验证和审查内容保留为历史记录，不覆盖新候选证据。
 
@@ -169,5 +169,13 @@ TTL 自然到期后仍不能被读取。运行器准备、轮询与取证请求�
 场景同时保留“根可读 → 缺失观察”和“根不可读 → 保留”两种真实结果。`nested_mount_masking`
 与 `hidden_entries` 记录的是用户明确接受的局限，不写成已安全辨别或已修复。
 
-Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。`/d/` 播放、固定插件解析、
-Jellyfin 原生扫描／播放、ARM64 实机与规模仍为 NOT RUN；代理不属于 Slice 4 验收。
+Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。旧 Task 4.1 已有目标 `/d/` 字节、插件读取和扫描的 Developer 原件，最后 FIX REQUIRED；按 [复用账本](slice-4-evidence.md) 保留。当前万文件与完整决策未验收；ARM64 实机／正式发布仍 NOT RUN。
+
+
+## Slice 4 工具治理与下一验收
+
+工具清单以 [测试矩阵](test-matrix.md) 为准。Task 4.2 将撤下旧目标运行器及其专属 Python 测试，
+四个 Slice 1–3 驱动、16 个 Go 测试文件及 testhooks 保留；旧 artifacts 不清理。
+下一真实验收用发布 CLI、既有 S3 工具和 Jellyfin 原生扫描／计划任务逐项记录，
+不建播放运行器、元数据服务或自动补偿框架。固定 10000 文件须一次准备、保留本地原件
+与清单，所有重跑复用，少量样本变更后核对恢复。独立 B 审查前不执行下一真实验收。

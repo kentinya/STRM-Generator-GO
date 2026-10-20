@@ -2,11 +2,12 @@
   "schema_version": 1,
   "plan": {
     "path": "STRM Generator Go.md",
-    "sha256": "7ce4e0e4a3cbf10bd626e10c4a3081c489da99260c4e43305e0691409232cdbb"
+    "sha256": "f644e9e77087ec43d6de09c13d89300365824b60deafd82693745f2c10242130",
+    "version": "4.4"
   },
   "probe": {
     "repository": "https://github.com/kentinya/jellyfin-strm-probe.git",
-    "reference_sha": "1bdb79082c4945e126611f217200555d53c31367"
+    "reference_sha": "2afc6517fda5a7b4170ebea625619a552c47dabc"
   },
   "openlist": {
     "repository": "https://github.com/OpenListTeam/OpenList.git",
@@ -144,7 +145,8 @@
     "scripts/run_container_integration.py",
     "tests/test_run_container_integration.py",
     "scripts/run_isolated_target_integration.py",
-    "tests/test_run_isolated_target_integration.py"
+    "tests/test_run_isolated_target_integration.py",
+    "docs/slice-4-evidence.md"
   ],
   "cc": {
     "version": "0.14.1",

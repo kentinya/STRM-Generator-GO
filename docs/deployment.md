@@ -3,8 +3,9 @@
 本文件说明 STRM Generator 的 Linux amd64／arm64 产品镜像与 Compose 运行方式，区分
 **一次性**与**常驻**运行、状态与恢复边界。命令与路径以仓库根目录为基准。当前
 证据层：本机 amd64 容器实测通过；arm64 只验证 OCI manifest／digest 与二进制
-ELF 架构，**ARM64 实机运行、真实 OpenList、插件解析、Jellyfin／代理、播放、规模与
-正式发布均 NOT RUN**。
+ELF 架构，ARM64 实机与正式发布仍 NOT RUN。Slice 1–3 PASS / CLOSED，当前 Slice 4
+验证固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件决策；旧真实链路原件及限制
+见 [复用账本](slice-4-evidence.md)，不能用容器 smoke 代替该验收。
 
 ## 构建
 
@@ -123,14 +124,11 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
 
 ## 边界与 NOT RUN
 
-本 Slice 只验证镜像构建、最小隔离运行、挂载与停止／重启行为，不宣称生产兼容或
-发布到 registry。以下仍为 NOT RUN，需独立证据：
+Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启，不表示已发布到 registry。
+当前 Slice 4 的外部服务／固定万文件证据依 [合同](../SLICE.md) 单列，仍待完成；Compose
+的 `mem_limit: 512m` 是部署配置，不是 512 MB 性能验收门槛。客户端播放、代理及更高
+规模压力已退出当前 V4.4 验收。
 
-- ARM64 实机运行（仅有交叉构建与 OCI manifest／ELF 证据）
-- 真实 OpenList 驱动／鉴权、无签名 `/d/` 播放、固定插件实际解析
-- Jellyfin／代理联调、真实媒体播放
-- 十万／百万规模与性能
-- Kubernetes／systemd 专属控制器、health／metrics、配置热重载、自动备份、正式发布
-
-真实外部服务、播放和发布证据必须在专用隔离实例中取得，并分层记录，不得用交叉
-构建、环境 smoke 或合成夹具替代。
+ARM64 原生实机、正式发布、Kubernetes／systemd 专属控制器、health／metrics、配置热
+重载和自动备份未验收且不属于当前合同。真实服务仅使用 artifacts 下的专用隔离实例，
+不得以交叉构建、环境 smoke 或合成夹具替代实际证据。

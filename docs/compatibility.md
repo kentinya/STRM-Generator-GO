@@ -1,6 +1,6 @@
 # 协议与兼容性
 
-协议／决策规则的固定对照来源为配套插件提交 `1bdb79082c4945e126611f217200555d53c31367`，不是 Slice 4 实际部署包身份，也不是插件发布版本承诺。Slice 4 按合同从配套插件远程仓库获取锁定 SHA 的源码副本并构建插件包，记录远程 URL／分支／SHA、构建命令及产物 SHA-256。源码依据见 [references](references.md)。
+当前 V4.4 协议／决策对照与 Slice 4 部署源码固定为配套插件提交 `2afc6517fda5a7b4170ebea625619a552c47dabc`；旧 `1bdb790…` 仅保留历史来源。已有构建包身份须与安装／实际加载文件核对，不自动追随远程 HEAD。源码与包摘要见 [references](references.md)。
 
 ```text
 # strm-probe-version:1
@@ -19,25 +19,27 @@ OpenList API 形状固定参考提交 `3b28270a4066ea52943a69ecddd850d83f7e8bdc`
 
 | 验证层 | 当前结论 |
 |---|---|
-| 解析器／决策源码人工对照 | 已完成源码核对 |
-| Python list/get 合成夹具 | 可用于开发工具验证，不是 OpenList 兼容证据 |
-| 生成器实际输出被远程仓库锁定 SHA 构建的插件包解析 | Task 4.1 已有原始 STRM 解析／稳定重用证据，B 最终审查未完成 |
-| 真实 OpenList 驱动／鉴权／无签名 `/d/` | Task 4.1 已有目标 S3/RustFS 分页／稳定无签名字节证据，B 独立复现 NOT RUN |
-| Jellyfin 原生库扫描／客户端播放／插件检查 | Developer 证据播放 5/5；B 独立真实复现 NOT RUN |
-| JellyfinProxy 等外部代理链 | 不在 Slice 4 范围；未验证 |
-| ARM64 产品实机／压力与发布 | NOT RUN |
+| 协议／决策源码对照与本地 Go 回归 | 已有验证，保留 Slice 1–3 结论 |
+| Python list/get 合成夹具 | 工具／装配证据，不是实际 OpenList 兼容 |
+| 真实 OpenList 源根／Get／缓存 | Task 2.1 已独立 B PASS；不等于全链路验收 |
+| S3/RustFS／原始 STRM／插件读取 | Task 4.1 有 201 项分页、5 类字节与稳定复用 Developer 原件；最后 FIX REQUIRED |
+| Jellyfin 原始产物扫描 | 旧 Developer 记录保留；新固定数据集最少扫描与独立 B 复现待验 |
+| 插件完整比较表 | 当前 D-01..08 实际证据未齐，无旧暂缓例外 |
+| 10000 个 STRM／实际耗时和 RSS | NOT RUN |
+| ARM64 产品实机／正式发布 | NOT RUN；不在当前合同 |
 
-## 当前最简验收边界（2026-10-19）
+## V4.4 验收边界
 
-沿用插件源码 2afc6517fda5a7b4170ebea625619a552c47dabc、归档 SHA-256
-382d3ef106ed8534b06ab5bff614d826e602a29703dadddbe3ef2e9864bd06d8，
-不重新取远程 HEAD。既有原始链路证据见 artifacts/validation-evidence/task-4.1-fix2-20261019-215918/INDEX.md。
+固定复用同批 10000 个隔离 S3 文件，以最少原始 STRM 验证原生扫描与插件读取；只核对
+探测／复用决定。URL 改变、同哈希／异哈希、Size 不可比各行均须按
+[测试矩阵](test-matrix.md) 实际观察；探测启动即可，复用需明确原因。
+旧播放和旧暂缓记录不再作为当前门槛；没有客户端播放、代理或探测结果成功要求。
 
-目标 get 未提供有效 SHA-1。用户授权仅测试侧从自有本地合成媒体计算真实 SHA-1，
-以明确标注的独立 STRM 副本观察同哈希／Size 异常复用及异哈希探测；这不证明 OpenList
-原生 hash，也不改变生成器职责。现有 Go 比较证据已通过，实际插件两行仍 NOT RUN。
-不同内容必须与同一稳定 URL 实际服务字节相符，探测启动不等于结果接受／播放成功。
+目标 get 未提供有效 SHA-1。测试侧可从同批保留的自有本地媒体计算真实 SHA-1，使用
+明确标注的独立 STRM 副本；同哈希不同 Size 标注异常，异内容的真实哈希／Size／服务字节
+必须一致。生成器不下载媒体补算哈希；副本不冒充 CLI 同步结果。原始生成字节单独保留。
 
-URL-change、hash 不可比 Size-change、移动路径首次播放保留原始 BLOCKED，按用户决定
-暂缓且非本轮阻断，不重跑、不计 PASS。其余必验不豁免；具体门槛以 [Slice](../SLICE.md)
-及 [Task](../TASK.md) 为准。此文档更新不签发 B／A 通过结论。
+比较前先建立历史指纹、必要主媒体流和匹配的原生地址；逐行恢复基准，用正确 item 的
+当次日志窗口判定。首次信任或没有日志不足以证明比较通过。现有 Go 比较通过不能代替
+真实插件证据。复用原件／摘要／限制见 [复用账本](slice-4-evidence.md)，实施交接见
+[Slice](../SLICE.md)／[Task](../TASK.md)。
