@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.2
 Parent Slice: 4
-Status: IN PROGRESS
+Status: READY FOR B REVIEW
 Task Base: 66e93bf5b09197be103c04605a7adff06000fdab
 Contract Checkpoint: 66e93bf5b09197be103c04605a7adff06000fdab
 Difficulty: Medium
@@ -75,10 +75,25 @@ artifacts 和已通过 Slice 的范围均不改。不新建通用集成框架，
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：PENDING
-- Tests and Results / Evidence：PENDING
-- Decisions / Risks / Remaining Required Outcomes：固定数据集与真实决策待下一 Task；B／A PENDING。
-- Head SHA：NOT SET
+- Changed Files / Implemented：删除旧目标运行器及 58 项专属工具测试；保留四个 Slice 1–3
+  驱动与全部 Go 回归。更新 required_files，治理校验方案版本／标题／摘要，doctor 使用当前
+  版本标识，补 3 项版本漂移／缺失／协调升级回归。同步工具清单与当前状态，下一真实验收
+  候选为 [Task 4.3](Task/4.3-validation-plan.md)，未激活。
+- Tests and Results：治理前 Python 166/166；最终 quality 中 Python 111/111、AST／Bash／
+  空白／gofmt／vet／Go test／build 均 PASS（Go 九包为缓存结果）。doctor、四个保留驱动
+  --help 均退出 0。质量聚合用时 7.496 秒，治理前测试 2.984 秒。
+  58 份保留可执行输入字节相同，V4.4 原文摘要相同，六份历史 JSON 摘要仍匹配。
+- Evidence：`artifacts/validation-evidence/task-4.2-governance-20261020/INDEX.md`，含完整
+  命令／cwd、原始日志、退出码／计数／耗时、可执行输入逐文件摘要、历史原件复核。
+  首次治理失败因未提交新合同，合同提交后通过；初始工作区状态／摘要完整保存。
+- Decisions / Risks / Remaining Required Outcomes：AC-1..5 实施完成，独立 B 仍 PENDING；
+  RO-6 的工具部分已完成，RO-1..5 的新固定数据／实际决策和 B／A 审查尚缺。未运行真实
+  服务、万文件、race／新 T4 或旧播放；无产品源码／四个驱动改变。历史凭据事件仍开放，
+  不宣称轮换／删除或风险接受。旧 Task 4.1 仍为历史 FIX REQUIRED。
+- Head SHA：8109811b46575576f1b87530d65aea298bf2d576
+
+下一步：独立 B 审查完整 Task Base..上述 Head 及后继文档；通过后才将 4.3 候选填入真实
+Task Base 并提交为根活动计划。当前不执行真实验收，不因本轮实施完成签发 B／A PASS。
 
 ## B Review Result
 
@@ -86,5 +101,5 @@ artifacts 和已通过 Slice 的范围均不改。不新建通用集成框架，
 Reviewed: NOT SET
 Decision: PENDING
 Slice Required Outcomes all satisfied: NO
-Next: INDEPENDENT B REVIEW AFTER IMPLEMENTATION
+Next: INDEPENDENT B REVIEW OF TASK 4.2; THEN ACTIVATE TASK 4.3
 ```

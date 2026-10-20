@@ -5,7 +5,8 @@ OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](ht
 **Slice 1–3 已 PASS / CLOSED。** Slice 3 完整 A 审查至 `410fc0e0a8964046de4707d58c0c7505385c6002`。
 Slice 4 ACTIVE，在原 Base 内重规划：固定复用 10000 个 S3 文件生成 STRM、少量样本同步、
 Jellyfin 扫描原始产物及配套插件完整探测／复用决策。已有 201 项等历史链路证据，
-尚无万文件和完整决策实际验收。先治理工具，再推进真实验收，详见 [当前 Task](TASK.md)。
+尚无万文件和完整决策实际验收。工具治理已实现，待独立 B 审查，详见 [当前 Task](TASK.md)；
+[下一 Task 4.3 候选](Task/4.3-validation-plan.md) 待治理审查通过后激活。
 本次不验证客户端播放、代理或更高规模压力，历史失败／未运行结果保留。
 
 从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。

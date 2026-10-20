@@ -4,7 +4,10 @@
 
 - 需求基线：V4.4；Slice 4 ACTIVE，Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 不变。
 - 用户授权重新规划 Slice 4，并治理工具、同步文档及规划下一 Task。
-- 先提交合同／需求协调，再规划和实施 Task 4.2 工具治理；治理结果及下一 Task 后续补记。
+- 合同／需求协调已提交 `66e93bf5b09197be103c04605a7adff06000fdab`，Task 4.2 计划已独立成检查点。
+- 工具治理实现 Head `8109811b46575576f1b87530d65aea298bf2d576`；当前 Task 4.2 READY FOR B REVIEW，独立 B PENDING。
+- 撤下旧目标运行器／58 项专属测试，新增 3 项版本身份回归；Python 166→111，最终 quality、doctor、四个保留入口 --help 均通过。产品／16 个 Go 测试／四个驱动字节未变。
+- [Task 4.3 候选](../Task/4.3-validation-plan.md) 已规划固定万文件、最少同步／原始扫描及 D-01..08 决策；待 4.2 B PASS 后填写真实 Base 并激活。
 - 固定 10000 文件数据集及 V4.4 全部插件决策实际证据 NOT RUN，B／A 审查 PENDING。
 
 ## 已交付及历史证据
@@ -21,3 +24,7 @@
 
 旧进度流水、工具治理记录、首次失败与重跑保留在 `f0767f0:docs/progress.md` 及既有 artifacts。
 重规划没有新增产品或真实服务 PASS；匹配原件可有限复用，不能把旧 201 项计为万文件证据。
+
+本轮证据：`artifacts/validation-evidence/task-4.2-governance-20261020/INDEX.md`（本机）；
+初次治理因合同未提交失败，提交后通过。最终质量的 Go 九包使用既有缓存；未新增真实
+服务／产品 T4 PASS。历史可复用原件摘要与限制见 [复用账本](slice-4-evidence.md)。

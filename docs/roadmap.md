@@ -12,7 +12,8 @@ Slice 4 在原 Base 内重规划，未验收、未关闭。当前工作与交接
 
 Slice 4 Base：`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，不随重规划移动。
 旧 Task 4.1 最后 FIX REQUIRED，已有 201 项及扫描等证据按输入匹配有限复用，不补签 PASS。
-Task 4.2 先治理工具并交独立 B；治理后规划 Task 4.3 验收固定数据集和最小实际链路。
+Task 4.2 工具治理实现完成，READY FOR B REVIEW，独立 B PENDING；
+[Task 4.3 候选计划](../Task/4.3-validation-plan.md) 已形成，待 4.2 B PASS 后正式激活，验收固定数据集和最小实际链路。
 无客户端播放、代理、旧暂缓例外或更高规模压测门槛。ARM64 实机及正式发布另由 A 选择，未自动激活后续 Slice。
 
 历史关闭记录：Slice 1 见 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；
