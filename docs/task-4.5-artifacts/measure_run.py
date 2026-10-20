@@ -37,6 +37,8 @@ def main(argv=None) -> int:
     started = time.monotonic()
     proc = subprocess.Popen(command, env=os.environ.copy())
     pid, status, usage = os.wait4(proc.pid, 0)
+    # wait4 already reaped the child; Popen must not poll it again or warn.
+    proc.returncode = os.waitstatus_to_exitcode(status)
     elapsed = time.monotonic() - started
     if os.WIFEXITED(status):
         exit_code = os.WEXITSTATUS(status)
