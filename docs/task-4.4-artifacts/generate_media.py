@@ -23,6 +23,13 @@ NEW_PATH_TEMPLATE = "bulk/{index:06d}.mkv"
 DEFAULT_MEDIA_DIR = Path(__file__).resolve().parent / "media"
 MANIFEST_FIELDS = ("path", "size", "sha256", "sha1", "content_id", "origin")
 CHUNK = 1 << 20
+# Mirrors internal/pathmap MediaExtensions: the local STRM target replaces the
+# media extension with ".strm" (case-insensitive). Used only to reject two
+# source paths that would map onto the same output target.
+MEDIA_EXTENSIONS = {
+    ".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm",
+    ".ts", ".m2ts", ".mpg", ".mpeg",
+}
 
 
 class ToolError(Exception):
@@ -130,6 +137,38 @@ def load_source(path, label):
     return path
 
 
+def _strm_target(rel):
+    """Return the local STRM target for a media path, or None if not media.
+
+    Mirrors internal/pathmap: the media extension is replaced by ".strm" while
+    the directory prefix and case-preserved stem are kept.
+    """
+    pure = _safe_rel(rel)
+    name = pure.name
+    dot = name.rfind(".")
+    ext = name[dot:].lower() if dot >= 0 else ""
+    if ext not in MEDIA_EXTENSIONS:
+        return None
+    target = name[: len(name) - len(ext)] + ".strm"
+    parent = pure.parent.as_posix()
+    return target if parent == "." else f"{parent}/{target}"
+
+
+def _assert_unique_targets(records):
+    """Reject two source paths that would map onto the same STRM target."""
+    seen = {}
+    for record in records:
+        target = _strm_target(record["path"])
+        if target is None:
+            continue
+        if target in seen:
+            raise ToolError(
+                "conflict",
+                f"same STRM target {target}: {seen[target]} and {record['path']}",
+            )
+        seen[target] = record["path"]
+
+
 def _content_of(ident, identity):
     if ident["sha256"] == identity["A"]["sha256"]:
         return "A"
@@ -180,6 +219,7 @@ def build_plan(media_dir, count, source, alternate):
             "origin": "added",
         })
     records.sort(key=lambda record: record["path"])
+    _assert_unique_targets(records)
     return records, sources
 
 
@@ -203,6 +243,7 @@ def load_manifest(path):
             raise ToolError("manifest", f"duplicate path: {record['path']}")
         seen.add(record["path"])
         records.append(record)
+    _assert_unique_targets(records)
     return records
 
 
@@ -213,8 +254,30 @@ def write_manifest(path, records):
         for record in records
     )
     tmp = path.with_name(TEMP_PREFIX + path.name)
-    tmp.write_text(body, encoding="utf-8")
-    os.replace(tmp, path)
+    created = False
+    try:
+        try:
+            handle = open(tmp, "xb")
+        except FileExistsError:
+            # A pre-existing temp object was not created by this run; keep it.
+            raise ToolError("conflict", f"manifest temp file already exists: {tmp.name}")
+        created = True
+        try:
+            handle.write(body.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        finally:
+            handle.close()
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            raise ToolError("conflict", f"manifest already exists: {path.name}")
+    finally:
+        if created:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _verify_target(media_dir, path, record):
@@ -233,15 +296,29 @@ def _publish(source, target, media_dir, rel):
     _assert_owned_path(media_dir, rel)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.parent / (TEMP_PREFIX + str(os.getpid()) + "-" + target.name)
+    created = False
     try:
-        with open(source, "rb") as reader, open(tmp, "wb") as writer:
-            shutil.copyfileobj(reader, writer)
-            writer.flush()
-            os.fsync(writer.fileno())
+        try:
+            writer = open(tmp, "xb")
+        except FileExistsError:
+            # Only clean up a temp object this run created; an existing name is
+            # an unowned conflict to preserve.
+            raise ToolError("conflict", f"temporary file already exists: {rel}")
+        created = True
+        try:
+            with open(source, "rb") as reader:
+                shutil.copyfileobj(reader, writer)
+                writer.flush()
+                os.fsync(writer.fileno())
+        finally:
+            writer.close()
         os.link(tmp, target)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        if created:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _reconcile_present(media_dir, records):

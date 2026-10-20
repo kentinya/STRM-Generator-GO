@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。4.4 已适配本地建集工具与只读 OpenList probe，形成 10000 本地候选；远端 S3 固定因专用凭据缺失仍 BLOCKED，固定万文件与插件完整决策尚未验收，当前交接见 [TASK](../TASK.md)。用户本轮要求完全重排为 4.4 资产复用／建集、4.5 生成／同步、4.6 原始扫描／完整决策；4.5／4.6 尚未实施；旧任务不作为审查依赖或当前验收完成依据。
+Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。4.4 已适配本地建集工具与只读 OpenList probe；经用户授权从已核对的专用隔离容器内存取用凭据后，真实 S3 对象补足至 10000、最终清单／dataset_id 已固定，真实 OpenList 递归分页与样本匹配，现为 READY FOR B REVIEW；插件完整决策尚未验收，当前交接见 [TASK](../TASK.md)。用户本轮要求完全重排为 4.4 资产复用／建集、4.5 生成／同步、4.6 原始扫描／完整决策；4.5／4.6 尚未实施；旧任务不作为审查依赖或当前验收完成依据。
 
 `internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 

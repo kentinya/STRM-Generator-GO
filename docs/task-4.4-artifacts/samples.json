@@ -1,0 +1,20 @@
+{
+  "note": "Recovery inputs for Task 4.5/4.6. All paths are relative to the owned media root.",
+  "media_root": "artifacts/task-4.1/isolated-s3/media",
+  "input_originals": {
+    "A": {"path": "artifacts/task-4.4/inputs/A.mkv", "size": 24404,
+          "sha256": "7f53d1542382ea9035ca3059315b2ec0d2efd47bc5d70b0cc36cfd24bf96f12d",
+          "sha1": "1b7aa9d139d059cdcc579d04e9e36a6b005fcd7e",
+          "source": "artifacts/task-4.1/isolated-s3/media-src/template.mkv"},
+    "B": {"path": "artifacts/task-4.4/inputs/B.mkv", "size": 24430,
+          "sha256": "e1aee32fbd9ddc13b970cbc644861b5fced7b2b8447542d9eedac8e02c4d7600",
+          "sha1": "4799935022aa2bed93478865689aef92ab116ba5",
+          "source": "artifacts/task-4.1/isolated-s3/jellyfin-cache/B9-sha1-variant.mkv"}
+  },
+  "content_samples": {
+    "A": ["Synthetic 001.mkv", "Plain Movie.mkv"],
+    "B": ["bulk/000001.mkv"]
+  },
+  "special_name_samples": ["Plain Movie.mkv", "space name.mkv", "hash#name.mkv",
+                            "percent%name.mkv", "quote\"name.mkv", "中文电影.mkv"]
+}

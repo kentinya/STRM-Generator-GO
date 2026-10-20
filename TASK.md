@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.4
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -130,13 +130,56 @@ runner、不验证播放／代理、更高规模、ARM64 实机／发布；不�
 
 ```text
 State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
-上一实现 Head: 01104ed2c879ae36b28ac8cacea301296272c92f
+上一实现 Head: e76a21c8e54a373fe53219b7a1aba5e86036f960
 本轮实现 Head: 提交后记录于后继文档提交（见下方 Head SHA）
-证据索引: artifacts/validation-evidence/task-4.4-FIX-20261020T055937Z/（本机、Git 忽略）
+证据索引: artifacts/validation-evidence/task-4.4-8eF41E/（本机、Git 忽略）
 可审查文本快照: docs/task-4.4-artifacts/（脚本原版／适配版／两份测试／工具／配置准确字节）
 ```
 
-- Changed Files / Implemented（本轮，修正 B 的 F-02..F-04）：
+- Changed Files / Implemented（本轮，修正 B2 的 F-01／F-02／F-05）：
+  - `artifacts/task-4.1/isolated-s3/generate_media.py`（Git 忽略）最小适配：
+    - F-02：`_publish` 与 `write_manifest` 的临时文件改为 `xb` 排他创建；已存在同名临时对象
+      一律以 `conflict` 保留并拒绝；只有本次成功创建后才在 `finally` 清理，创建失败不再删除既有对象。
+      媒体临时名与清单临时名两处均验证。
+    - F-05：新增 `_strm_target`／`_assert_unique_targets`，镜像 `internal/pathmap` 的扩展名替换，
+      在写入前拒绝映射到同一 `.strm` 目标的媒体路径（如 `Movie.mkv`／`Movie.mp4`）。
+  - `artifacts/task-4.4/tests/test_generate_media.py`：新增 F-02 同 PID 媒体临时名保留拒绝、
+    清单临时名保留拒绝、F-05 同目标映射写前拒绝 3 项。
+  - 准确字节同步至 `docs/task-4.4-artifacts/`（`generate_media.py`、`test_generate_media.py`）。
+  - 未改 Go 产品、插件源码、生产配置、Jellyfin DB、bootstrap.sh、teardown.sh、probe 工具、现有媒体或原件。
+  - 数据集固定：`artifacts/task-4.4/dataset/manifest.jsonl`（10000 行）与 `dataset.json`（dataset_id）已生成；
+    `manifest.candidate.jsonl` 保留。
+- Tests and Results / Evidence：
+  - **F-01 远端固定**：核对专用容器身份后，从 rustfs 容器 Env 内存取用凭据。S3 API 从 201 补足至 10000；
+    上传后集合 missing／extra／size_mismatch 全 0；`rclone check --download --one-way` 10000/10000 内容匹配；
+    最终清单 SHA-256 `378068e317ca30787c3fea5bfbefa298a27ad4c430cfa149cd6eeccc8479d3c9`，
+    dataset_id `slice4-v44-378068e3…`。
+  - **真实 OpenList**（`openlist-probe-final.json`，约 17 min）：源根目录、递归 10000、清单集合／Size 匹配、
+    8 个样本（A、B、空格／`#`／`%`／引号／中文）精确 Get 与稳定 `/d/` 字节 SHA-256 全部匹配，退出 0；
+    全程 `refresh:false`，无签名 URL 或秘密进入日志。
+  - **F-02／F-05 独立重放**（`reproduce_fix2.py`／`reproduction-fix2.json`）：3/3 PASS，既有临时对象保留、
+    无目标写入；同目标映射退出 2。
+  - 直接测试 23/23 PASS（0.166 s）；治理／`bash -n`／两脚本 `ast.parse`／`git diff --check` 全部退出 0；
+    `scripts/quality.py` PASS（15.5 s）。
+  - 201 原件字节／mtime 未变，0 临时文件；A／B 原件 SHA-256 未变。
+  - Jellyfin 入口 HTTP 200；安装 DLL 与包内 DLL SHA-256 一致 `027b279c…`；未宣称扫描／决策通过。
+  - 本轮约 2280 s；本地测试类约 16 s（<1%），含必要真实只读 probe 后测试类约 48%，未空等凑比。
+    产品全量回归由 B 负责。
+- Decisions / Risks / Remaining Required Outcomes：
+  - F-01／F-02／F-05 已修正并有证据；AC-1..6 的本地、S3 与只读 OpenList 部分可复审。
+  - 真实凭据仅内存／子进程使用，未打印／落盘；本轮未启停或重建隔离服务。
+  - 未运行项：4.5 生成／同步／RSS、4.6 扫描／完整决策、代理与播放、产品 race／故障重启。
+    NOT RUN 不作为 PASS。
+  - 未改产品行为，不触发 T4 门槛。
+- Head SHA：实现提交见下方后继文档提交记录；本轮实现改动为 `generate_media.py`、`test_generate_media.py`
+  与两份 tracked 快照及固定清单／dataset。
+
+### 上一轮（F-02..F-04）完成报告（历史保留）
+
+```text
+上一实现 Head: 01104ed2c879ae36b28ac8cacea301296272c92f
+证据索引: artifacts/validation-evidence/task-4.4-FIX-20261020T055937Z/
+```
   - `artifacts/task-4.1/isolated-s3/generate_media.py`（Git 忽略）最小适配：
     - F-02：删除跨次 `clean_stale_temps` 前缀清扫；`iter_media` 遇到未知 `.strmgen-tmp-` 对象
       一律以 `conflict` 保留并拒绝，不再 unlink 无法证明本次创建的文件。`_publish` 仍只清理

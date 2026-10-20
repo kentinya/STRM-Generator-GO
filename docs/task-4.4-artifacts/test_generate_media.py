@@ -239,6 +239,49 @@ class TestRejection(ToolTestCase):
         self.assertIn("conflict", err)
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_preexisting_media_temp_name_is_preserved_and_rejected(self):
+        # F-02: with a saved candidate, a pre-existing exact-PID temp object for
+        # the first planned path must be preserved (never overwritten/unlinked).
+        self.run_tool(*self.args(8))
+        records, _sources = gm.build_plan(self.media, 8, self.source, self.alternate)
+        candidate = self.base / "dataset" / "manifest.candidate.jsonl"
+        gm.write_manifest(candidate, records)
+        first = records[0]
+        tmp = self.media / first["path"]
+        tmp = tmp.parent / (gm.TEMP_PREFIX + str(os.getpid()) + "-" + tmp.name)
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(b"unowned-temp-bytes")
+        code, _out, err = self.run_tool(*self.args(8, "--prepare"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("conflict", err)
+        self.assertTrue(tmp.exists())
+        self.assertEqual(tmp.read_bytes(), b"unowned-temp-bytes")
+        self.assertFalse((self.media / first["path"]).exists())
+
+    def test_preexisting_manifest_temp_name_is_preserved_and_rejected(self):
+        # F-02: a pre-existing manifest temp object must not be overwritten or
+        # renamed away; prepare must fail before writing the candidate.
+        candidate = self.base / "dataset" / "manifest.candidate.jsonl"
+        tmp = candidate.with_name(gm.TEMP_PREFIX + candidate.name)
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(b"unowned-manifest-temp")
+        code, _out, err = self.run_tool(*self.args(8, "--prepare"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("conflict", err)
+        self.assertTrue(tmp.exists())
+        self.assertEqual(tmp.read_bytes(), b"unowned-manifest-temp")
+        self.assertFalse(candidate.exists())
+
+    def test_same_strm_target_mapping_rejected_before_write(self):
+        # F-05: Movie.mkv and Movie.mp4 map to the same Movie.strm target.
+        (self.media / "Movie.mkv").write_bytes(A_BYTES)
+        (self.media / "Movie.mp4").write_bytes(A_BYTES)
+        before = self.snapshot()
+        code, _out, err = self.run_tool(*self.args(3, "--prepare"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("conflict", err)
+        self.assertEqual(self.snapshot(), before)
+
     def test_manifest_inside_media_root_rejected_before_write(self):
         inside = self.media / "dataset" / "manifest.jsonl"
         code, _out, err = self.run_tool(

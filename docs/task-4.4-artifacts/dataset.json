@@ -1,0 +1,28 @@
+{
+  "status": "FINAL",
+  "dataset_id": "slice4-v44-378068e317ca30787c3fea5bfbefa298a27ad4c430cfa149cd6eeccc8479d3c9",
+  "count": 10000,
+  "manifest_path": "artifacts/task-4.4/dataset/manifest.jsonl",
+  "manifest_sha256": "378068e317ca30787c3fea5bfbefa298a27ad4c430cfa149cd6eeccc8479d3c9",
+  "content_identity": {
+    "A": {
+      "size": 24404,
+      "sha256": "7f53d1542382ea9035ca3059315b2ec0d2efd47bc5d70b0cc36cfd24bf96f12d",
+      "sha1": "1b7aa9d139d059cdcc579d04e9e36a6b005fcd7e"
+    },
+    "B": {
+      "size": 24430,
+      "sha256": "e1aee32fbd9ddc13b970cbc644861b5fced7b2b8447542d9eedac8e02c4d7600",
+      "sha1": "4799935022aa2bed93478865689aef92ab116ba5"
+    }
+  },
+  "content_counts": {
+    "A": 9999,
+    "B": 1
+  },
+  "preserved": 201,
+  "added": 9799,
+  "s3_bucket": "slice4-media",
+  "s3_object_count": 10000,
+  "content_verification": "rclone check --download --one-way: 10000/10000 matching"
+}
