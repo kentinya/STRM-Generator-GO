@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.4
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -63,7 +63,7 @@ Planner / Reviewer: B
 ## 实施方式
 
 开发者按 [Task 4.4 开发实施指南](docs/task-4.4-implementation.md) 顺序实施。
-该指南细化现有 AC，不改变合同；其中脚本参数、测试文件和清单格式尚待开发。
+该指南细化现有 AC，不改变合同；其规划建议已有实现，当前结果以完成报告与独立 B 复审为准。
 
 | 顺序 | 开发动作 | 完成后应留下什么 |
 |---|---|---|
@@ -222,41 +222,31 @@ State: READY FOR B REVIEW（Task 头部 Status 字段为唯一权威）
 ## B Review Result
 
 ```text
-Reviewed: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4..e76a21c8e54a373fe53219b7a1aba5e86036f960
-Document Successor: a93d22fabb354cc73d53d05df458b61df8defee9
+Reviewed: 77fc768790a1c1ba6f0700c0aab294d3237cf7e4..12a9c4f273efbdb9856a85b9a335528c32585d57
+Document Successor: 23748ea95fbf46748fcfd8935fcd0c7008394115
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: FIX TASK 4.4 IN PLACE; DO NOT ACTIVATE TASK 4.5
+Next: FIX F-06 IN TASK 4.4; DO NOT ACTIVATE TASK 4.5
 ```
 
-独立 B 复核见 [审查记录的本轮结论](docs/task-4.4-b-review.md#修复候选复审2026-10-20-b2)。B 已执行新候选指定 quality 全量门禁、
-20 项工具测试、语法检查、独立反例和真实 OpenList 复核；门禁通过不能抵扣未完成的 AC。
+当前独立结论见 [B3 固定候选复审](docs/task-4.4-b-review.md#固定候选复审2026-10-20-b3)。
+B已审完整Task范围并执行指定quality全量、23项直接测试及独立关键复现。
+F-01数据集固定、F-02临时名保护、F-05映射拒绝已关闭；F-03／F-04保持关闭。
+最终清单及S3当前恰好10000；完整OpenList分页／内容校验按准确输入匹配复用，
+B当前A/B／特殊名样本匹配。首次12秒样本Get超时保留，默认30秒重试通过。
 
-同一 Task 的 P1 阻塞：F-01 远端万文件／最终清单未固定；F-02 部分修正，但候选复用
-仍以 wb 覆盖既有同 PID 临时文件并删除，write_manifest 同样覆盖既有清单临时名。
-F-03 静态链接写前拒绝和 F-04 失败非零／递归集合工具逻辑经 B 独立复现已关闭；真实
-万文件／B 样本仍随 F-01 BLOCKED。另有 P2 F-05 同名媒体映射校验缺口，当前固定候选
-10000 个映射唯一，不单独阻塞该数据集，也不为此新造 Task。AC-3／AC-4／AC-6 留在
-4.4 完成，不能移交 4.5 才补齐。本轮未改产品实现、未启停服务、未变更合同范围。
+**剩余P1 F-06：AC-1／AC-4／AC-6当前原生任务可用性未确认。** Jellyfin公开入口200、
+固定插件实际挂载DLL与包及同启动窗口加载身份匹配，但当前原生 /ScheduledTasks 为401；
+尚无认证后STRM媒体信息检查任务存在／可用的证据。当前授权渠道未取得对应认证，
+保持BLOCKED，不把环境smoke或旧扫描日志算通过。
 
-Developer 先在独立小夹具完成 F-02（临时文件须排他创建，只有本次成功创建后才清理，
-媒体及清单两处都验证），沿用已修 F-03／F-04，再用原候选恢复剩余 S3／OpenList 对账，
-保留现有 10000 本地文件、201 原件及所有首败证据。凭据来源按 2026-10-20 用户最新
-授权执行：当前环境未预设时，先核对专用隔离容器身份，再从其 Env 选择性取用，
-仅在内存／子进程环境中使用并验证鉴权。不从历史文件恢复，不读取生产／其他项目
-容器，不输出或落盘秘密；仍不可用则记录脱敏原因并保持相关步骤未完成。
+Developer受影响验证：只补当前专用原生认证与公开管理任务读取／脱敏证据，不触发扫描／
+探测，不改Jellyfin DB／插件／用户，不从历史文件恢复秘密。Env无所需认证时请用户提供
+当前专用认证；仍不可用如实BLOCKED。保留同一固定数据集，不重建／补传／重跑长扫描。
+若仅证据／事实文档变化，做受影响入口读取及治理／链接／空白；代码改变补直接回归。
+若要求缩减验收，由A先处理范围，不由B自行放行。
 
-本次仅协调凭据来源授权及 Contract Checkpoint，保留 Task Base、FIX REQUIRED、
-实施 Head 与既有独立 B 结论。上文完成报告及审查中的凭据禁令是授权前历史事实，
-不再约束后续合法取用；授权本身不证明已取得凭据、远端已补齐或 F-01 已关闭。
-
-Developer 受影响验证：补缺失／重复零写／冲突／中断重试，既有临时前缀文件保留，
-候选复用的精确同 PID 临时名和清单临时名不被覆盖／删除；候选复用与 verify-only 的
-静态根／祖先符号链接拒绝，清单位于媒体根外、同目标映射冲突
-在写入前拒绝；取证工具覆盖样本 Get／类型／Size／字节失败非零、完整递归分页及清单
-集合比较（含 bulk/、B 和特殊名），全程 refresh:false。不增加并发外部写者／权限加固要求。
-
-B 最终门禁仍由 B 对新的固定实施 Head 执行：本 Task 已列出的 quality／治理／语法／
-空白，新增直接工具回归及独立关键复现，10000 S3 清单／本地内容与最终清单身份、
-完整 OpenList 集合及 A／B 样本和原件保留复核；输入相同的原始证据按审查记录匹配复用。
-不把 B 全量门禁交还 Developer，不在此运行 4.5／4.6 或机械重跑 Slice Final。
+B负责新固定候选的完整原Base..Head审查、入口独立复核及指定全量门禁逐项执行或输入
+匹配复用。纯文档后继不机械再跑quality；未变的10000清单／完整OpenList证据准确匹配
+复用，变化才补受影响验证。全量不交回Developer。4.5／4.6与Slice Final均NOT RUN，
+全部RO未满足，不交Closure Packet或A最终审查，不关闭Slice。

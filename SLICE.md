@@ -5,7 +5,7 @@ Slice ID: 4
 Owner: A
 Status: ACTIVE
 Base SHA: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63
-Implementation Head: e76a21c8e54a373fe53219b7a1aba5e86036f960
+Implementation Head: 12a9c4f273efbdb9856a85b9a335528c32585d57
 ```
 
 ## 用户目标
@@ -113,5 +113,5 @@ B 审查各 Task 完整 Base..Head，关键真实行为独立复现；新任务�
 Closure Packet: PENDING
 A Final Review: PENDING
 Decision: PENDING
-Next Action: IMPLEMENT PLANNED TASK 4.4, THEN INDEPENDENT B REVIEW
+Next Action: FIX TASK 4.4 F-06 NATIVE TASK ACCESS, THEN INDEPENDENT B REVIEW
 ```
