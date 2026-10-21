@@ -100,3 +100,10 @@
 - 用户在B解释已披露历史凭据未知项、区分接受与轮换后明确“接受”；F-45-03不再阻断4.5，不要求追查／轮换作为通过前置。历史事实仍UNKNOWN，不改写为已证明清除／无泄露或追认历史授权，不扩大未来凭据／服务／4.6权限。
 - B续审核对94份B7证据摘要、82项执行输入与二进制／配置／清单匹配，当前输出／state身份仍同B7最终，epoch35／10000归属／0非零缺失。复用已齐备全量和完整独立真实闭环；无新取密、产品／媒体／远端／服务操作，不要求Developer重复。
 - 同Task4.5独立B决定PASS，见[最终续审](task-4.5-b-review-5.md#2026-10-21-续审用户接受历史-unknowntask-pass)。RO-1／2／3满足；RO-4／5未运行，4.6未激活，B下一步按原Slice正式规划；Slice仍ACTIVE，Final／Closure／A审查待后续，不自行关闭。
+
+## 2026-10-21 Task 4.6 正式规划
+
+- B在干净main／4.5 PASS检查点 `b599dbc5c0e6bd394ee361343d74ebbb12d1ecab` 运行治理PASS，核对固定清单、发布CLI、10000原始输出、锁定插件源码／ZIP／安装DLL及专用三服务镜像／挂载。该检查点同时固定为4.6 Task Base／Contract Checkpoint；4.6实现Head尚不存在。
+- 根TASK与[4.6正式计划](../Task/4.6-plugin-decisions-plan.md)限定最少原始副本扫描／固定插件读取、正常主流／历史／地址基准、完整D-01..08因果决定与逐场景恢复。原始URL在Jellyfin容器内连接拒绝已如实记录，原始字节不能改写冒充；标注副本可先验证同网络原生OpenList入口，不新增代理／服务网络变更。普通日志已含决定／理由，不为取证强制开启详细日志。
+- Developer负责受影响验证、真实矩阵／恢复及固定Head交接；B持有指定全量执行／精确复用、完整Base..Head审查和独立原始扫描／全部8行复现。同输入不机械重跑Final，不把全量交回Developer。全部RO满足后才做Slice Final／Closure并交A，不自关。
+- 4.6凭据与必要样本变更按新Task准入，4.5授权／历史UNKNOWN接受／一次性计时豁免均不继承；未取密、改媒体、创建库、改设置或触发扫描／任务。状态PLANNED，RO-4／5 NOT RUN，Slice仍ACTIVE、B／A审查PENDING。本轮只作规划及文档检查，证据在 `artifacts/validation-evidence/task-4.6-plan-20261021/`。
