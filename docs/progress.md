@@ -112,3 +112,9 @@
 
 - 应用户要求新增[开发实施指南](task-4.6-implementation.md)，用已有样本Plain Movie／Synthetic 001与A/B原件，明确前置、原始／标注副本、原生扫描入口、正常基准、八行单变量操作、逐场景恢复、故障处理和报告模板。根TASK及正式计划同步链接。
 - 指南不新增凭据／S3／账号恢复授权，不改RO、Task Base或锁定输入；不开发插件／播放runner或新平台，不将B最终全量交给Developer。当前仅文档，4.6仍PLANNED、真实扫描／矩阵NOT RUN、B／A决定PENDING。
+
+## 2026-10-21 Task 4.6 B前置阻塞审查
+
+- B审完整 `b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..c05e09f063dad29a9e1431688d6df11baaa141ae`，12文件均为文档；Developer只读报告属实，但没有4.6产品实施。决定FIX REQUIRED，见[审查](task-4.6-b-review.md)。
+- 新核对82项执行输入、四份辅助副本及清单／CLI／状态库／原始样本匹配；B从既有入口独立校验10000原输出，0问题。既有全量结果保留、不机械重跑；4.6整套Final签收与B原始扫描／全部8行仍BLOCKED／NOT RUN，不退回Developer承担。
+- F-46-01：4.6专用Jellyfin认证及S3最少样本必要变更／恢复授权未取得，不能沿用4.5授权或豁免；由用户解决准入后继续同Task。未取密、访问DB、请求真实服务或改媒体／S3／服务；不猜入口、不新造Task。RO-1／2／3保留接受，RO-4／5未满足，Slice仍ACTIVE，无Closure／A就绪或关闭声明。证据与本轮小于50%计时见 `artifacts/validation-evidence/task-4.6-B1-20261021T124809Z/`。

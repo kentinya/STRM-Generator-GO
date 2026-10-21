@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.6
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Contract Checkpoint: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Difficulty: High
@@ -275,8 +275,11 @@ Token／Cookie／密码只在获准的内存／子进程环境使用，不在arg
 ## B Review Result
 
 ```text
-Reviewed: NOT SET
-Decision: PENDING
+Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..c05e09f063dad29a9e1431688d6df11baaa141ae (documentation-only handoff; no Task 4.6 product implementation)
+Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: B REVIEWS THE BLOCKED PREREQUISITE HANDOFF; USER MUST PROVIDE TASK 4.6 JELLYFIN ACCESS AND S3 SAMPLE-CHANGE AUTHORIZATION BEFORE AC-1..5 CAN RUN
+Next: SAME TASK 4.6; USER RESOLVES TASK-SPECIFIC AUTHENTICATION AND S3 SAMPLE-CHANGE AUTHORIZATION; DEVELOPER THEN IMPLEMENTS AC-1..6; B RETAINS FINAL GATES AND INDEPENDENT EIGHT-ROW REPLAY
 ```
+
+B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-review.md)。
+本轮明确阻塞下提前拒绝；AC-1..5／B真实复现BLOCKED，未将输入匹配冒充4.6 Final完成。
