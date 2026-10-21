@@ -1,5 +1,12 @@
 # 进度
 
+## 2026-10-21 Task 4.5 B获授权并核对真实前置（当前）
+
+- 用户“可以”明确授权B在同一隔离环境取必要凭据、最少样本变更并恢复；已登记AGENTS／TASK，不再以Developer-only授权阻断B，也不追认旧凭据落盘。
+- B先核对RustFS／OpenList的project、服务、锁定镜像和准确挂载，再仅内存取必要键；S3样本stat与OpenList原生admin登录／Get／refresh:false列表成功。guest登录401与首次前置目录total断言错误均保留；断言按固定清单修正后前置通过，未改产品或数据集。
+- 同源完整轮约15分钟、多轮关键闭环超过本轮严格50%测试预算；因此未先行变更媒体或生成器输出／DB，B完整真实复现仍NOT RUN，由B保留。F-45-03的非秘密历史处置／来源交接仍缺，Task4.5保持FIX REQUIRED。细节见[授权与前置](task-4.5-b-authorized-preflight.md)。
+- 既有完整门禁和移动／同行清零补证继续接受，不机械重跑。Slice ACTIVE，4.6未激活，RO-4／5 NOT RUN，不提交完成Closure或自行关闭。
+
 ## 2026-10-21 Task 4.5 第三次独立B复审（当前）
 
 - 原Base..9cdfde2及文档后继1b7aea6完整复审，结论 **FIX REQUIRED**，见[第三次审查](task-4.5-b-review-3.md)。核对dev3的15份DB快照及原始记录，接受真实移动新路径、三完整轮后删除、同一归属行正缺失清零及dry-run／恢复补证；不再以旧缺口要求Developer重跑。

@@ -68,6 +68,16 @@ OpenList／发布 CLI 生成 10000 个 STRM，记录测量并验证最少样本�
   或完成场景不自动获得PASS。Developer完成受影响验证后交B；指定全量、精确复用
   和独立关键复现仍由B负责。原Base／实施Head／合同检查点与RO／AC不变。
 
+## 2026-10-21 用户明确授权 B 同范围独立复测
+
+用户在 B 解释“同一隔离测试环境取用必要凭据、最少量样本变更、测完恢复，不碰生产／
+不重建10000文件／不打印或保存密码”后明确答复“可以”。B 的授权前置已解除；沿用
+既有专用RustFS容器身份核对、选择键、内存／子进程使用及样本保护／恢复边界；
+同project已核对OpenList的必要密码键仅用于已有原生登录接口换取内存token，不读JWT等无关键。
+不授权其他项目、账户恢复、服务配置／生命周期变更或Task4.6；不追认历史凭据落盘。
+先估算当前严格小于50%的测试预算，必要场景无法安全完成时不先行变更远端；
+实际鉴权、执行结果与恢复逐项记录，不因授权自动PASS。指定全量继续匹配复用。
+
 ## 验收条件
 
 - AC-1：先核对 dataset ID／清单、远端根、发布二进制与隔离配置；初次 dry-run 对输出／
@@ -275,13 +285,14 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 
 ```text
 Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
-Document Successor: 1b7aea6aba1a3cbacd8360acab8a98e23ca2abd2
+Document Successor: 8de3fde599f1c7e73ff0139ccabd7cfe1caef522
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.5; RESOLVE CREDENTIAL HANDOFF; B RETAINS REAL REPRODUCTION
+Next: SAME TASK 4.5; CREDENTIAL DISPOSITION AND B REAL REPLAY REMAIN
 ```
 
-当前独立结论、准确复用、受影响验证与B返回门禁见
+当前授权及真实前置结果见[B授权登记与复测前置](docs/task-4.5-b-authorized-preflight.md)；
+完整独立结论、准确复用、受影响验证与B返回门禁见
 [第三次B审查（2026-10-21）](docs/task-4.5-b-review-3.md)。
 此前[第二次审查](docs/task-4.5-b-review-2.md)与[原审查](docs/task-4.5-b-review.md)
 保留历史时点结论，不以旧的“无移动／无同行清零”否定dev3已交原始证据。
@@ -298,8 +309,11 @@ F-45-02全量继续齐备，不退回Developer。
 仍须同Task补F-45-03：dev2已落盘凭据的非秘密处置／介质／清除范围／已知副本或未知项，
 及dev3所称container-env-password的具体容器／键名／适用授权；新轮“仅内存”不抹去历史。
 不提供秘密，不从历史恢复秘密，不为补说明再取密或重复万文件场景。
-B独立真实复现仍BLOCKED：当前进程未注入专用凭据，现有Env与样本变更授权明确给
-Developer，未覆盖B。授权渠道交用户／A明确协调；门禁仍由B执行，不转交Developer。
+B授权前置已由本轮用户“可以”解除：核对同project两服务镜像／挂载后，仅内存取必要键，
+S3样本鉴权、OpenList原生admin登录及正常Get／refresh:false列表已通过；无需重复授权。
+首次前置把根直接项数误作10000的断言已修正，原失败保留；没有更改数据集。
+B完整真实闭环仍NOT RUN：同一源完整轮约15分钟、多轮场景超本轮50%测试预算，
+故在媒体变更前停止长场景准入，未修改输出／DB／远端样本。门禁由B保留，不降级或转交Developer。
 
 原Task Base／实施Head不变，4.6未激活。RO-1／2保留，RO-3／6尚未齐备，RO-4／5
 NOT RUN；Slice ACTIVE，Closure Packet／A Final Review PENDING，不新造Task或自行关闭。
