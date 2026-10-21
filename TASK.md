@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.6
 Parent Slice: 4
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Contract Checkpoint: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Difficulty: High
@@ -15,6 +15,12 @@ Planner / Reviewer: B
 4.5 完整计划／报告保留于 `b599dbc5c0e6bd394ee361343d74ebbb12d1ecab:TASK.md`，
 独立结论见 [4.5 B 最终审查](docs/task-4.5-b-review-5.md)。不移动 Slice 原 Base，
 不把规划提交填成 Implementation Head；4.6 尚未实施，B／A 决定均 PENDING。
+
+2026-10-21 Developer 前置核对：执行进程未获 4.6 专用 Jellyfin 凭据，也没有 4.6 S3
+样本变更／恢复授权；按本 Task 准入，AC-1～AC-5 记录 **BLOCKED**，本轮无产品实现，
+未创建副本／媒体库、未触发扫描或任务、未变更 S3／服务／配置。只读输入、实例身份、
+候选入口及固定输出完整性的核对与解除阻塞条件见
+[前置核对与阻塞交接](docs/task-4.6-developer-prerequisite-blocked.md)。
 
 ## Goal
 
@@ -243,10 +249,28 @@ Token／Cookie／密码只在获准的内存／子进程环境使用，不在arg
 
 ## Developer Completion Report
 
-- Changed Files / Implemented：NOT RUN，当前仅B正式规划，无4.6实现。
-- Tests and Results / Evidence：NOT RUN；规划治理／只读身份核对不算扫描／决策通过。
-- Decisions / Risks / Remaining Required Outcomes：RO-4／5待执行，RO-6待B最终门禁／独立审查及A Final；认证和样本变更按本Task准入，不继承4.5授权。
-- Head SHA：NOT SET
+- Changed Files / Implemented：仅新增 [前置核对与阻塞交接](docs/task-4.6-developer-prerequisite-blocked.md)；
+  未改 Go 产品、插件源码／包、Jellyfin／OpenList／RustFS 配置、4.4 数据集、4.5 输出或
+  状态库。4.6 当前没有产品实现，本轮是准入核对与事实交接。
+- Tests and Results / Evidence：原始证据根
+  `artifacts/validation-evidence/task-4.6-dev-20261021T1242Z/`（本机、Git 忽略），含固定输入／
+  清单摘要、三服务 project／镜像／挂载身份（未读 Env）、Jellyfin 公开 200／受保护 401、
+  候选入口内容 SHA-1 与 A 一致、4.5 输出 10000/10000 独立校验 0 问题及耗时。
+- **BLOCKED**：Task 准入要求 4.6 专用 Jellyfin 认证及 S3 样本变更／恢复授权；执行进程
+  均未获得，4.4／4.5 授权不延续。AC-1 原始副本扫描／插件读取、AC-2 正常基准、AC-3／4／5
+  D-01..08 实际矩阵均未运行，不能以只读入口核对或 Task 完成冒充。AC-6 因本轮零变更
+  无恢复动作，只核对固定输出／状态库未被修改。
+- 本次真实核对：清单／CLI／插件源码／ZIP／DLL／A／B 原件摘要与固定值一致；4.5 原输出
+  10000 个 STRM、校验 0 问题（Size 字段 10000、SHA-1 字段 0）；候选
+  `http://openlist:5244/d/s3/{Plain%20Movie,Synthetic%20001}.mkv` 从 Jellyfin 容器返回
+  24404 字节且 SHA-1 为 A，但原始 URL 仍连接拒绝，不能据此称原始产物可达或决策通过。
+- Decisions / Risks / Remaining Required Outcomes：RO-4／RO-5 仍 NOT RUN／BLOCKED，RO-6
+  待 B；解除阻塞需用户安全注入 4.6 Jellyfin 凭据（或明确 4.6 取用渠道）并授权同批最少
+  自有样本的必要 S3 变更与恢复，具体边界见阻塞交接第 5 节。不新建 Task、不改 RO／Base。
+- 计时：本轮约 2 分钟墙钟，只读验收／治理／10000 输出校验约 10 秒（tree verify 实测
+  3.669s），测试类占比低于本轮 30%；未运行 Go／B 全量门槛。
+- Head SHA：`cafa00f811b8f0c8a343e67092f158d11c7ca27e`（本轮前置核对文档检查点；
+  4.6 尚无产品实现 Head）
 
 ## B Review Result
 
@@ -254,5 +278,5 @@ Token／Cookie／密码只在获准的内存／子进程环境使用，不在arg
 Reviewed: NOT SET
 Decision: PENDING
 Slice Required Outcomes all satisfied: NO
-Next: DEVELOPER CONFIRMS TASK 4.6 PREREQUISITES, THEN IMPLEMENTS AC-1..6; B OWNS FINAL GATES AND INDEPENDENT REVIEW
+Next: B REVIEWS THE BLOCKED PREREQUISITE HANDOFF; USER MUST PROVIDE TASK 4.6 JELLYFIN ACCESS AND S3 SAMPLE-CHANGE AUTHORIZATION BEFORE AC-1..5 CAN RUN
 ```
