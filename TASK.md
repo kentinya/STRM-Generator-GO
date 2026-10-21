@@ -288,7 +288,7 @@ Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d
 Document Successor: 79d2fee12d88d661b13499bf243e6cc841133f57
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.5; CORRECT CREDENTIAL DISPOSITION / LOGIN PROVENANCE; B RETAINS REAL REPLAY
+Next: SAME TASK 4.5; USER / A DISPOSITION OF HISTORICAL UNKNOWNS; B RETAINS REAL REPLAY
 ```
 
 本轮复审至文档后继 `79d2fee12d88d661b13499bf243e6cc841133f57`，结论仍为FIX REQUIRED，见
@@ -311,12 +311,14 @@ F-45-01两个关键行为缺口已有实证，不再要求Developer重跑。
 Get／缓存及打包门禁继续精确复用。新跑当前quality、10000输出校验及文档检查；
 F-45-02全量继续齐备，不退回Developer。
 
-F-45-03已收到[非秘密处置说明](docs/task-4.5-credential-disposition.md)，但仍需同Task修正：
-dev3登录密码的具体容器／键名／当时适用授权仍未写明；历史处置中无依据的介质、
-副本／残留、swap／历史扫描等保证须区分当事人陈述与可核验事实，无法确认写UNKNOWN，
-不能自判LOW/RESOLVED或无须补救；是否接受未知项／轮换由用户／A决定。
+用户要求“你自己改一下得了”后，B直接完成[非秘密处置说明](docs/task-4.5-credential-disposition.md)
+及dev3交接的事实文字修正：dev3登录密码具体容器／键名／当时适用授权明确为UNKNOWN；
+历史介质／位置、清除细节及副本／残留等按当事人陈述与UNKNOWN区分，撤下
+LOW/RESOLVED及无须补救的保证。不再将相同文案修正交回Developer。
+F-45-03的历史未知项仍待用户／A决定是否接受或轮换；要求B改文档不等于该决定。
+本次属于直接编辑，不自签独立B PASS；此前审查记录保留，Task仍FIX REQUIRED。
 不要求证明绝对无残留、全盘扫描或新增工具；不提供秘密，不从历史恢复秘密，
-不为补说明再取密或重复万文件场景。新轮“仅内存”及B后来授权不追认dev3历史来源。
+不为补说明再取密或重复万文件场景。B后来授权及前置成功不追认dev3历史来源。
 B授权前置已由本轮用户“可以”解除：核对同project两服务镜像／挂载后，仅内存取必要键，
 S3样本鉴权、OpenList原生admin登录及正常Get／refresh:false列表已通过；无需重复授权。
 首次前置把根直接项数误作10000的断言已修正，原失败保留；没有更改数据集。

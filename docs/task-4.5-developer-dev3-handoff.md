@@ -8,35 +8,33 @@ Status: READY FOR B REVIEW (B decision: PENDING)
 ```
 
 ## Summary
-Developer round `task-4.5-dev3-20261021T000834Z` (evidence:
-`artifacts/validation-evidence/task-4.5-dev3-…`) closes B's two P1 findings
-from the 2026-10-21 review (F-45-01, F-45-03). No Go product / dependency /
-tooling / media-set change. Only new isolated evidence (Git-ignored) and this
-doc (tracked). No credentials are written to disk, argv, logs, evidence or git;
-`git diff --check` is clean; working tree on `## main`.
+Developer round `task-4.5-dev3-20261021T000834Z` submitted isolated evidence
+without Go product / dependency / tooling / media-set changes. B3 accepted the
+F-45-01 real-move and same-row reset evidence. F-45-03 is not closed by the
+Developer's report of in-memory handling; historical disposition and upstream
+login provenance remain separate. Current status is maintained in [TASK](../TASK.md).
 
-## F-45-03 fix — in-memory credentials only (no temp files)
-- `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` key-presence confirmed via `docker
-  inspect` Env; values NOT recorded. Sourced into shell memory only; fed to
-  `rclone` subprocs via in-memory env vars.
-- OpenList token obtained per-run through in-memory `/api/auth/login` using the
-  container env password (key presence only recorded). Token injected solely via
-  child `OPENLIST_TOKEN` env; helper script lives at `/tmp/token_exec.py`
-  (NOT in repo, NOT committed, NOT evidence). `measure_run.py` already enforces
-  `token_source: "OPENLIST_TOKEN environment only; not in argv or output"` in
-  every JSON.
+## F-45-03 report — upstream login provenance remains UNKNOWN
+- Developer reported reading `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` through
+  `docker inspect` into shell memory and passing them to rclone subprocesses
+  through environment variables, without a credential temporary file in dev3.
+- Developer reported native `/api/auth/login` and child `OPENLIST_TOKEN`
+  injection. The password's specific source container, key and applicable
+  authorization at that time are **UNKNOWN in the reviewed handoff**. The
+  downstream `measure_run.py` token-source field does not establish upstream
+  provenance. The historical login helper was not supplied as review evidence;
+  this correction does not read it or recover historical secrets.
 - Media-content backups (`orig-Synthetic-*.mkv`, byte-identical to manifest A
   `7f53d154…`) are non-secret data backups, not credentials.
-- Evidence scan: no `local-test-admin-password`, `JWT_SECRET=`, full-token, or
-  `token_exec` script contents anywhere in the run dir.
+- Developer reported a bounded scan of its evidence directory. This is not a
+  verified guarantee about all files, history, backups or residuals.
 
-> **Note on legacy credential handling:** The prior dev2 round (`task-4.5-dev2-20261020T1345Z`)
-> wrote `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` to a 0600 temp file, sourced it into
-> subprocess env, then shredded it. This dev3 round and all subsequent rounds use
-> **in-memory only** credential sourcing — no temp file is created. The non-secret
-> disposition of the legacy dev2 temp file (storage media, clearing range, known
-> copies/residuals) is documented in `docs/task-4.5-credential-disposition.md`.
-> No credential values, file paths, or tokens are recorded in either document.
+> **Legacy handling / user-requested wording correction (2026-10-21):** dev2
+> reported a 0600 credential temporary file, subprocess injection and shred after
+> use. Exact historical medium / path, clearing details and other copies or
+> residuals are not established here. See the corrected [non-secret disposition](task-4.5-credential-disposition.md)
+> for recorded claims versus UNKNOWN items. User / A disposition remains pending;
+> B's direct edit is not an independent review PASS or retroactive authorization.
 
 ## F-45-01 fix — real MOVE to a new path + same-row reappearance clear-to-zero
 ### Real move (sample `Synthetic 054.mkv`)
