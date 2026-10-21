@@ -118,3 +118,9 @@
 - B审完整 `b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..c05e09f063dad29a9e1431688d6df11baaa141ae`，12文件均为文档；Developer只读报告属实，但没有4.6产品实施。决定FIX REQUIRED，见[审查](task-4.6-b-review.md)。
 - 新核对82项执行输入、四份辅助副本及清单／CLI／状态库／原始样本匹配；B从既有入口独立校验10000原输出，0问题。既有全量结果保留、不机械重跑；4.6整套Final签收与B原始扫描／全部8行仍BLOCKED／NOT RUN，不退回Developer承担。
 - F-46-01：4.6专用Jellyfin认证及S3最少样本必要变更／恢复授权未取得，不能沿用4.5授权或豁免；由用户解决准入后继续同Task。未取密、访问DB、请求真实服务或改媒体／S3／服务；不猜入口、不新造Task。RO-1／2／3保留接受，RO-4／5未满足，Slice仍ACTIVE，无Closure／A就绪或关闭声明。证据与本轮小于50%计时见 `artifacts/validation-evidence/task-4.6-B1-20261021T124809Z/`。
+
+## 2026-10-21 Task 4.6 用户延伸S3／OpenList授权
+
+- 用户明确“S3 Openlist复用4.5 Jellyfin你给他提供”；已将同隔离项目、身份核对、仅内存取密与最少样本变更／恢复授权延伸至4.6 Developer／B，不再等待这两项重复授权；4.5时间豁免不延伸。
+- Jellyfin改由B协调提供。既有临时Key已撤销、新密码未保存，当前进程未发现已知Jellyfin认证变量可用值；尚未取得凭据，未取密／读历史秘密／访问DB／恢复账户／签发Key／请求真实服务。原生恢复会改变隔离管理员密码，需用户明确允许该副作用后办理。
+- 准入／指南同步，原阻塞交接及首次审查保留历史并附当前处置。Task仍FIX REQUIRED、Slice ACTIVE，未实现／测试扫描矩阵，不冒充PASS或Closure；B最终门禁不转交Developer。

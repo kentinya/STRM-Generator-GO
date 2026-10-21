@@ -1,5 +1,10 @@
 # Task 4.6 开发实施指南
 
+> 2026-10-21后续授权更新：S3／OpenList现已按用户明确指示复用4.5授权，覆盖4.6
+> Developer与B；不再重复等待这两项授权。Jellyfin由B协调提供，当前尚无可用凭据，
+> 若需账户恢复须明确允许其密码变更副作用。下文“不继承”是指南编写时事实，
+> 当前准入以根[TASK](../TASK.md)和[AGENTS](../AGENTS.md)后续记录为准；其余门禁不变。
+
 这份指南把根 [TASK](../TASK.md) 拆成可以顺序照做的步骤；不新增需求，不替代授权，
 不修改 Task Base／Contract Checkpoint。与本指南不一致时，以 [开发流程](development-workflow.md)
 和根 TASK 为准。开工仍须先按 [AGENTS](../AGENTS.md) 完成必读，不是只读本指南就直接操作。

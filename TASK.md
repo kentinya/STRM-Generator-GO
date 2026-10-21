@@ -16,7 +16,13 @@ Planner / Reviewer: B
 独立结论见 [4.5 B 最终审查](docs/task-4.5-b-review-5.md)。不移动 Slice 原 Base，
 不把规划提交填成 Implementation Head；4.6 尚未实施，B／A 决定均 PENDING。
 
-2026-10-21 Developer 前置核对：执行进程未获 4.6 专用 Jellyfin 凭据，也没有 4.6 S3
+2026-10-21 后续用户授权：S3／OpenList明确复用4.5的同隔离项目、身份核对、仅内存取密及
+最少自有样本必要变更／恢复边界，覆盖Developer与B；这两项不再等待重复授权。
+Jellyfin由B协调提供，当前尚无可用凭据；4.4临时Key已撤销、新密码未保存，不能宣称已经
+交接。若需原生账户恢复及临时Key，须先明确允许改变隔离管理员密码；不读DB／历史秘密。
+以下Developer报告及首次B审查保留原时点事实，当前剩余前置以本段和AGENTS后续授权为准。
+
+2026-10-21 Developer 原前置核对：执行进程未获 4.6 专用 Jellyfin 凭据，也没有 4.6 S3
 样本变更／恢复授权；按本 Task 准入，AC-1～AC-5 记录 **BLOCKED**，本轮无产品实现，
 未创建副本／媒体库、未触发扫描或任务、未变更 S3／服务／配置。只读输入、实例身份、
 候选入口及固定输出完整性的核对与解除阻塞条件见
@@ -67,9 +73,10 @@ Planner / Reviewer: B
 本次只规划，未取密、创建媒体库、改配置、触发扫描／任务或变更 S3。实施先运行治理，
 核对专用实例、输入及恢复来源，再走以下前置，不把授权缺口当产品缺陷或暗中绕过：
 
-1. **认证**：4.4 临时 Jellyfin Key 已撤销，新密码未保存；4.5 的取密／样本变更授权及
-   用户接受历史 UNKNOWN **均不授权4.6**。需要用户安全注入本 Task 专用凭据到执行进程，
-   或另获明确的4.6取用渠道／必要操作授权。不得从历史文件、Jellyfin DB、完整 Env 或
+1. **认证**：4.4 临时 Jellyfin Key 已撤销，新密码未保存。用户已明确将4.5的S3／OpenList
+   渠道延伸至4.6 Developer／B；按AGENTS核对身份后选择性仅内存取用，不再要求重复授权。
+   Jellyfin由B协调提供，当前未取得；需要有效安全注入或明确允许的本Task取用渠道。
+   账户恢复会改变隔离管理员密码，尚需明确允许该副作用。不得从历史文件、Jellyfin DB、完整 Env 或
    其他项目恢复秘密，不擅自重置账户、轮换或调整服务生命周期。凭据不可用为 BLOCKED，
    已有代码／文档核对可继续；不能宣称扫描或决策通过。B 独立复现也需覆盖其职责的有效授权。
 2. **入口**：从已有 Jellyfin 控制台媒体库管理／原生库扫描，以及“计划任务 → STRM
@@ -79,8 +86,8 @@ Planner / Reviewer: B
 3. **隔离**：专用库只收录 `task-4.6/` 必要子目录；原生配置页将批量检查限制在该库，
    避免无关201条目进入当次比较。记录并恢复本 Task 临时设置／库变更；不删除已有库或
    未知对象，不改变播放／代理配置。若原生入口无法做到必要隔离，先报告，不扩建工具。
-4. **媒体变更**：D-02／04／06 如需 S3 写入，先获得4.6对同批最少已确认自有样本的
-   必要变更／恢复授权。只用已有 A/B 原件；保存对象路径／字节／Size／摘要与恢复记录，
+4. **媒体变更**：用户已明确将4.5的最少自有样本必要变更／恢复授权延伸至4.6；D-02／04／06
+   的S3操作按该范围核对身份及实际鉴权后执行。只用已有 A/B 原件；保存对象路径／字节／Size／摘要与恢复记录，
    不重建数据集、不新造媒体、不改未知对象／bucket。LastModified 可自然变化，恢复指
    内容／路径／集合及必要设置恢复，不伪称时间戳回到旧值。原生成树／归属库不作为测试编辑区。
 5. **时间**：本轮测试时间严格小于本轮总时间50%；失败、重试、只读验收、恢复核对及
@@ -245,7 +252,7 @@ Token／Cookie／密码只在获准的内存／子进程环境使用，不在arg
 探测结果成功、客户端播放／会话／进度、代理、更高规模、ARM64实机／正式发布；不重搭
 环境、不重生成媒体、不重跑已匹配的万文件全流程，不改插件源码／Jellyfin DB／私有接口，
 不建元数据服务、通用日志／秘密／补偿框架或三组件编排；历史UNKNOWN不在本Task追查／
-轮换，不把用户对4.5的接受追认为未来授权。
+轮换，不把用户对4.5历史UNKNOWN的接受追认为未来授权；本次S3／OpenList延伸来自用户新的明确授权。
 
 ## Developer Completion Report
 
@@ -278,7 +285,7 @@ Token／Cookie／密码只在获准的内存／子进程环境使用，不在arg
 Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..c05e09f063dad29a9e1431688d6df11baaa141ae (documentation-only handoff; no Task 4.6 product implementation)
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.6; USER RESOLVES TASK-SPECIFIC AUTHENTICATION AND S3 SAMPLE-CHANGE AUTHORIZATION; DEVELOPER THEN IMPLEMENTS AC-1..6; B RETAINS FINAL GATES AND INDEPENDENT EIGHT-ROW REPLAY
+Next: SAME TASK 4.6; S3 / OPENLIST AUTHORIZATION EXTENDED; B COORDINATES JELLYFIN ACCESS (NOT YET AVAILABLE); DEVELOPER THEN IMPLEMENTS AC-1..6; B RETAINS FINAL GATES AND INDEPENDENT EIGHT-ROW REPLAY
 ```
 
 B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-review.md)。

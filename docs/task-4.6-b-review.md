@@ -95,3 +95,18 @@ Developer重跑整套。真实4.6决定不得复用旧4.1–4.3、4.4环境smoke
 **Task 4.6 FIX REQUIRED；Slice 4 ACTIVE。** 当前不满足全部RO，不提交Closure Packet，
 不返回SLICE READY FOR A REVIEW，不自行关闭。范围没有改变，不为授权前置另造Task。
 计时以证据根 `timing.json` 为准，失败／只读验收／治理均计入；本轮不继承4.5时间豁免。
+
+## 2026-10-21 后续：S3／OpenList授权延伸，Jellyfin由B协调
+
+用户明确要求“S3 Openlist复用4.5 Jellyfin你给他提供”。已将4.5 S3／OpenList渠道和
+最少样本必要操作／恢复边界延伸至4.6 Developer及B，写入AGENTS／根TASK；不再要求用户
+重复授权这两项。未实际取密、鉴权或修改样本，不把授权登记写成场景完成。
+
+Jellyfin由B协调提供，而非继续要求Developer找密码。B核对当前认证交接：4.4临时Key已
+撤销、内存随机新密码未保存，执行进程的已知Jellyfin认证变量未发现可用值。没有可直接
+提供给Developer的有效凭据，不从历史证据、Jellyfin DB或其他项目找回秘密。
+已有原生账户恢复入口可解决认证，但会实际改变隔离管理员密码；需用户明确允许该副作用
+后才能按同专用实例身份核对、临时Key及安全内存交接方案办理。目前尚未执行恢复或签发Key。
+
+F-46-01剩余项缩为Jellyfin有效认证及其必要渠道；原AC、独立八行复现和小于50%计时规则不变。
+Task仍FIX REQUIRED、Slice仍ACTIVE。此次只登记授权与认证交接事实，不冒充B Final／PASS。
