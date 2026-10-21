@@ -4,15 +4,16 @@
 Task: 4.5
 Task Base: 5182443d0c34215deb7bb1e74a413564aa8e6422
 Head: 9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
-Status: Corrected disclosure; historical unknowns pending user / A disposition
+Status: Historical unknowns accepted by user on 2026-10-21; facts remain UNKNOWN
 ```
 
 ## Purpose and evidence boundary
 
-The user asked B to correct this document directly on 2026-10-21. This is a
-facts-only correction, not an independent B PASS or acceptance of the historical
-credential handling. It does not change the Task Base, implementation Head,
-authorization boundaries or required real replay.
+The user first asked B to correct this document directly on 2026-10-21. That
+earlier facts-only correction was not an independent B PASS or acceptance of the
+historical handling. The user later explicitly accepted the disclosed unknowns,
+as recorded below; neither action changes the Task Base, implementation Head,
+future authorization boundaries or the required independent real evidence.
 
 RECORDED below means a statement in the Developer handoff, not independently
 verified disposal. UNKNOWN means the reviewed non-secret records do not establish
@@ -66,20 +67,33 @@ credential read or login was performed to edit this document.
 
 ## Disposition decision
 
-Historical unknowns and whether to accept them or require credential rotation
-remain for the user / A. This document neither asserts a confirmed leak nor
-labels the handling resolved, harmless or exempt from remediation. Asking B
-to correct the wording is not itself acceptance of those unknowns.
+On 2026-10-21, B explained that the remaining blocker was the historical
+credential record, not a failed product test: dev2 temporary-file disposal details
+and dev3 login-password source / applicable authorization remain UNKNOWN. B
+explicitly distinguished accepting those unknowns from requiring rotation.
+The user replied **“接受” (accept)**.
 
-The supported editing work is complete without asking Developer to repeat the
-same wording task, take new credentials, build a forensic tool or rerun media
-scenarios. Any later factual supplement must distinguish its evidence from
-an author's statement; absent evidence can remain explicitly UNKNOWN.
+This is the user's acceptance of the disclosed historical unknowns for Task 4.5.
+F-45-03 no longer blocks that Task; further historical investigation or credential
+rotation is not required as a condition of its acceptance. This does not establish
+complete erasure, absence of disclosure, or historical authorization as verified
+facts. The UNKNOWN entries and the prior review record are retained unchanged.
+
+No secret was read, recovered, rotated or supplied to record this decision. It
+does not authorize future credential files, account or service changes, production
+access, or Task 4.6 credentials. Future handling retains its existing boundaries.
+
+The factual correction work is complete; Developer need not repeat the wording
+change, build a forensic tool or rerun accepted media scenarios. B separately
+rechecks the unchanged executable inputs and accepted real evidence before
+recording the Task review decision in [TASK](../TASK.md).
 
 ## Conclusion
 
-This correction removes unsupported assurances and discloses missing historical
-facts rather than inventing a source or disposal result. It does not change
-accepted product evidence, waive B's real replay, independently approve B's
-own editing work, or mark Task 4.5 / Slice 4 PASS or closed. Current state is
-maintained in [TASK](../TASK.md).
+The user has made the previously pending disposition decision. Historical facts
+remain explicitly UNKNOWN rather than being rewritten as harmless or verified.
+Task 4.5's independent product review can now conclude using the already completed
+full gates and B real replay; no new product run or credential action follows from
+this acceptance. Slice 4 still requires Task 4.6, Slice Final and A review, and is
+not approved or closed by this document. Current state is maintained in
+[TASK](../TASK.md).

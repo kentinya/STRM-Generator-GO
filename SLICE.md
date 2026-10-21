@@ -113,5 +113,5 @@ B 审查各 Task 完整 Base..Head，关键真实行为独立复现；新任务�
 Closure Packet: PENDING
 A Final Review: PENDING
 Decision: PENDING
-Next Action: TASK 4.5 FIX REQUIRED; USER / A HISTORICAL CREDENTIAL DISPOSITION; B REAL REPLAY COMPLETE
+Next Action: TASK 4.5 PASS; B PLAN TASK 4.6; RO-4 / RO-5 NOT RUN; NO CLOSURE YET
 ```

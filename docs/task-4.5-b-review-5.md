@@ -1,5 +1,8 @@
 # Task 4.5 第五次 B 复审：完整真实闭环（2026-10-21）
 
+> 最新决定：用户于2026-10-21明确接受已披露历史UNKNOWN，Task4.5续审 **PASS**；
+> 以下原FIX REQUIRED保留接受前时点，最终处置与全部RO重评见文末。
+
 ## 固定候选与决定
 
 ```text
@@ -129,3 +132,34 @@ Developer重复修文档，不要求扫描历史／全盘或证明绝对无残�
 不为润色另造Task；用户／A处置F-45-03后回到同Task核对，不借机扩大范围。
 本次不激活4.6，不提交“全部RO已满足”的Closure，不返回SLICE READY FOR A REVIEW，
 不自行关闭Slice。
+
+## 2026-10-21 续审：用户接受历史 UNKNOWN，Task PASS
+
+```text
+Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
+Reviewed Documentation Successor: 481be61b158542c47d6baa6bf3e32a9ed4d7ba7b
+Decision: PASS
+F-45-03: ACCEPTED BY USER; HISTORICAL FACTS REMAIN UNKNOWN
+B independent real behavior replay: PASS
+Slice Required Outcomes all satisfied: NO
+Next: B PLAN TASK 4.6 WITHIN ACTIVE SLICE; NO CLOSURE YET
+```
+
+B解释剩余项是dev2临时凭据文件处置、dev3登录密码来源／当时授权的历史记录未知，
+而非程序故障；没有据此认定泄露。区分“接受历史未知”与“要求轮换”后，用户答复
+**“接受”**。这是待定风险的用户处置，不是B证明历史操作合规或无残留。
+[处置说明](task-4.5-credential-disposition.md)已同步，原UNKNOWN和审查事实保留。
+F-45-03不再阻断，也不再向Developer派同一说明／重跑要求，不做账号／服务变更。
+
+入口main干净、治理PASS。续审核对94份B7证据文件摘要全部匹配、82项执行输入及
+二进制／原配置／清单相同；当前10000输出和state逐文件路径／Size／mtime／内容
+身份与B7最终一致，DB仍epoch35／10000归属／0非零缺失。已接受全量和B完整真实闭环
+继续精确复用，不机械重跑；本次没有产品改动、凭据读取、远端／媒体／服务操作。
+本轮只做接受登记、上述只读身份核对及治理／相关链接／空白检查，证据见
+`artifacts/validation-evidence/task-4.5-B8-user-acceptance-20261021/`。
+
+AC-1..6、指定全量、独立真实复现、恢复和历史处置均齐备，**Task4.5 PASS**。
+RO-1／2／3满足；RO-4／5未执行，4.6候选未激活；RO-6的4.5门禁完成，Slice Final、
+Closure和A Final仍未运行。Slice保持ACTIVE，不提前交已满足全部RO的Closure、
+不返回SLICE READY FOR A REVIEW，不自行关闭。不新增4.5润色任务；后续按原Slice
+范围正式规划4.6，该用户接受不扩大4.6凭据或运行授权。

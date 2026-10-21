@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.5
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: PASS
 Task Base: 5182443d0c34215deb7bb1e74a413564aa8e6422
 Contract Checkpoint: 48ff46a2cfd742190de0e8a673a92ec61c086950
 Difficulty: High
@@ -286,11 +286,11 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 
 ```text
 Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
-Document Successor: a28103604a166d1fb590b317325b67ff50bfb82c
-Decision: FIX REQUIRED
+Document Successor: 481be61b158542c47d6baa6bf3e32a9ed4d7ba7b
+Decision: PASS
 B independent real behavior replay: PASS
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.5; USER / A DISPOSITION OF F-45-03 HISTORICAL UNKNOWNS
+Next: B PLAN TASK 4.6 WITHIN ACTIVE SLICE; NO CLOSURE YET
 ```
 
 本次完整复核与原始证据见[第五次B审查](docs/task-4.5-b-review-5.md)。原Task Base、
@@ -315,14 +315,20 @@ DB最终epoch35／10000归属／0非零缺失。未变更的9998输出每轮身�
 本次核对双服务身份后只在内存／子进程环境选择必要凭据，无秘密文件、强刷、服务／
 生产／Jellyfin操作或数据集重建；原配置不改，派生配置只启用既有cleanup=true、阈值3。
 
-**唯一剩余Task阻塞F-45-03：历史UNKNOWN的接受／轮换仍待用户或A决定。**
-[非秘密处置说明](docs/task-4.5-credential-disposition.md)已按用户要求由B纠正，不再
-交回Developer反复修文案；未知项不被新授权、合规新轮或本次时间豁免自动追认。
-不要求全盘／历史秘密扫描，不自行轮换／启停服务，不把B自己的文案编辑自签独立PASS。
+**F-45-03 已由用户明确接受历史UNKNOWN，不再阻断Task4.5。**
+B解释历史凭据处置细节及dev3密码来源／当时授权记录不完整，并区分接受与轮换后，
+用户于2026-10-21答复“接受”。[非秘密处置说明](docs/task-4.5-credential-disposition.md)
+记录该决定；UNKNOWN仍是UNKNOWN，不声称已证明无残留／无泄露或追认当时授权。
+不再要求Developer修同文案／追查或重跑，不自行轮换或变更账号／服务。
+本次接受处置后的续审核对94份B7证据摘要、82项执行输入、发布二进制／配置／清单及
+最终输出／DB身份均未变，接受既有全量和完整真实复现；无新产品／取密／远端操作。
+因此AC-1..6及Task门禁齐备，**Task4.5独立B决定PASS**，原Base／实施Head保持不变。
 
-RO-1／2保留PASS，RO-3产品行为及独立复现齐备；RO-4／5 NOT RUN、4.6未激活；
-RO-6尚缺历史处置、Slice Final、Closure及A审查。Task仍FIX REQUIRED、Slice ACTIVE；
-不新造Task、不提交完成Closure或自行关闭。历史审查见[B4](docs/task-4.5-b-review-4.md)。
+RO-1／2／3已满足；RO-4／5 NOT RUN、4.6未激活；RO-6中4.5的完整门禁、独立复现及
+历史处置已齐备，但Slice Final、Closure与A审查仍待后续。Slice保持ACTIVE，不能返回
+SLICE READY FOR A REVIEW或自行关闭。下一步是B在既有Slice内正式规划4.6，而非重开4.5。
+本轮接受只解除4.5历史处置，不授权运行4.6／取其凭据；候选仍未激活。
+第五次审查中FIX REQUIRED为用户接受前的历史时点，最新PASS续审见该文末尾。
 
 ## 2026-10-21 用户处置：历史计时不再阻断
 
@@ -339,3 +345,11 @@ RO-6尚缺历史处置、Slice Final、Closure及A审查。Task仍FIX REQUIRED�
 历史凭据 UNKNOWN 的接受／轮换仍待用户或 A 决定，不由本授权代替；Task 仍 FIX REQUIRED。
 授权登记时未发生新媒体变更；之后B已用原发布CLI、同源／输出／DB完成完整轮及恢复，
 结果见第五次审查。已匹配全量继续复用，不交回Developer，不启动4.6，不自行关闭Slice。
+
+## 2026-10-21 用户接受历史凭据未知项与 B PASS
+
+用户在B具体解释两个历史记录未知项、说明没有已证实泄露并给出接受或轮换的区别后，
+明确答复“接受”。据此F-45-03由用户风险接受解除，不伪造历史事实或扩大后续权限。
+B复核固定候选与B7原始证据／恢复状态匹配，签发同Task4.5 PASS；不重跑相同输入全量，
+不读取凭据、恢复账号、修改服务或操作远端。仅文档接受登记／治理／链接／空白检查。
+4.6、全部RO、Slice Final、Closure及A最终审查不由该接受代替，Slice仍ACTIVE。
