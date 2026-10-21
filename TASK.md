@@ -275,30 +275,34 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 
 ```text
 Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
-Document Successor: 23170475617cf987f639dd53f34ca41a239e2176
+Document Successor: 1b7aea6aba1a3cbacd8360acab8a98e23ca2abd2
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.5; DEVELOPER FIXES AFFECTED EVIDENCE; B RETAINS FINAL GATES
+Next: SAME TASK 4.5; RESOLVE CREDENTIAL HANDOFF; B RETAINS REAL REPRODUCTION
 ```
 
-当前独立结论、准确复用、受影响验证与B最终门禁见
-[第二次B审查（2026-10-21）](docs/task-4.5-b-review-2.md)。
-第一轮及授权登记保留于[原审查](docs/task-4.5-b-review.md)，其旧时点“Developer尚未获授权”
-不代表当前事实；新授权和真实运行不自动构成AC通过。
+当前独立结论、准确复用、受影响验证与B返回门禁见
+[第三次B审查（2026-10-21）](docs/task-4.5-b-review-3.md)。
+此前[第二次审查](docs/task-4.5-b-review-2.md)与[原审查](docs/task-4.5-b-review.md)
+保留历史时点结论，不以旧的“无移动／无同行清零”否定dev3已交原始证据。
 
-B本轮确认全部既有执行输入匹配，复用完整Go／race／构建、11项同步／6项serve与15项
-辅助测试；新跑quality（111项Python等）及10000输出校验，通过。固定真实Get／缓存
-八场景11项精确复用；打包产物身份匹配后B新跑现有容器门禁6/6通过，
-F-45-02指定全量已齐备，不再退回Developer。
+B核对dev3的15份生成器DB快照、原始发布CLI摘要、Get、恢复媒体和远端列表：
+054真实移动到新路径，旧行三完整轮1→2→3后下一轮删除；057同一created_round=1行
+缺失0→1→2→3→0，失败轮不推进；dry-run前后DB／输出与最终稳定前后输出摘要相等。
+F-45-01两个关键行为缺口已有实证，不再要求Developer重跑。
 
-同Task必须修正：实际delete/restore不等于移动到新路径；删除后created=1不等于同一
-归属的正缺失计数再出现清零；逐轮DB／Get、S3变更恢复和dry-run后／最终稳定前后
-原始状态不足。另有凭据0600临时文件与仅内存授权不一致，仍须处理。
-Developer只补受影响证据／必要验证，不退回全量；B保留指定全量与
-真实独立关键复现（本轮明确阻断后NOT RUN）。需要授权／范围取舍交用户／A。
+82项执行输入与B2相同；完整Go／race／构建、11项同步／6项serve、15项辅助、固定真实
+Get／缓存及打包门禁继续精确复用。新跑当前quality、10000输出校验及文档检查；
+F-45-02全量继续齐备，不退回Developer。
 
-原Task Base／实施Head不变，4.6未激活，RO-3／6部分、RO-4／5 NOT RUN；
-Slice ACTIVE，Closure Packet／A Final Review PENDING。
+仍须同Task补F-45-03：dev2已落盘凭据的非秘密处置／介质／清除范围／已知副本或未知项，
+及dev3所称container-env-password的具体容器／键名／适用授权；新轮“仅内存”不抹去历史。
+不提供秘密，不从历史恢复秘密，不为补说明再取密或重复万文件场景。
+B独立真实复现仍BLOCKED：当前进程未注入专用凭据，现有Env与样本变更授权明确给
+Developer，未覆盖B。授权渠道交用户／A明确协调；门禁仍由B执行，不转交Developer。
+
+原Task Base／实施Head不变，4.6未激活。RO-1／2保留，RO-3／6尚未齐备，RO-4／5
+NOT RUN；Slice ACTIVE，Closure Packet／A Final Review PENDING，不新造Task或自行关闭。
 
 ## 2026-10-21 用户处置：历史计时不再阻断
 
