@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.6
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Contract Checkpoint: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Difficulty: High
@@ -296,3 +296,34 @@ Next: SAME TASK 4.6; S3 / OPENLIST AUTHORIZATION EXTENDED; JELLYFIN IN-MEMORY AU
 
 B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-review.md)。
 本轮明确阻塞下提前拒绝；AC-1..5／B真实复现BLOCKED，未将输入匹配冒充4.6 Final完成。
+
+## Developer Completion Report（2026-10-21，AC-1..6 已实施）
+
+完整报告见 [4.6 Developer 完成报告](docs/task-4.6-developer-report.md)；本节为摘要。
+
+- Changed Files / Implemented：新增受版本化取证工具
+  `docs/task-4.6-artifacts/{scenario,matrix,decision_model,s3ops,fingerprint_read,jfapi}.py`
+  与 `test_task46_tools.py`（16 项直接测试），以及本报告
+  `docs/task-4.6-developer-report.md`。**未改** Go 产品、锁定插件源码／包、
+  Jellyfin／OpenList／RustFS 配置或服务生命周期、4.4 数据集、4.5 输出与状态库。
+- Tests and Results / Evidence：原始证据根
+  `artifacts/validation-evidence/task-4.6-dev-20261021T153126Z/`（本机、Git 忽略），
+  含 `INDEX.json`、00 setup、01 AC-1、02 AC-2、03 矩阵、04 恢复、05 诊断副作用
+  如实披露、06 最终状态、8 份逐行原始日志窗口、两次凭据租约事实。
+  AC-1 原始副本被原生扫描收录且插件确实读取并要求探测；AC-2 建立并确认
+  `Sha1Matches` 基准；AC-3..5 D-01..08 八行取得**当次 item／窗口**的实际决定
+  （复用 Sha1Matches／Unchanged／InsufficientFingerprint，探测 Sha1Changed／
+  NativeUrlMismatch／SizeChanged），逐行因果经锁定规则镜像核对并逐行恢复基准；
+  AC-6 固定数据集 10000 对象与清单集合完全相同、4.5 输出 10000/10000 0 问题、
+  4.5 状态库逐字节未变、插件配置与 Task 前逐字节相同。
+- Decisions / Risks：① 8 小时凭据租约按文档截止时间到期且自清理正确，依 AGENTS
+  既有授权以同一官方恢复流程重新取得内存租约，未读历史秘密／未碰 DB；② 本轮曾
+  一次性使用 `BatchAllLibraries=true` 作诊断，致历史 201 条目多出 196 条
+  FirstTrust 指纹行（无 SHA-1），已如实记录、未清理，交 B 判断；③ D-04／05／06
+  原生探测**结果未成功**（合同不要求成功，如实记录）；④ TASK 建议的
+  `strm-output/task-4.6/` 无法成为独立库（与既有 `/strm` 库路径重复），改用
+  `jellyfin-config/task46/` 专用挂载内目录，未改 Compose／挂载／重启。
+- Timing：本轮约 8 小时 04 分墙钟（含凭据租约到期与重新取得），测试／验收类
+  墙钟约 1 小时 12 分，**约占 15%**，低于 30% 上限。
+- Head SHA：见本轮实现检查点提交（真实可达完整 SHA）；**不自签 PASS**，交 B 独立
+  复现原始扫描与全部八行，并保留指定全量、Slice Final 与 Closure Packet。
