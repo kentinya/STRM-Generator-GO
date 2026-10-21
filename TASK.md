@@ -285,13 +285,13 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 
 ```text
 Reviewed: 5182443d0c34215deb7bb1e74a413564aa8e6422..9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa
-Document Successor: 79d2fee12d88d661b13499bf243e6cc841133f57
+Document Successor: 09c12b2f65909606a9dfbdbaf713b40ad85f01f7
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
 Next: SAME TASK 4.5; USER / A DISPOSITION OF HISTORICAL UNKNOWNS; B RETAINS REAL REPLAY
 ```
 
-本轮复审至文档后继 `79d2fee12d88d661b13499bf243e6cc841133f57`，结论仍为FIX REQUIRED，见
+本轮续审至文档后继 `09c12b2f65909606a9dfbdbaf713b40ad85f01f7`，结论仍为FIX REQUIRED，见
 [第四次B审查](docs/task-4.5-b-review-4.md)。新交两份文档，82项执行输入、二进制、
 清单及生成器DB与已接受候选相同；当前10000产物只读校验10000/10000、0问题。
 指定全量及dev3移动／同行清零等已接受证据保持，不要求Developer重跑。
@@ -324,6 +324,14 @@ S3样本鉴权、OpenList原生admin登录及正常Get／refresh:false列表已�
 首次前置把根直接项数误作10000的断言已修正，原失败保留；没有更改数据集。
 B完整真实闭环仍NOT RUN：同一源完整轮约15分钟、多轮场景超本轮50%测试预算，
 故在媒体变更前停止长场景准入，未修改输出／DB／远端样本。门禁由B保留，不降级或转交Developer。
+
+本次新增独立真实证据：B使用原发布CLI／原配置／同源同输出同DB执行有界dry-run，
+15秒后正常SIGTERM取消，退出1、partial=true、skipped=201；前后10000输出及state文件
+路径／Size／mtime／内容聚合相同，DB摘要及epoch26／10000归属／0非零缺失均相同。
+取消与前后零写边界PASS；完整dry-run及多完整轮真实闭环仍NOT RUN，取消不凑轮数。
+没有媒体变更，无需恢复；没有读取S3凭据或更改服务。详情见第四次审查的续审段及本机证据。
+现有perPage=200不可配置，不虚构缩小扫描入口；只有用户明确放宽本次长场景50%测试
+占比约束，才可在短轮审查内继续长复现，不把“继续审核”解释成自动豁免。
 
 原Task Base／实施Head不变，4.6未激活。RO-1／2保留，RO-3／6尚未齐备，RO-4／5
 NOT RUN；Slice ACTIVE，Closure Packet／A Final Review PENDING，不新造Task或自行关闭。

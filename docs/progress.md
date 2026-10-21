@@ -1,5 +1,12 @@
 # 进度
 
+## 2026-10-21 B续审：真实dry-run取消边界（当前）
+
+- 候选文档后继09c12b2，Task Base／实施Head不变；本次未将B直接文档修正自签独立PASS。既有全量及移动／同行清零等补证继续匹配复用。
+- 核对同隔离project双服务身份后，仅内存取OpenList必要键；原生登录／根与样本Get成功。使用原发布CLI、原配置、同源／输出／DB运行dry-run，15秒后正常SIGTERM取消（exit1、partial=true、skipped201），前后10000输出／state摘要、mtime及DB epoch26／10000归属／0非零缺失相同；取消与前后零写边界PASS，见[续审记录](task-4.5-b-review-4.md#2026-10-21-续审真实发布-cli-取消与零写边界)。
+- 完整dry-run与多轮真实闭环仍NOT RUN；未改媒体、未读S3凭据、未改服务，取消轮不凑计数。没有可配置分页／过滤入口；完整长轮与当前50%测试占比约束的冲突需用户明确决定，不通过改产品／数据集或空等解决，B不转交Developer。
+- F-45-03文字已改，历史UNKNOWN仍待用户／A处置。Task4.5 FIX REQUIRED、Slice4 ACTIVE，RO-4／5 NOT RUN，不激活4.6、不提交完成Closure或自行关闭。
+
 ## 2026-10-21 用户要求B直接修正文档（当前）
 
 - B按用户要求直接修改凭据处置说明和dev3交接，撤下无依据的“无残留／风险已解决／无须补救”保证；原dev2临时文件与shred、dev3内存方式保留为Developer陈述，历史介质／清除细节／副本及dev3上游登录来源明确标UNKNOWN，见[修正说明](task-4.5-credential-disposition.md)。
