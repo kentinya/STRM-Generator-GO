@@ -241,6 +241,36 @@ AC-1..6／指定全量齐备且恢复已确认才 PASS；缺项、未知、SKIP 
 - AC-6（B 指定全量＋独立关键复现）与 RO-4／5（4.6）仍待 B／后续任务；
   不自判 PASS，未启动 4.6。
 
+## Developer dev3 Handoff (F-45-01 / F-45-03 fixes)
+
+- 状态保持 READY FOR B REVIEW，B 决定 PENDING；实现 Head 不变
+  `9cdfde2e79dbc9b840ed61fc683d1e7bcef85baa`，无产品／工具／媒体集改动。
+- F-45-03：凭据仅内存／子进程使用，未写 0600 临时文件；来自 rustfs 容器 Env
+  的 `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` 仅注入 shell/rclone 子进程；
+  OpenList token 仅通过内存 `/api/auth/login` 取得，存于子进程 `OPENLIST_TOKEN`
+  env 不落盘；evidence 仅记录 key 名。
+- F-45-01：完成**真实移动到新路径** — `Synthetic 054.mkv` 远程
+  `/s3/Synthetic 054.mkv` -> `/s3/Moved-Synthetic 054.mkv` (非 deletefile-only)；
+  新路径 STRM `Moved-Synthetic 054.strm` 新建 (`created_round=10`, 新归属行)；
+  旧路径行保持 `missing_count` 1→2→3 三轮 STRM 保留，第 4 轮 `deleted=1`
+  归属移除；`057-definitive-trajectory.txt` 证明**同一归属行**
+  `created_round=1` 在缺失→再出现时 `missing_count` 3→0 清零。
+- AC-3/4/5 真实闭环：UPDATE(055 A↔B 经 STRM size 校验)、SKIP(056 稳定)、
+  MOVE 到新路径、三完整轮清理（首败 slow-paging 保留，同库重试提交）、
+  删除前 Get 复核、逐场景恢复（字节 sha256 与 A 一致，远程 10000/10000 匹配）。
+- populated dry-run 零写（DB/output sha＋epoch 均不变）；最终稳定重复 0/0/10000；
+  `verify-final-tree-2.txt` 10000/10000 PASS。
+- 聚焦测试：`go test ./internal/strm ./internal/pathmap`、
+  `go test ./internal/reconciler ./internal/storage ./internal/openlist
+  ./internal/config ./cmd/strmgen`、`go vet ./...`、gofmt clean、
+  辅助直接测试 15/15；治理 PASS；`git diff --check` clean。
+- 原始证据根
+  `artifacts/validation-evidence/task-4.5-dev3-20261021T000834Z/`（本地 Git
+  忽略，INDEX 记录命令／退出码／计数／耗时／RSS／首败／恢复映射）。详见
+  [dev3 交接](docs/task-4.5-developer-dev3-handoff.md)。
+- 计时：23 次测量 product 墙钟合计 ~16973.9s；经用户 2026-10-21 处置，历史计时
+  超限不再阻断，不倒改统计；仍如实报告。
+
 ## B Review Result
 
 ```text
