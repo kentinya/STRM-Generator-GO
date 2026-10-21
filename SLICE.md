@@ -19,11 +19,8 @@ Implementation Head: 69d022e2f7acb41fe1002fad9652386e4460cc75
 
 按用户最新澄清，旧 4.1／4.2／4.3 从当前任务安排中撤下；不继承其待审事项、修复清单
 或验收结论。历史记录留在 Git 与原始证据中，当前只保留后续需要的实际成果。
-Slice 1–3 PASS / CLOSED 与原 Slice Base 不变。新 4.4／4.5 已 PASS；4.6 已实施
-AC-1..6 并交 READY FOR B REVIEW：原始产物被原生扫描收录且插件读取，基准 A 以
-Sha1Matches 建立，D-01..08 取得当次 item／窗口的实际决定并逐行恢复。
-Implementation Head 为 4.6 的实际实现检查点；B 仍持有指定全量、独立八行复现、
-Slice Final 与 Closure Packet，本轮不代签 B／A PASS。
+Slice 1–3 PASS / CLOSED 与原 Slice Base 不变。新 4.4／4.5／4.6 均未实施；
+Implementation Head 为 NOT SET，待新任务产生实际实现检查点后填写。
 
 可复用成果仅作为输入资产：隔离环境、媒体原件、生成／启动／停止脚本、固定插件源码／
 包及当前适用的产品／测试工具。当前 RO 的结果由新任务取得，不以旧任务记录抵扣。
