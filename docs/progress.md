@@ -131,3 +131,10 @@
 - B以本次Key读取原生任务200／Idle，并由独立子进程通过匿名sealed memfd→环境Key读取受保护API200；实际使用／有效期／撤销见[认证交接](task-4.6-jellyfin-access.md)。Key当前由内存进程保管、尚未撤销，最长8小时；结束／过期撤销及退出必须核对真实结果。
 - 保留准备元数据NameError（恢复前）和首次启动器认证头401，修正为已验证MediaBrowser头后通过；6项辅助直接检查和当前限定范围秘密扫描通过。不重签Key、不重复恢复，不把认证当业务PASS。
 - F-46-01授权／认证前置已解除，Developer可继续同Task；原始扫描／D-01..08仍NOT RUN，Task保持FIX REQUIRED、Slice ACTIVE，无Closure／A就绪或关闭声明，B最终全量及独立复现责任不变。原始证据根 `artifacts/validation-evidence/task-4.6-jellyfin-access-20261021T144611Z/`。
+
+## 2026-10-22 Task 4.6 B2固定候选复审
+
+- B审完整Task Base `b599dbc5…` 至实现`69d022e2…`及文档后继`e42dc384…`；治理通过，原始副本扫描／插件读取和8行当次日志已交付，不把探测结果失败升级为合同外门槛。当前10000输出0问题、固定清单／CLI／原件／DLL／生成器DB身份匹配，保留4.4／4.5 PASS。
+- 决定[FIX REQUIRED](task-4.6-b-review-2.md)：F-46-02为矩阵直接读取Task禁止的插件DB，F-46-03为现有restore入口错取当前配置（B以既有入口stub复现；最终人工恢复证据保留）。F-46-04为历史201条目诊断／196指纹副作用及Developer再次恢复账号的角色授权问题，交用户／A处置，不擅自清库或再改账号。继续同Task，不新造Task。
+- 本次仓库Python111项与4.6工具16项通过；82项旧执行输入相同，适用原门槛原始日志／二进制身份匹配，保留复用而不机械重跑。B真实原始扫描／8行独立复现及最终签收因明确阻塞NOT RUN，仍由B负责，不交回Developer。两次Key结束／撤销事实已补当前交接页；本轮无取密／远端／服务／媒体操作。
+- Slice4保持ACTIVE，RO-4／5的B独立验收与RO-6未闭合，Final／Closure／A Final仍PENDING，不返回就绪或自行关闭。证据`artifacts/validation-evidence/task-4.6-B2-20261021T234826Z/`，测试／总耗时严格小于50%，明细见timing.json。

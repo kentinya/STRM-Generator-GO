@@ -1,5 +1,14 @@
 # Task 4.6 Jellyfin 临时认证交接（2026-10-21）
 
+> 2026-10-22 B2当前核对：以下是首次交接时点，不代表当前仍有可用租约。
+> 首次租约已到期自撤销；Developer第二次租约的最终结果于
+> **2026-10-22 07:39:11（Asia/Shanghai，2026-10-21 23:39:11Z）**捕获，记录已显式结束。
+> 原始`auth-lease-2-final-revoked.json`及当前`artifacts/task-4.6/auth/result.json`
+> 记录`temporary_key_revoked=true`、`revoked_key_rejected=true`、退出会话HTTP204、
+> `lease_active=false`。B2只读核对这些非秘密结果，未新登录／恢复账户／重发Key；
+> 当前没有活跃内存Key可沿用。后续需要时仍由B按AGENTS既有授权核对身份并协调，
+> Developer不得自行恢复账户；本次已发生的角色／范围偏差见[第二次B审查](task-4.6-b-review-2.md)。
+
 ## 当前结果与边界
 
 用户明确允许仅对专用隔离Jellyfin执行官方账户恢复、更改管理员密码并创建4.6临时验收Key。

@@ -3,13 +3,21 @@
 ```text
 Task ID: 4.6
 Parent Slice: 4
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Contract Checkpoint: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Difficulty: High
 Test Level: T4
 Planner / Reviewer: B
 ```
+
+2026-10-22 当前B决定：**FIX REQUIRED**，完整复审见[第二次B审查](docs/task-4.6-b-review-2.md)。
+已核对实现 `69d022e2f7acb41fe1002fad9652386e4460cc75` 及后继至
+`e42dc384b2abbb6946cec82cfe0995e76e71d4af`；真实八行日志已有，不改称未交付。
+同Task修正禁止的插件DB读取依赖和配置restore入口；已披露的历史201条目诊断及
+Developer再恢复账号的范围／角色问题交用户／A处置，不擅自清库或再改账号。
+B继续持有指定全量精确复用／补跑、原始扫描与全部8行独立复现、Slice Final；
+本轮明确阻塞下提前拒绝，不把这些职责交回Developer。此前报告／B结果保留原时点事实。
 
 本计划由 B 在真实仓库、治理 PASS、4.5 独立 B PASS 后正式提交；提交后为当前实施任务。
 4.5 完整计划／报告保留于 `b599dbc5c0e6bd394ee361343d74ebbb12d1ecab:TASK.md`，
@@ -328,3 +336,16 @@ B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-
 - Head SHA：Task 4.6 实现检查点 `69d022e2f7acb41fe1002fad9652386e4460cc75`；
   后继为 Head 登记／合同保持／计时修正的文档提交。**不自签 PASS**，交 B 独立
   复现原始扫描与全部八行，并保留指定全量、Slice Final 与 Closure Packet。
+
+## B Review Result（2026-10-22，当前）
+
+```text
+Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..69d022e2f7acb41fe1002fad9652386e4460cc75
+Reviewed Documentation Successor: e42dc384b2abbb6946cec82cfe0995e76e71d4af
+Decision: FIX REQUIRED
+Slice Required Outcomes all satisfied: NO
+Next: SAME TASK 4.6; F-46-02 / 03 DEVELOPER FIX; F-46-04 USER / A DISPOSITION; B RETAINS FINAL GATES AND INDEPENDENT REPLAY
+```
+
+受影响验证、原始证据复用和全部RO重评见[第二次B审查](docs/task-4.6-b-review-2.md)。
+不新建Task、不移动Base或实现Head、不要求探测成功，不自行关闭Slice。
