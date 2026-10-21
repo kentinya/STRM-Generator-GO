@@ -16,9 +16,9 @@ doc (tracked). No credentials are written to disk, argv, logs, evidence or git;
 `git diff --check` is clean; working tree on `## main`.
 
 ## F-45-03 fix — in-memory credentials only (no temp files)
-- `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` (`slice4access`/`slice4secret-20261019`,
-  confirmed via `docker inspect` Env key-presence only) sourced into shell memory
-  only; fed to `rclone` subprocs via in-memory env vars.
+- `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` key-presence confirmed via `docker
+  inspect` Env; values NOT recorded. Sourced into shell memory only; fed to
+  `rclone` subprocs via in-memory env vars.
 - OpenList token obtained per-run through in-memory `/api/auth/login` using the
   container env password (key presence only recorded). Token injected solely via
   child `OPENLIST_TOKEN` env; helper script lives at `/tmp/token_exec.py`
