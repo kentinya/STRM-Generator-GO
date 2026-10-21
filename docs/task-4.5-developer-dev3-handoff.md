@@ -30,6 +30,14 @@ doc (tracked). No credentials are written to disk, argv, logs, evidence or git;
 - Evidence scan: no `local-test-admin-password`, `JWT_SECRET=`, full-token, or
   `token_exec` script contents anywhere in the run dir.
 
+> **Note on legacy credential handling:** The prior dev2 round (`task-4.5-dev2-20261020T1345Z`)
+> wrote `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` to a 0600 temp file, sourced it into
+> subprocess env, then shredded it. This dev3 round and all subsequent rounds use
+> **in-memory only** credential sourcing — no temp file is created. The non-secret
+> disposition of the legacy dev2 temp file (storage media, clearing range, known
+> copies/residuals) is documented in `docs/task-4.5-credential-disposition.md`.
+> No credential values, file paths, or tokens are recorded in either document.
+
 ## F-45-01 fix — real MOVE to a new path + same-row reappearance clear-to-zero
 ### Real move (sample `Synthetic 054.mkv`)
 - Remote mutation: `rclone moveto /s3/Synthetic 054.mkv -> /s3/Moved-Synthetic 054.mkv`
