@@ -4,6 +4,8 @@
 > Developer与B；不再重复等待这两项授权。Jellyfin由B协调提供，当前尚无可用凭据，
 > 若需账户恢复须明确允许其密码变更副作用。下文“不继承”是指南编写时事实，
 > 当前准入以根[TASK](../TASK.md)和[AGENTS](../AGENTS.md)后续记录为准；其余门禁不变。
+> 最新实测：B已完成获授权的官方恢复和临时Key内存交接，认证前置已解除；
+> 按[认证交接](task-4.6-jellyfin-access.md)的真实入口继续同Task，不再等待密码或账户恢复授权。
 
 这份指南把根 [TASK](../TASK.md) 拆成可以顺序照做的步骤；不新增需求，不替代授权，
 不修改 Task Base／Contract Checkpoint。与本指南不一致时，以 [开发流程](development-workflow.md)

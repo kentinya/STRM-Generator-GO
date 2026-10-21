@@ -124,3 +124,10 @@
 - 用户明确“S3 Openlist复用4.5 Jellyfin你给他提供”；已将同隔离项目、身份核对、仅内存取密与最少样本变更／恢复授权延伸至4.6 Developer／B，不再等待这两项重复授权；4.5时间豁免不延伸。
 - Jellyfin改由B协调提供。既有临时Key已撤销、新密码未保存，当前进程未发现已知Jellyfin认证变量可用值；尚未取得凭据，未取密／读历史秘密／访问DB／恢复账户／签发Key／请求真实服务。原生恢复会改变隔离管理员密码，需用户明确允许该副作用后办理。
 - 准入／指南同步，原阻塞交接及首次审查保留历史并附当前处置。Task仍FIX REQUIRED、Slice ACTIVE，未实现／测试扫描矩阵，不冒充PASS或Closure；B最终门禁不转交Developer。
+
+## 2026-10-21 Task 4.6 Jellyfin原生恢复与内存认证交接
+
+- 用户在B明确说明隔离管理员密码变更及临时验收Key后答复“允许”；授权先提交55a08d0，再核对专用Jellyfin project／服务／镜像／全部挂载与当前原生API定义，官方恢复／新PIN兑换／认证成功，强随机密码设置及临时Key创建成功，未读历史秘密或DB、未改服务生命周期。
+- B以本次Key读取原生任务200／Idle，并由独立子进程通过匿名sealed memfd→环境Key读取受保护API200；实际使用／有效期／撤销见[认证交接](task-4.6-jellyfin-access.md)。Key当前由内存进程保管、尚未撤销，最长8小时；结束／过期撤销及退出必须核对真实结果。
+- 保留准备元数据NameError（恢复前）和首次启动器认证头401，修正为已验证MediaBrowser头后通过；6项辅助直接检查和当前限定范围秘密扫描通过。不重签Key、不重复恢复，不把认证当业务PASS。
+- F-46-01授权／认证前置已解除，Developer可继续同Task；原始扫描／D-01..08仍NOT RUN，Task保持FIX REQUIRED、Slice ACTIVE，无Closure／A就绪或关闭声明，B最终全量及独立复现责任不变。原始证据根 `artifacts/validation-evidence/task-4.6-jellyfin-access-20261021T144611Z/`。

@@ -21,6 +21,10 @@ Planner / Reviewer: B
 Jellyfin由B协调提供；用户随后已明确允许仅对专用隔离Jellyfin执行官方账户恢复、更改
 隔离管理员密码并创建4.6临时验收Key。执行前核对身份，只读本次新恢复文件；不读DB／
 历史秘密，Key仅内存交接、结束／过期撤销。该授权尚不代表实际恢复／鉴权／交接成功。
+后续实测：B已完成本次原生恢复、随机强密码及临时Key创建；原生任务／受保护API200，
+子进程内存交接已验证。Developer／B通过[认证交接入口](docs/task-4.6-jellyfin-access.md)
+使用，不需要再索取／保存密码。当前授权与认证前置已解除，AC-1..6仍待Developer实施，
+本Task保持FIX REQUIRED直至其开始同Task修正，不把认证验证签成业务PASS。
 以下Developer报告及首次B审查保留原时点事实，当前剩余前置以本段和AGENTS后续授权为准。
 
 2026-10-21 Developer 原前置核对：执行进程未获 4.6 专用 Jellyfin 凭据，也没有 4.6 S3
@@ -76,7 +80,8 @@ Jellyfin由B协调提供；用户随后已明确允许仅对专用隔离Jellyfin
 
 1. **认证**：4.4 临时 Jellyfin Key 已撤销，新密码未保存。用户已明确将4.5的S3／OpenList
    渠道延伸至4.6 Developer／B；按AGENTS核对身份后选择性仅内存取用，不再要求重复授权。
-   Jellyfin由B协调提供，当前未取得；需要有效安全注入或明确允许的本Task取用渠道。
+   Jellyfin已由B通过本Task临时内存Key提供，入口／有效期及结束撤销见上述认证交接；
+   使用前执行其安全检查，失效时报告B，不自行恢复账号或寻找历史秘密。
    用户已明确允许本Task官方账户恢复及隔离管理员密码变更；按AGENTS执行并记录实测结果。不得从历史文件、Jellyfin DB、完整 Env 或
    其他项目恢复秘密，不超出上述授权恢复账户或调整服务生命周期。凭据不可用为 BLOCKED，
    已有代码／文档核对可继续；不能宣称扫描或决策通过。B 独立复现也需覆盖其职责的有效授权。
@@ -286,7 +291,7 @@ Token／Cookie／密码只在获准的内存／子进程环境使用，不在arg
 Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..c05e09f063dad29a9e1431688d6df11baaa141ae (documentation-only handoff; no Task 4.6 product implementation)
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.6; S3 / OPENLIST AUTHORIZATION EXTENDED; B COORDINATES JELLYFIN ACCESS (NOT YET AVAILABLE); DEVELOPER THEN IMPLEMENTS AC-1..6; B RETAINS FINAL GATES AND INDEPENDENT EIGHT-ROW REPLAY
+Next: SAME TASK 4.6; S3 / OPENLIST AUTHORIZATION EXTENDED; JELLYFIN IN-MEMORY AUTH HANDOFF VERIFIED; DEVELOPER IMPLEMENTS AC-1..6; B RETAINS FINAL GATES AND INDEPENDENT EIGHT-ROW REPLAY
 ```
 
 B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-review.md)。

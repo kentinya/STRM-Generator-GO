@@ -12,7 +12,7 @@ Slice 4 在原 Base 内重规划，未验收、未关闭。当前工作与交接
 
 Slice 4 Base：`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，不随重规划移动。
 当前只按 4.4／4.5／4.6 推进：4.4 本地与远端固定均已实施（适配建集工具与只读 probe、
-10000 本地／S3 对象、最终清单与 dataset_id），B4 已接受固定数据集、工具修正及原生任务可用性，4.4 PASS；4.5已完成独立B真实同步／恢复复现，用户明确接受历史凭据UNKNOWN后B决定PASS；4.6为FIX REQUIRED／无产品实施，用户已明确延伸4.5 S3／OpenList授权至4.6 Developer与B，Jellyfin认证交B协调、尚未取得；继续同Task，B保留指定全量及独立8行复现，见[4.6 B审查](task-4.6-b-review.md)。
+10000 本地／S3 对象、最终清单与 dataset_id），B4 已接受固定数据集、工具修正及原生任务可用性，4.4 PASS；4.5已完成独立B真实同步／恢复复现，用户明确接受历史凭据UNKNOWN后B决定PASS；4.6为FIX REQUIRED／业务未实施，S3／OpenList授权已延伸，Jellyfin经新明确授权由B完成官方恢复与[临时Key内存交接](task-4.6-jellyfin-access.md)，认证前置已解除；Developer继续同Task，B保留指定全量及独立8行复现，见[4.6 B审查](task-4.6-b-review.md)。
 旧 4.1–4.3 的任务、审查和修复清单退出当前安排，后续只复用需要的环境／媒体／脚本／固定产物和适用工具。
 
 | 新 Task | 结果 | 前置 |
