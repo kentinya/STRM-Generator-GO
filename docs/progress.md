@@ -107,3 +107,8 @@
 - 根TASK与[4.6正式计划](../Task/4.6-plugin-decisions-plan.md)限定最少原始副本扫描／固定插件读取、正常主流／历史／地址基准、完整D-01..08因果决定与逐场景恢复。原始URL在Jellyfin容器内连接拒绝已如实记录，原始字节不能改写冒充；标注副本可先验证同网络原生OpenList入口，不新增代理／服务网络变更。普通日志已含决定／理由，不为取证强制开启详细日志。
 - Developer负责受影响验证、真实矩阵／恢复及固定Head交接；B持有指定全量执行／精确复用、完整Base..Head审查和独立原始扫描／全部8行复现。同输入不机械重跑Final，不把全量交回Developer。全部RO满足后才做Slice Final／Closure并交A，不自关。
 - 4.6凭据与必要样本变更按新Task准入，4.5授权／历史UNKNOWN接受／一次性计时豁免均不继承；未取密、改媒体、创建库、改设置或触发扫描／任务。状态PLANNED，RO-4／5 NOT RUN，Slice仍ACTIVE、B／A审查PENDING。本轮只作规划及文档检查，证据在 `artifacts/validation-evidence/task-4.6-plan-20261021/`。
+
+## 2026-10-21 Task 4.6 Developer 逐步指导
+
+- 应用户要求新增[开发实施指南](task-4.6-implementation.md)，用已有样本Plain Movie／Synthetic 001与A/B原件，明确前置、原始／标注副本、原生扫描入口、正常基准、八行单变量操作、逐场景恢复、故障处理和报告模板。根TASK及正式计划同步链接。
+- 指南不新增凭据／S3／账号恢复授权，不改RO、Task Base或锁定输入；不开发插件／播放runner或新平台，不将B最终全量交给Developer。当前仅文档，4.6仍PLANNED、真实扫描／矩阵NOT RUN、B／A决定PENDING。
