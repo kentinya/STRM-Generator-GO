@@ -9,7 +9,7 @@ Implementation Head: 69d022e2f7acb41fe1002fad9652386e4460cc75
 Reviewed Documentation Successor: e42dc384b2abbb6946cec82cfe0995e76e71d4af
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.6; FIX NATIVE-ONLY EVIDENCE AND RESTORE; USER / A DISPOSITION OF OUT-OF-SCOPE EFFECTS; B RETAINS FINAL GATES
+Next: SAME TASK 4.6; FIX NATIVE-ONLY EVIDENCE; RESTORE HELPER DEFECT IS P2; USER / A DISPOSITION OF OUT-OF-SCOPE EFFECTS; B RETAINS FINAL GATES
 ```
 
 入口 `main` 干净；已读 AGENTS、开发流程、V4.4、范围、需求、用户旅程、架构、路线、
@@ -54,10 +54,12 @@ SLICE／TASK及三角色指南，实施前治理 PASS。审查完整 Task Base..
 **修正：**退出这个直接DB读取入口及矩阵依赖，保留旧证据并如实标记历史不合规；
 用已有原生扫描／检查／公开API、基准副本与此前明确复用的连续证据说明历史侧，
 保留每行主流／地址／当次决定／恢复，不伪造指纹或直接提交插件内部状态。
-Developer仅补该受影响链路和直接验证；B随后仍亲自复现原始扫描与全部8行。
+Developer只需退出禁止的取证依赖并验证直接影响；既有原生决定日志仍是有效事实，
+不要求为删除只读依赖而重跑一套八行。必要的原生基准／因果核对与完整8行独立复现
+仍由B完成，不将源码预测或DB读值当成实际决定。
 不要求改变插件、增加元数据服务或枚举合同之外的组合。
 
-### F-46-03 / P1：既有 restore 入口会把当前临时配置当成原配置
+### F-46-03 / P2：既有 restore 入口有误，但本次最终配置已实际恢复
 
 `phase_setup`将前值放在`RESULTS["setup"]["plugin_configuration_before"]`，但
 `matrix.py:580`读取顶层同名键，缺失后退回`plugin_config()`，即当前已缩小的库范围。
@@ -69,9 +71,12 @@ B已直接调用现有`phase_restore`，仅stub外部I/O（无服务／数据副
 实际产生的状态形状：原值`true/空`，当前`false/决策库`，restore后仍为后者。
 复现见`restore-entry-reproduction.json`；不猜路由、不调用不存在的入口。
 
-**修正：**从本次已保存的准确前值恢复，支持交付中实际采用的分阶段调用；前值缺失
-时明确停下，不以当前值冒充恢复。只补这个入口的直接测试（连续阶段、分进程阶段、
-缺前值）和获准原生配置的实际恢复核对，不建设通用恢复平台、不重跑万文件同步。
+**直接需求校准：**Task AC-6要求的是场景／最终配置实际恢复，不要求提供自动恢复
+工具。当前setup前值与最终配置逐字段相等，不能因中间辅助入口有误，将已实现的
+恢复结果重新判成缺失。原P1定级过重，现降为P2，**不单独阻断Task通过**。
+B复现可直接走已有原生配置入口保存／恢复并核对结果；仅当后续还要复用此helper时，
+先最小修正准确前值来源并做直接测试。连续／分进程／缺前值工具用例不再是额外业务
+通过门槛，不建设通用恢复平台、不重跑万文件同步。
 
 ### F-46-04 / P1：已有超范围副作用须由用户／A处置，B不追认
 
@@ -113,8 +118,9 @@ UNKNOWN接受不自动覆盖4.6。该事项不意味着产品失效或已发生�
 
 ## 受影响验证、返回门禁与全部 RO
 
-Developer继续**同一Task4.6**，只修上述原生证据链／精确恢复和准确交接，跑新增与
-受影响工具测试／实际必要场景；不接管B全量、不改Go产品／锁定插件／业务RO，不重建
+Developer继续**同一Task4.6**，只退出禁止的DB取证依赖并准确交接，验证直接影响；
+F-46-03为不单独阻断的P2，B可用原生入口恢复，不要求交付自动恢复工具或再跑八行。
+Developer不接管B全量、不改Go产品／锁定插件／业务RO，不重建
 数据集、重跑4.5多轮或通过直接清库处理历史副作用。纯事实补充仅治理／链接／空白。
 
 B在修正后固定新实现Head，审完整原Task Base..Head及后继，匹配已接受门槛、补变化
@@ -133,3 +139,15 @@ B在修正后固定新实现Head，审完整原Task Base..Head及后继，匹配
 准确墙钟与保守汇总见`timing.json`，严格小于本轮50%，没有采用4.5豁免、空等或将
 测试等待排除。**Task4.6 FIX REQUIRED，Slice4 ACTIVE**；不造新Task，不交已满足
 全部RO的Closure，不返回SLICE READY FOR A REVIEW，不自行关闭。
+
+## 2026-10-22 续审：原因、场景与直接需求映射
+
+| 项 | 实际原因／场景 | 对应直接需求及处置 |
+|---|---|---|
+| F-46-02 | 矩阵实际读取插件SQLite，而非仅观察原生行为 | Task AC-2明文禁止读写Jellyfin／插件DB；这是执行边界，不是新产品功能。移除后续依赖，保留真实日志，不要求Developer重复完整矩阵 |
+| F-46-03 | helper错取当前配置；最终另经原生操作恢复成功 | Slice场景恢复／Task AC-6只要求实际恢复。已核对最终等于前值，降P2，不以工具完善阻断业务结果 |
+| F-46-04 | 诊断扩大到历史201条目，且报告由Developer重做B专属账户恢复 | Task隔离条款与AGENTS授权边界；属于历史范围／授权处置，不是生成器产品故障。交用户／A，不新增清库、权限系统或恢复能力 |
+
+真正剩余的业务验证是原合同已有的B原始扫描／8行独立实证、必要恢复与最终门槛，
+不因以上问题再造Task或扩展工具。F-46-02及F-46-04未闭合，故总决定仍FIX REQUIRED；
+不是因为F-46-03或要求探测结果成功。旧P1审查记录保留于`ab602135…`，本段为当前校准。
