@@ -19,6 +19,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import run_openlist_absence_integration as runner  # noqa: E402
 
 
+def setUpModule():
+    # Generated artifacts are absent in a fresh checkout; create our test parent.
+    runner.EVIDENCE_ROOT.mkdir(parents=True, exist_ok=True)
+
+
 class EvidenceDirectoryTests(unittest.TestCase):
     def test_refuses_source_tree(self):
         with self.assertRaises(SystemExit):
