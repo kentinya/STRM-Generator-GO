@@ -3,10 +3,10 @@
 本文件说明 STRM Generator 的 Linux amd64／arm64 产品镜像与 Compose 运行方式，区分
 **一次性**与**常驻**运行、状态与恢复边界。命令与路径以仓库根目录为基准。当前
 证据层：本机 amd64 容器实测通过；arm64 只验证 OCI manifest／digest 与二进制
-ELF 架构，ARM64 实机与正式发布仍 NOT RUN。Slice 1–3 PASS / CLOSED，当前 Slice 4
-验证固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件决策；所需环境／媒体／固定包
-见 [资产清单](slice-4-assets.md)；4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；
-4.5／4.6尚未实施，不能用容器smoke代替该验收。
+ELF 架构，ARM64 实机与正式发布仍 NOT RUN。Slice 1–4 PASS / CLOSED，Slice 4
+已验收固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件完整决定；所需环境／媒体／固定包
+见 [资产清单](slice-4-assets.md)。4.4／4.5／4.6均独立B PASS，
+[A最终审查](slice-4-a-final-review.md)已接受RO-1..6；这些结果来自分层原始证据，不能用容器smoke替代。
 
 ## 构建
 
@@ -126,7 +126,7 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
 ## 边界与 NOT RUN
 
 Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启，不表示已发布到 registry。
-当前 Slice 4 的外部服务／固定万文件证据依 [合同](../SLICE.md) 单列，仍待完成；Compose
+Slice 4 的外部服务／固定万文件证据依 [合同](../SLICE.md) 单列，已由B独立验收及A最终接受；Compose
 的 `mem_limit: 512m` 是部署配置，不是 512 MB 性能验收门槛。客户端播放、代理及更高
 规模压力已退出当前 V4.4 验收。
 

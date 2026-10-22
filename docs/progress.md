@@ -1,5 +1,13 @@
 # 进度
 
+## 2026-10-22 Slice 4 A 最终审查与关闭（当前）
+
+- [A最终审查](slice-4-a-final-review.md)：完整原Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 至实现Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`，并审纯文档后继 `93b0b02aa2bcce854dd82293979aa5f22e8aae27`；RO-1..6 PASS、无P0／P1阻塞，Slice 4 **PASS / CLOSED**。
+- 4.4／4.5／4.6均独立B PASS；A核验B3的126份、B7的94份及4.4复用原始记录摘要、固定10000本地媒体、10000 S3路径／Size记录、10000 STRM与10001条输出／状态记录，以及原始扫描、八行当次决定、逐行恢复和临时认证撤销。A未重新取密、操作真实API／S3、访问Jellyfin／插件DB或触发扫描／任务。
+- A本轮仓库Python111、4.4工具23、4.5工具15、4.6工具25及10000输出0问题；Go／race／构建与指定集成按准确输入、产物及原始证据复用，不声称重跑。首败与重试保留；证据根为 `artifacts/validation-evidence/slice-4-A-final-20261022T021430Z/`（本机、Git忽略）。
+- 同步SLICE／TASK／README、架构CURRENT、范围／兼容性／环境／测试矩阵、Roadmap及Closure；根TASK撤为无活动，三角色各留一条方法。历史UNKNOWN／用户接受不改成当时授权或无泄露证明；探测启动不改成探测成功。非阻断P2、ARM64实机／正式发布NOT RUN及合同排除保留。
+- `Next Action: A SELECTS THE NEXT LARGE SLICE`。关闭后停止，不自动选择或启动下一Slice。下列旧“当前”标题及状态均为对应时点历史，由本节取代当前指针，不改写原始审查。
+
 ## 2026-10-21 B续审：真实dry-run取消边界（当前）
 
 - 候选文档后继09c12b2，Task Base／实施Head不变；本次未将B直接文档修正自签独立PASS。既有全量及移动／同行清零等补证继续匹配复用。

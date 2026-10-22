@@ -3,7 +3,7 @@
 ```text
 Slice ID: 4
 Owner: A
-Status: READY FOR A REVIEW
+Status: PASS / CLOSED
 Base SHA: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63
 Implementation Head: 24e1ba0ab88173f2c7374f450c9750e5a1e9b504
 ```
@@ -111,14 +111,26 @@ B 审查各 Task 完整 Base..Head，关键真实行为独立复现；新任务�
 
 ```text
 Closure Packet: docs/slice-4-closure-packet.md (B COMPLETE)
-A Final Review: PENDING
-Decision: PENDING
-Next Action: A REVIEWS d1c95ad079a0e3f952d9e57ab50299c6ae93ad63..24e1ba0ab88173f2c7374f450c9750e5a1e9b504; ALL TASKS PASS; NO NEW TASK; NO B CLOSURE
+A Final Review: docs/slice-4-a-final-review.md (COMPLETE)
+Reviewed Range: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63..24e1ba0ab88173f2c7374f450c9750e5a1e9b504
+Reviewed Documentation Successor: 93b0b02aa2bcce854dd82293979aa5f22e8aae27
+Decision: PASS
+P0/P1 Blockers: NONE
+Next Action: A SELECTS THE NEXT LARGE SLICE
 ```
 
 
-2026-10-22 当前交接：4.4／4.5／4.6 均已独立 B PASS，见
+2026-10-22 关闭事实：4.4／4.5／4.6 均已独立 B PASS，见
 [4.6 B3](docs/task-4.6-b-review-3.md) 与 [Closure Packet](docs/slice-4-closure-packet.md)。
 正文中的“本次重规划／未实施”保留规划时点与已提交能力合同，不表示当前交付缺失；
-当前状态以上方顶栏及本交接为准。全部 RO 的 B 验收及 Slice Final 已齐备，
-A Final／Decision 仍 PENDING，由 A 审查原 Base..最终实现 Head，不自行关闭。
+当前状态以上方顶栏及本关闭事实为准。全部 RO 的 B 验收及 Slice Final 已齐备；
+A 已审原 Base..最终实现 Head 及纯文档后继，RO-1..6 最终 PASS、无 P0／P1 阻塞，
+详见 [A Final](docs/slice-4-a-final-review.md)。不追认历史越界或 UNKNOWN、不宣称探测
+成功／播放；非阻断 P2 与未运行边界保留。
+
+## Closure Reconciliation
+
+本关闭检查点同步 SLICE／TASK／README、架构 CURRENT、范围与兼容性等当前文档、
+Roadmap／Progress 及 Closure Packet；根 TASK 撤为无活动实施任务，三角色经验已复盘。
+原 Base、已审实现 Head、RO／验收和 V4.4 内容身份不变，不修改产品或隔离服务。
+Slice 4 **PASS / CLOSED**，停止，不自动选择或启动下一 Slice。

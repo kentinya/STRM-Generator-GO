@@ -1,7 +1,7 @@
 # 测试矩阵
 
 当前依据为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 PASS / CLOSED；[Slice 4](../SLICE.md)
-在原 Base 内 READY FOR A REVIEW。4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；4.5生成／同步已获独立B PASS；4.6原始扫描／八行决定已独立B PASS，见[Closure Packet](slice-4-closure-packet.md)；A Final仍PENDING，
+在原 Base 内完成并 PASS / CLOSED。4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；4.5生成／同步已获独立B PASS；4.6原始扫描／八行决定已独立B PASS，见[Closure Packet](slice-4-closure-packet.md)；[A Final](slice-4-a-final-review.md)已接受RO-1..6、无P0／P1阻塞，
 当前结果由新任务取得；所需环境／媒体／三脚本见 [资产清单](slice-4-assets.md)。本表定义当前覆盖与执行入口，
 旧任务记录不作为验收完成或审查前置。
 
@@ -46,7 +46,10 @@ D-05 在旧基准匹配后改变 URL，可由 UrlChanged 或此次变化导致�
 D-03 可用同批本地原件的真实 SHA-1 与标注异常 Size 副本；D-04 的新内容、SHA-1、Size
 和实际服务字节须一致。D-06..08 明示历史／当前哪侧 SHA-1 或 Size 缺失／无效。
 原始 CLI 文件单独留存用于 RO-4，副本不作为生成器同步通过证据。D-02 只有源端 Modified
-变化，STRM 中不增加该字段。全部行实际证据待下一验收 Task，不能由旧例外豁免。
+变化，STRM 中不增加该字段。全部行已由Task 4.6的B原生独立复现并由A最终接受：
+D-01／02／03为Sha1Matches，D-07为Unchanged，D-08为InsufficientFingerprint；
+D-04／05／06有当次实际探测启动，按正常基准与单变量输入排除无关分支。
+探测结果未成功如实保留，不以Python预测或历史DB读值替代实际决定，不由旧例外豁免。
 
 ## 当前工具清单
 
@@ -116,4 +119,4 @@ mock_openlist.py、dev/fixtures/openlist.json、dev/compose.yaml 是 Slice 1–3
 工具验收重建或删数据。保留脚本不恢复播放门槛。
 
 新顺序为 4.4 资产复用与固定数据集 → 4.5 万文件／少量同步 → 4.6 原始扫描／完整决策。
-4.4 固定10000本地／S3对象、最终清单、工具修正及原生任务入口已由 B4 验收 PASS。4.5生成／同步／恢复已获独立B PASS；4.6已独立B PASS，Slice Final与Closure齐备，交A最终审查；不继承旧任务审查或修复要求。
+4.4 固定10000本地／S3对象、最终清单、工具修正及原生任务入口已由 B4 验收 PASS。4.5生成／同步／恢复与4.6原始扫描／完整八行均独立B PASS，Slice Final与Closure齐备，A已最终接受并关闭Slice；不继承旧任务审查或修复要求，不自动启动下一Slice。

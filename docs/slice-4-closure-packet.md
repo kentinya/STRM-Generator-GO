@@ -2,14 +2,14 @@
 
 ```text
 Slice ID: 4
-Status: READY FOR A REVIEW
+Status: PASS / CLOSED
 Base SHA: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63
 Implementation Head: 24e1ba0ab88173f2c7374f450c9750e5a1e9b504
 B Task Decisions: 4.4 PASS / 4.5 PASS / 4.6 PASS
 B Slice Final: COMPLETE (execution plus exact-input evidence reuse)
-A Final Review: PENDING
-Decision: PENDING
-Next Action: A REVIEWS ORIGINAL SLICE BASE..IMPLEMENTATION HEAD; NO NEW TASK
+A Final Review: docs/slice-4-a-final-review.md (COMPLETE)
+Decision: PASS
+Next Action: A SELECTS THE NEXT LARGE SLICE
 ```
 
 ## 用户结果与固定范围
@@ -77,11 +77,12 @@ race／构建／11 同步／6 serve／固定 Get／容器等准确匹配复用�
 - 本轮测试占比严格小于 50%，含真实等待／失败／恢复／只读验收，详见 B3 timing。
   4.5 历史长场景有其单独用户豁免，本轮没有沿用。
 
-## A 待办与停止点
+## A 关闭协调与停止点
 
-README、CURRENT／范围／用户旅程／测试矩阵、Roadmap／Progress 与当前 Task 已作
-READY FOR A REVIEW 的事实协调；不改稳定需求、V4.4 摘要或既有合同能力。
-A 仍需独立审查完整 Slice 范围与用户结果，给出最终决定；如 PASS，由 A 在关闭检查点
-按开发流程统一撤下活动 Task、协调关闭文档及三角色经验。B 不提前 CLOSED、不选下一 Slice。
+本 Packet 的 B 原始交接已完成；上文“A 待完成”等文字保留 B 时点，不是当前待办。
+A 已独立审查完整 Slice 范围、后继、用户结果与原始证据，决定 [PASS](slice-4-a-final-review.md)。
+本关闭检查点协调 README、CURRENT／范围／用户旅程／兼容性／环境／测试矩阵、
+Roadmap／Progress、SLICE／TASK 和三角色经验，不改稳定需求、V4.4 摘要或合同能力。
+Task 4.6 保留 PASS，根 TASK 撤为无活动；历史接受不追认权限，原证据不删除。
 
-**SLICE READY FOR A REVIEW**
+**Slice 4 PASS / CLOSED。关闭后停止，不自动选择或启动下一 Slice。**

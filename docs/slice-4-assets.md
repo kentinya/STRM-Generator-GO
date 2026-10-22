@@ -67,5 +67,6 @@ B 候选 SHA-256 为 `e1aee32fbd9ddc13b970cbc644861b5fced7b2b8447542d9eedac8e02c
 临时 Key 验证任务 200／Idle 后已撤销，恢复会话退出；隔离 admin 密码已更改而新值未保存，
 无后续可复用认证，后续4.6原生操作需安全注入本Task凭据或另获授权。4.5生成／同步已获独立B PASS，
 4.6原始扫描与完整八行决定已独立B PASS，见[本次B审查](task-4.6-b-review-3.md)。
-当前4.6临时Key也已撤销／会话退出；[Closure Packet](slice-4-closure-packet.md)交A，
-未关闭Slice，不从历史文件恢复认证。公开入口、DLL与历史加载本身仍不代替真实决定。
+当前4.6临时Key也已撤销／会话退出；[Closure Packet](slice-4-closure-packet.md)已由
+[A最终审查](slice-4-a-final-review.md)接受，Slice 4 PASS / CLOSED、根TASK无活动实施任务。
+不从历史文件恢复认证，不自动启动下一Slice；公开入口、DLL与历史加载本身仍不代替真实决定。

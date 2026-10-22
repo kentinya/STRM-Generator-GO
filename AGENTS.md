@@ -4,7 +4,7 @@
 
 开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.4 方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。Slice 1–3 已 PASS / CLOSED，Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。Slice 4 在原 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 内按用户本轮授权完全重规划：保留复用已有隔离环境、媒体原件及 generate_media.py／bootstrap.sh／teardown.sh，固定 10000 个 S3 文件，少量同步及原始扫描／完整插件决策。新顺序为 Task 4.4 资产复用与固定数据集 → 4.5 万文件生成／最少同步 → 4.6 原始扫描／完整决策。旧 4.1／4.2／4.3 不再是当前任务，不继承其待审或修复要求；只保留后续需要的环境、媒体、脚本、固定产物和适用工具。新 4.4／4.5／4.6 均未实施，不能用旧任务记录抵扣验收。当前实施仅以 SLICE／TASK 为准，无播放、代理、旧暂缓例外或更高规模压力门槛。用户会话授权优先于本文件。
+先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。Slice 1–4 已 PASS / CLOSED，Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。Slice 4 保持原 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，按用户授权完全重规划为 Task 4.4 资产复用与固定数据集 → 4.5 万文件生成／最少同步 → 4.6 原始扫描／完整决策；三项均已独立 B PASS。A 已审完整 Base 至实现 Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504` 及纯文档后继，RO-1..6 PASS、无 P0／P1 阻塞，见 [A 最终审查](docs/slice-4-a-final-review.md)。已有隔离环境、媒体原件、generate_media.py／bootstrap.sh／teardown.sh 及固定产物保留；旧 4.1／4.2／4.3 不作为当前验收完成或审查前置。根 TASK 无活动实施任务，关闭后停止，不自动选择或启动下一 Slice。当前状态仅以 SLICE／TASK 为准，无播放、代理、旧暂缓例外或更高规模压力门槛。下列授权和旧状态保留历史时点，不追认历史越界／UNKNOWN，也不扩大未来权限。用户会话授权优先于本文件。
 
 ## 固定业务边界
 
@@ -38,7 +38,7 @@
 
 2026-10-22 用户在 B 解释第三项 F-46-04 的两项已披露历史操作后明确答复“这条接受”：接受诊断时扩大到历史201条目、产生196条FirstTrust指纹，以及报告所述由Developer再次执行原本由B办理的官方账户恢复／密码变更／临时Key创建。F-46-04不再阻断Task 4.6；保留原始披露与审查，不将接受改写为当时已获授权、无副作用或无泄露的证明，不以继续追查、清理指纹或再改账号作为通过前置。本次仅处置这两项历史事实，不扩大未来权限，不授权直接访问Jellyfin／插件DB或Developer自行恢复账户；后续认证仍由B按既有授权协调。F-46-02及B最终门禁不受影响，Task仍FIX REQUIRED，Slice仍ACTIVE。
 
-Task 4.6 当前Jellyfin临时认证的实际交接入口、有效期与撤销要求见 [认证交接](docs/task-4.6-jellyfin-access.md)。旧“尚未取得／等待恢复授权”的记录保留历史，不再作为当前授权阻塞；认证可用性与业务验收仍分开判定。
+Task 4.6 Jellyfin临时认证的交接历史、有效期与撤销要求见 [认证交接](docs/task-4.6-jellyfin-access.md)。本次临时Key已撤销、同Key401及恢复会话退出204由B核验，无活跃交接租约；旧“尚未取得／等待恢复授权”的记录保留历史。认证可用性与业务验收分开判定，不从关闭记录推导后续认证授权。
 
 Slice／Task 状态和 Git 检查点仅由开发流程定义。A／B／Developer 是职责，不自动授权多代理；只有用户或适用指令明确要求才委派。实施者不得签发自己的独立 B 审查或 A 最终审查 PASS。
 

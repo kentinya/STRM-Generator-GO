@@ -1,6 +1,6 @@
 # 开发环境与交接
 
-环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1、Slice 2 与 Slice 3 均已 PASS / CLOSED，Task 1.1／1.2／2.1／2.2／3.1／3.2 均有独立 B PASS，A 已完成 Slice 3 最终审查。当前 Slice 4 按 V4.4 验证固定万文件、少量同步与原始扫描／插件决策；环境 smoke 不代表这些产品结果或 ARM64 实机通过。
+环境文件仅写本仓库 `artifacts/dev-env/`；当前宿主为 Debian 12／Linux amd64，Python 3.11.2、Git、Docker 和 Compose 已存在。没有使用同机生产 Jellyfin 或配套项目的运行配置。Slice 1–4 均已 PASS / CLOSED；Slice 4的4.4／4.5／4.6均独立B PASS，[A最终审查](slice-4-a-final-review.md)已接受固定万文件、少量同步、原始扫描与完整插件决定。根TASK无活动实施任务，关闭后停止；环境 smoke 不代表这些产品结果或 ARM64 实机通过，具体分层证据见[Closure Packet](slice-4-closure-packet.md)。
 
 ## 安装与检查
 
@@ -183,7 +183,7 @@ verify-only，不重跑建集。bootstrap／teardown本轮无需执行，未重�
 当前保留四个 Slice 1–3 驱动、全部 Go 回归、环境／版本治理工具及资产清单中的三个
 辅助脚本；旧目标播放运行器不使用。旧任务过程记录不作为当前审查或修复前置。
 当前 4.4 复用资产／固定 10000 数据集，4.5 发布 CLI 生成／测量和同批最少同步，4.6
-最少原始扫描及全部 D-01..08 实际决策。4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；4.5／4.6尚未实施。每次复核／重跑沿用同批
+最少原始扫描及全部 D-01..08 实际决策。4.4／4.5／4.6均已独立B PASS，A最终接受RO-1..6并关闭Slice 4；探测决定与探测结果成功分开。每次复核／重跑沿用同批
 媒体，不再生成整批数据，不建设通用运行器／补偿平台。
 
 Task 4.4 的具体开发顺序、生成脚本改造、候选／最终清单、S3 补传、OpenList 分页、

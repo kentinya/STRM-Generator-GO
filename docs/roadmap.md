@@ -1,22 +1,22 @@
 # Slice 路线图
 
 当前需求为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 已 PASS / CLOSED；
-Slice 4 已完成三个 Task 的独立 B 验收及 Slice Final，READY FOR A REVIEW，尚未由 A 最终审查／关闭。当前工作与交接见 [Task](../TASK.md)。
+Slice 4 已完成三个 Task 的独立 B 验收、Slice Final 及 [A 最终审查](slice-4-a-final-review.md)，PASS / CLOSED。根 [Task](../TASK.md) 无活动实施任务，关闭后停止，不自动选择或激活下一 Slice。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
 |---|---|---|---|---|
 | 1 | 安全单轮生成 | PASS / CLOSED | 开发基线 | 配置／API／V1／稳定 URL、原子写入、归属、正常恢复、dry-run／互斥 |
 | 2 | 安全目录镜像与清理恢复 | PASS / CLOSED | Slice 1 | 源根／目标 Get、三完整轮、归属／边界清理、移动／再出现与恢复 |
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
-| 4 | 复用隔离资产的万文件与插件决策验收 | READY FOR A REVIEW | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
+| 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 
 Slice 4 Base：`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，不随重规划移动。
-当前只按 4.4／4.5／4.6 推进：4.4 本地与远端固定均已实施（适配建集工具与只读 probe、
+已按 4.4／4.5／4.6 完成：4.4 本地与远端固定均已实施（适配建集工具与只读 probe、
 10000 本地／S3 对象、最终清单与 dataset_id），B4 已接受固定数据集、工具修正及原生任务可用性，4.4 PASS；4.5已完成独立B真实同步／恢复复现，用户明确接受历史凭据UNKNOWN后B决定PASS；4.6经同Task修正及[第三次B审查](task-4.6-b-review-3.md)已PASS：退出禁止DB取证依赖，
 B独立完成原始扫描／读取与全部8行决定，确认逐场景及最终恢复、临时认证撤销；
 指定全量按准确输入／原始证据复用并补齐当前检查。全部RO的B验收面满足，
-[Closure Packet](slice-4-closure-packet.md)已提交；停止造Task，交A审查原Slice Base..
-最终Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`，A Final仍PENDING，不自行关闭。
+[Closure Packet](slice-4-closure-packet.md)已收口；A已审查原Slice Base..
+最终Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504` 及纯文档后继，RO-1..6 PASS、无P0／P1阻塞，并关闭Slice。
 旧 4.1–4.3 的任务、审查和修复清单退出当前安排，后续只复用需要的环境／媒体／脚本／固定产物和适用工具。
 
 | 新 Task | 结果 | 前置 |
@@ -26,7 +26,7 @@ B独立完成原始扫描／读取与全部8行决定，确认逐场景及最终
 | 4.6 | 最少原始扫描与 D-01..08 实际决策，全部 RO 及 Slice Final | 4.5 独立 B PASS |
 
 现有隔离环境、媒体原件及生成／启动／停止脚本原地保留，见 [资产清单](slice-4-assets.md)。
-当前任务见根 [TASK](../TASK.md)，[4.6正式计划](../Task/4.6-plugin-decisions-plan.md)覆盖最少原始扫描、完整D-01..08与恢复；[4.5规划原件](../Task/4.5-generation-sync-plan.md)仅作历史参考。
+当前无活动任务，见根 [TASK](../TASK.md)；[4.6正式计划](../Task/4.6-plugin-decisions-plan.md)及[4.5规划原件](../Task/4.5-generation-sync-plan.md)保留为已完成任务的历史合同，不作为新任务授权。
 无客户端播放、代理、旧暂缓例外或更高规模压测门槛。ARM64 实机及正式发布另由 A 选择，未自动激活后续 Slice。
 
 历史关闭记录：Slice 1 见 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；
