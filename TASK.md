@@ -15,8 +15,9 @@ Planner / Reviewer: B
 已核对实现 `69d022e2f7acb41fe1002fad9652386e4460cc75` 及后继至
 `e42dc384b2abbb6946cec82cfe0995e76e71d4af`；真实八行日志已有，不改称未交付。
 同Task退出禁止的插件DB读取依赖；restore辅助入口缺陷降为P2，本次最终配置已恢复，
-不以完善自动恢复工具单独阻断。已披露的历史201条目诊断及
-Developer再恢复账号的范围／角色问题交用户／A处置，不擅自清库或再改账号。
+不以完善自动恢复工具单独阻断。用户于2026-10-22明确接受第三项F-46-04：已披露的
+历史201条目诊断／196条FirstTrust指纹及Developer再恢复账号的范围／角色问题，
+不再阻断；保留历史事实，不追认当时授权、不扩大未来权限，不擅自清库或再改账号。
 B继续持有指定全量精确复用／补跑、原始扫描与全部8行独立复现、Slice Final；
 本轮明确阻塞下提前拒绝，不把这些职责交回Developer。此前报告／B结果保留原时点事实。
 
@@ -345,7 +346,7 @@ Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..69d022e2f7acb41fe1002fad9652
 Reviewed Documentation Successor: e42dc384b2abbb6946cec82cfe0995e76e71d4af
 Decision: FIX REQUIRED
 Slice Required Outcomes all satisfied: NO
-Next: SAME TASK 4.6; F-46-02 DEVELOPER FIX; F-46-03 P2 NON-BLOCKING; F-46-04 USER / A DISPOSITION; B RETAINS FINAL GATES AND INDEPENDENT REPLAY
+Next: SAME TASK 4.6; F-46-02 DEVELOPER FIX; F-46-03 P2 NON-BLOCKING; F-46-04 ACCEPTED BY USER / NON-BLOCKING; B RETAINS FINAL GATES AND INDEPENDENT REPLAY
 ```
 
 受影响验证、原始证据复用和全部RO重评见[第二次B审查](docs/task-4.6-b-review-2.md)。
