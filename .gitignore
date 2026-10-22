@@ -1,4 +1,5 @@
 artifacts/
+/deploy/data/
 /STRM Generator Go.md
 .env
 .env.*

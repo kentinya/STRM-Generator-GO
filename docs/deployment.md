@@ -18,6 +18,7 @@ ELF 架构，ARM64 实机与正式发布仍 NOT RUN。Slice 1–4 PASS / CLOSED�
 二进制。
 
 ```bash
+mkdir -p artifacts/task-3.2/oci
 # 本机 amd64 镜像（可加载运行）
 docker buildx build --platform linux/amd64 --load --tag strmgen:local .
 
@@ -56,7 +57,7 @@ docker compose -f deploy/compose.yaml stop -t 60
 | 配置 | `STRMGEN_CONFIG` 以 `:ro` 只读挂载到 `/etc/strmgen/config.yaml` |
 | 输出 | `STRMGEN_OUTPUT` → `/output`，生成器拥有的 STRM 树 |
 | 数据库 | `STRMGEN_STATE` → `/state`，含 SQLite 主库及 `-wal`／`-shm`／`-journal` sidecar 与 dry-run 快照 |
-| 临时写 | 容器内 `tmpfs:/tmp`（`noexec,nosuid,nodev,size=64m`），承载同目录暂存与私有只读快照 |
+| 临时写 | 容器内 `tmpfs:/tmp`（`noexec,nosuid,nodev,size=64m`）提供通用临时空间；STRM 同目录暂存写在 `/output`，数据库私有只读快照写在 `/state` |
 | 锁 | `STRMGEN_LOCK_DIR` → `/tmp/strmgen-locks`，固定锁命名空间 |
 | 身份 | `user: STRMGEN_UID:STRMGEN_GID`，默认镜像非特权账号 `10001:10001` |
 | 权限 | `read_only: true`、`cap_drop: ALL`、`no-new-privileges`、`pids_limit`、`mem_limit`；不使用 privileged／Docker socket／host PID／host network |

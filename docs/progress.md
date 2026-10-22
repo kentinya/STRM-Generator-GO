@@ -1,6 +1,17 @@
 # 进度
 
-## 2026-10-22 Slice 4 A 最终审查与关闭（当前）
+## 当前（2026-10-22 GitHub 推送前文档准备）
+
+- 当前 V4.4 开发需求已完成，Slice 1–4 均 PASS / CLOSED，无活动实施任务；`Next Action: NONE — CURRENT REQUIREMENTS COMPLETE`。没有必须继续的下一 Slice，新增工作须由用户另行授权。
+- [文档导航](README.md)统一使用／开发／审查入口；README、包说明、CURRENT、路线图及流程清除过时待验收／下一 Slice 提示。已关闭合同的 Base、实现 Head、RO、验收结果及业务边界不变。
+- 历史任务授权原文迁入[授权记录](authorization-history.md)，仅调整相对链接和末尾空行；旧 PENDING／BLOCKED／FIX REQUIRED／UNKNOWN 和原始审查结论保留历史含义，本机证据与远端可读材料分开。本地参考方案在 `c28e1ba` 已取消跟踪，原件保留、可达历史未改写。
+- 准备开始时工作区干净、治理 PASS、未配置 Git remote。本轮仅本地文档治理、必要文件清单维护及忽略默认容器输出／状态目录 `deploy/data/`；检查记录见 `artifacts/validation-evidence/github-doc-preparation-20261022T033059Z/`，未推送、未创建发布，未取密或操作真实服务／媒体。
+
+## 历史账本
+
+以下各日期及“当前”字样均为当时记录；当前状态以上方摘要与根 SLICE／TASK 为准。
+
+## 2026-10-22 Slice 4 A 最终审查与关闭（历史）
 
 - [A最终审查](slice-4-a-final-review.md)：完整原Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63` 至实现Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`，并审纯文档后继 `93b0b02aa2bcce854dd82293979aa5f22e8aae27`；RO-1..6 PASS、无P0／P1阻塞，Slice 4 **PASS / CLOSED**。
 - 4.4／4.5／4.6均独立B PASS；A核验B3的126份、B7的94份及4.4复用原始记录摘要、固定10000本地媒体、10000 S3路径／Size记录、10000 STRM与10001条输出／状态记录，以及原始扫描、八行当次决定、逐行恢复和临时认证撤销。A未重新取密、操作真实API／S3、访问Jellyfin／插件DB或触发扫描／任务。
@@ -8,41 +19,41 @@
 - 同步SLICE／TASK／README、架构CURRENT、范围／兼容性／环境／测试矩阵、Roadmap及Closure；根TASK撤为无活动，三角色各留一条方法。历史UNKNOWN／用户接受不改成当时授权或无泄露证明；探测启动不改成探测成功。非阻断P2、ARM64实机／正式发布NOT RUN及合同排除保留。
 - `Next Action: A SELECTS THE NEXT LARGE SLICE`。关闭后停止，不自动选择或启动下一Slice。下列旧“当前”标题及状态均为对应时点历史，由本节取代当前指针，不改写原始审查。
 
-## 2026-10-21 B续审：真实dry-run取消边界（当前）
+## 2026-10-21 B续审：真实dry-run取消边界（历史）
 
 - 候选文档后继09c12b2，Task Base／实施Head不变；本次未将B直接文档修正自签独立PASS。既有全量及移动／同行清零等补证继续匹配复用。
 - 核对同隔离project双服务身份后，仅内存取OpenList必要键；原生登录／根与样本Get成功。使用原发布CLI、原配置、同源／输出／DB运行dry-run，15秒后正常SIGTERM取消（exit1、partial=true、skipped201），前后10000输出／state摘要、mtime及DB epoch26／10000归属／0非零缺失相同；取消与前后零写边界PASS，见[续审记录](task-4.5-b-review-4.md#2026-10-21-续审真实发布-cli-取消与零写边界)。
 - 完整dry-run与多轮真实闭环仍NOT RUN；未改媒体、未读S3凭据、未改服务，取消轮不凑计数。没有可配置分页／过滤入口；完整长轮与当前50%测试占比约束的冲突需用户明确决定，不通过改产品／数据集或空等解决，B不转交Developer。
 - F-45-03文字已改，历史UNKNOWN仍待用户／A处置。Task4.5 FIX REQUIRED、Slice4 ACTIVE，RO-4／5 NOT RUN，不激活4.6、不提交完成Closure或自行关闭。
 
-## 2026-10-21 用户要求B直接修正文档（当前）
+## 2026-10-21 用户要求B直接修正文档（历史）
 
 - B按用户要求直接修改凭据处置说明和dev3交接，撤下无依据的“无残留／风险已解决／无须补救”保证；原dev2临时文件与shred、dev3内存方式保留为Developer陈述，历史介质／清除细节／副本及dev3上游登录来源明确标UNKNOWN，见[修正说明](task-4.5-credential-disposition.md)。
 - 同步根TASK，不再将相同文字修正交回Developer；用户／A对历史未知项的接受或轮换决定仍待处理。B本次是编辑者，不自签独立PASS，不将“改文档”解释为历史风险接受或放宽真实门禁。
 - 仅T0文档修正，无产品／工具／媒体／输出／DB／服务改动，无凭据读取或真实同步；既有匹配全量继续复用。B独立关键复现仍NOT RUN，由B保留；Task4.5 FIX REQUIRED、Slice4 ACTIVE，未激活4.6或关闭Slice。
 
-## 2026-10-21 Task 4.5 第四次独立B复审（当前）
+## 2026-10-21 Task 4.5 第四次独立B复审（历史）
 
 - 复审原Base..实施Head及文档后继 `79d2fee12d88d661b13499bf243e6cc841133f57`；本次仅两份事实文档，无产品／执行输入变更，结论仍 **FIX REQUIRED**，见[第四次审查](task-4.5-b-review-4.md)。
 - 82项输入及四份工具工作副本匹配；发布二进制、固定清单、生成器DB与B4相同；当前原始输出只读校验10000/10000、0问题。完整指定门禁与dev3已接受移动／同行清零等继续复用，不退回Developer重跑。
 - 已收到F-45-03处置文档，但dev3上游登录密码的具体容器／键名／当时授权仍缺；无依据的“无残留／已解决”保证须改为可证事实、当事人陈述或UNKNOWN，历史例外接受交用户／A。只需修正文档，不要求秘密值、全盘扫描或新框架。
 - B操作授权有效；本轮P1尚存先拒绝，未准入多完整轮真实关键复现，NOT RUN，由B保留；未读凭据、未变更媒体／输出／DB／服务。Task4.5 FIX REQUIRED，Slice ACTIVE，4.6未激活，RO-4／5 NOT RUN，不提交完成Closure或自行关闭。
 
-## 2026-10-21 Task 4.5 B获授权并核对真实前置（当前）
+## 2026-10-21 Task 4.5 B获授权并核对真实前置（历史）
 
 - 用户“可以”明确授权B在同一隔离环境取必要凭据、最少样本变更并恢复；已登记AGENTS／TASK，不再以Developer-only授权阻断B，也不追认旧凭据落盘。
 - B先核对RustFS／OpenList的project、服务、锁定镜像和准确挂载，再仅内存取必要键；S3样本stat与OpenList原生admin登录／Get／refresh:false列表成功。guest登录401与首次前置目录total断言错误均保留；断言按固定清单修正后前置通过，未改产品或数据集。
 - 同源完整轮约15分钟、多轮关键闭环超过本轮严格50%测试预算；因此未先行变更媒体或生成器输出／DB，B完整真实复现仍NOT RUN，由B保留。F-45-03的非秘密历史处置／来源交接仍缺，Task4.5保持FIX REQUIRED。细节见[授权与前置](task-4.5-b-authorized-preflight.md)。
 - 既有完整门禁和移动／同行清零补证继续接受，不机械重跑。Slice ACTIVE，4.6未激活，RO-4／5 NOT RUN，不提交完成Closure或自行关闭。
 
-## 2026-10-21 Task 4.5 第三次独立B复审（当前）
+## 2026-10-21 Task 4.5 第三次独立B复审（历史）
 
 - 原Base..9cdfde2及文档后继1b7aea6完整复审，结论 **FIX REQUIRED**，见[第三次审查](task-4.5-b-review-3.md)。核对dev3的15份DB快照及原始记录，接受真实移动新路径、三完整轮后删除、同一归属行正缺失清零及dry-run／恢复补证；不再以旧缺口要求Developer重跑。
 - 82项执行输入、既有原始全量日志和二进制身份匹配，B继续精确复用Go／race／构建、11项同步／6项serve、15项辅助、固定Get／缓存与打包门禁；本轮新跑当前quality、10000输出及文档检查。F-45-02继续齐备，不交回Developer。
 - F-45-03仍缺旧凭据临时文件的非秘密处置交接与dev3登录凭据的容器／键名／授权来源说明；仅新轮内存使用不能追认历史。B真实独立复现BLOCKED：当前进程无专用凭据，既有容器Env／样本变更授权给Developer，B不越权扩大。授权处置交用户／A，真实门禁仍由B负责。
 - 无产品／固定媒体／服务修改，无容器Env读取或远端动作。RO-1／2保留，RO-3／6未齐备，RO-4／5 NOT RUN；保持同Task修正、Slice ACTIVE，不激活4.6、不提交Closure或自行关闭。历史计时已解除，本轮仍按严格小于50%统计。
 
-## 当前（2026-10-20）
+## 2026-10-20 任务进展（历史）
 
 - 当前依据 V4.4，Slice 4 ACTIVE；原 Base 不变，Implementation Head 更新为本轮实现提交（见根 TASK 完成报告）。
 - 按用户明确要求，旧 4.1／4.2／4.3 撤出当前任务安排；其任务、审查、修复或完成结论均不继承，只保留后续需要的实际成果。

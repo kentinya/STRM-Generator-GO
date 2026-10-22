@@ -8,7 +8,8 @@ Slice 4 已由 A 最终审查 **PASS / CLOSED**（2026-10-22），无活动实�
 - [A 最终审查](docs/slice-4-a-final-review.md)、[B3 PASS](docs/task-4.6-b-review-3.md)、[Closure Packet](docs/slice-4-closure-packet.md)。
 
 ```text
-Next Action: A SELECTS THE NEXT LARGE SLICE
+Next Action: NONE — CURRENT REQUIREMENTS COMPLETE
 ```
 
-关闭后停止；不自动启动下一 Slice，不将历史操作授权作为新任务授权。
+当前 V4.4 开发需求已完成，没有必须继续的下一 Slice。关闭后停止；新增工作须由用户
+另行授权，不将历史操作授权作为新任务授权。

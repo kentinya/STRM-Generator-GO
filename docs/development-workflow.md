@@ -77,7 +77,7 @@ B 独立复现指定关键行为，检查可复用的原始证据，不因角色
 
 A 审查完整 Base..Implementation Head 与用户结果，记录 Reviewed Range、Decision、P0/P1 Blockers，可判 PASS、FIX REQUIRED、PARTIAL / RESCOPE。FIX REQUIRED 保持原 Base 回到当前合同修正。
 
-PASS 后在一个关闭检查点协调 SLICE、TASK、README、架构 CURRENT、Roadmap、Progress，记录已审查 Implementation Head、Closure Reconciliation 和 PASS / CLOSED；TASK 撤为无活动，写 `Next Action: A SELECTS THE NEXT LARGE SLICE` 后停止。下一 Slice 的选择／激活是独立动作。关闭后发现原范围 P0／P1 保留历史重新激活同一 Slice。P2 不无限延长交付。
+PASS 后在一个关闭检查点协调 SLICE、TASK、README、架构 CURRENT、Roadmap、Progress，记录已审查 Implementation Head、Closure Reconciliation 和 PASS / CLOSED，TASK 撤为无活动后停止。当前授权需求全部完成时写 `Next Action: NONE — CURRENT REQUIREMENTS COMPLETE`，不预设必须选择下一 Slice；仍有用户已授权需求时记录实际剩余结果，下一 Slice 的选择／激活作为独立动作。新增需求须先取得用户授权。关闭后发现原范围 P0／P1 保留历史重新激活同一 Slice。P2 不无限延长交付。
 
 关闭时阅读三份角色经验，每份最多新增 1～3 条真实可复用方法，按“问题 → 做法 → 适用条件”；无新经验不凑数，不复制原项目实施经历或 Task 流水账。
 

@@ -7,7 +7,7 @@
 
 | 范围 | 必须覆盖 | 入口／证据层 |
 |---|---|---|
-| 工具治理 | 版本与摘要、必需文件／链接、已提交合同、真实 SHA、SDK 安全解压 | check_governance.py、development_environment.py、Python 单测 |
+| 工具治理 | SDK 版本与外部输入摘要、必需文件／链接、已提交合同、真实 SHA、SDK 安全解压；本地参考资料不纳入门禁 | check_governance.py、development_environment.py、Python 单测 |
 | V1／URL／比较 | UTF-8／65536、SHA-1／Int64、元数据缺失、稳定 URL 编码、URL→SHA-1→Size | Go strm／pathmap／openlist；不代替实际插件决策 |
 | 单轮生成 | 新增／更新／零重写、归属／路径、dry-run、锁、故障与正常恢复 | Go 回归及 run_isolated_sync_integration.py |
 | Mirror／清理 | 源根 Get 保留、目标未读到计缺失、refresh:false、三完整轮／重核、再出现、多源与中断恢复 | Go 回归、同步驱动；真实 Get／缓存另用 run_openlist_absence_integration.py |

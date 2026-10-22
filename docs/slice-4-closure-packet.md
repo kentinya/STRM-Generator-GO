@@ -1,5 +1,9 @@
 # Slice 4 Closure Packet — B 交 A（2026-10-22）
 
+> 后继文档说明：下方 Next Action 及正文的 A 待办保留原交接／关闭时点，
+> 不构成当前任务。当前 V4.4 开发需求已完成，根 [TASK](../TASK.md) 无活动任务或
+> 下一 Slice 待办。本地参考方案已退出治理与版本跟踪；历史摘要、范围与决定不改写。
+
 ```text
 Slice ID: 4
 Status: PASS / CLOSED

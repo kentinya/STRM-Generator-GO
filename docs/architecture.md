@@ -4,6 +4,9 @@
 
 Slice 1–4 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划并完成；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。4.4 已适配本地建集工具与只读 OpenList probe；经用户授权从已核对的专用隔离容器内存取用凭据后，真实 S3 对象补足至 10000、最终清单／dataset_id 已固定，真实 OpenList 递归分页与样本匹配，经 B4 接受数据集／工具及原生任务可用性，Task 4.4 PASS。4.5生成／同步／恢复与4.6原始扫描／完整八行决定均已独立B PASS；[A最终审查](slice-4-a-final-review.md)已审完整原Base至实现Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504` 及纯文档后继，RO-1..6 PASS、无P0／P1阻塞，见[Closure Packet](slice-4-closure-packet.md)。根 [TASK](../TASK.md) 无活动实施任务，关闭后停止；旧任务不作为审查依赖或当前验收完成依据。
 
+当前 V4.4 开发需求已完成，没有必须继续的下一 Slice；下方 TARGET 描述已落地的设计约束，
+不是尚待实施的路线。新增工作须由用户另行授权。
+
 `internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 
 部署层由仓库根 [Dockerfile](../Dockerfile) 与 [deploy/compose.yaml](../deploy/compose.yaml) 定义：构建阶段在 `$BUILDPLATFORM` 以 `CGO_ENABLED=0` 交叉编译 `$TARGETARCH`，运行层不执行架构相关命令，只复制 CA 根、非特权账号文件与静态二进制；镜像按 digest 固定基础层，不含 token／源码／testhooks／宿主状态。Compose 以运行时环境注入 token、只读挂载配置、分别挂载输出／SQLite 状态／固定锁目录、容器私有 `/tmp` tmpfs，非 root 且 `read_only`／`cap_drop: ALL`／`no-new-privileges`，正常 SIGTERM 让当前轮取消并释放 flock。共享输出的多容器必须挂同一锁目录对象并使用一致 UID／GID；容器私有 `/tmp` 同名锁不构成互斥。验收驱动 `scripts/run_container_integration.py` 只用隔离合成服务与本仓库 artifacts 路径，不接触生产。
@@ -20,8 +23,8 @@ Slice 1–4 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c750
 依赖固定为 `gopkg.in/yaml.v3 v3.0.1` 与 `modernc.org/sqlite v1.60.1`（CGO=0，Linux amd64／arm64 可构建），go.sum 已提交。race 门槛使用仓库内固定的 Zig `cc`（`artifacts/dev-env/cc/bin/cc`，仅用于 CGO，不是产品运行时依赖）。目录列表累计限制为每目录 10,000 项和 2 MiB 名称字节，待排队目录最多 10,000 个，诊断最多保留每源 100 条；这些是实现边界，不是吞吐或内存承诺。环境 smoke 与真实 OpenList／Jellyfin 证据仍分开报告。
 
 测试侧保留复用已完成的隔离环境、媒体原件、媒体生成／启动／停止脚本；详见
-[资产清单](slice-4-assets.md)。旧生成脚本仍为 201 占位写入，不能重跑覆盖现有媒体；
-按需先保留原版再最小适配，实例运行中不强制重建。测试侧使用既有 CLI／S3 命令和 Jellyfin 原生检查。允许同批本地真实 SHA-1 与标注副本，不让生成器补算哈希；插件完整决策须实际取证。过时目标运行器由工具治理退出，当前工具清单见 [测试矩阵](test-matrix.md)。
+[资产清单](slice-4-assets.md)。原版占位生成脚本已另存，4.4 适配版已固定 10000 文件与清单；
+后续仅核验该批资产，不重跑建集覆盖现有媒体，实例运行中不强制重建。测试侧使用既有 CLI／S3 命令和 Jellyfin 原生检查。允许同批本地真实 SHA-1 与标注副本，不让生成器补算哈希；插件完整决策须实际取证。过时目标运行器由工具治理退出，当前工具清单见 [测试矩阵](test-matrix.md)。
 
 ## TARGET
 
@@ -56,7 +59,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 
 按需求的完整轮／缺失约定，以 source 隔离观察、成功轮及连续缺失事实；观察／候选和数据库枚举均有界，不加载全库媒体对象。完整遍历与必要生成／更新成功后才允许增加缺失证据；skip 仍算出现，正常同步确认再出现使旧证明失效，后续失败不得把该观察算成缺失。可单独保守清零而不追加成功轮；dry-run 不持久化观察或迁移旧库。源根缺失、不可访问或源已移除时不清扫历史归属。
 
-清理默认关闭，`cleanup.missing_confirmations` 默认值与最低允许值均为 3；更高阈值只延后清理。Mirror 开关与阈值按需求校验。关闭期间不积累新缺失证明，已确认再出现仍使旧证明失效；重新启用须先完成当前源必要处理和再确认。存储仅补齐归属、精确远端／本地路径映射、完整轮及缺失次数所需事实。旧库归属保留，旧成功轮不变成缺失证据；无法通过后续观察补齐映射的历史缺失记录保留并可解释，不猜扩展名。当前接口和表结构由 B 根据真实代码规划，本合同不预设 SQL 或实施顺序。
+清理默认关闭，`cleanup.missing_confirmations` 默认值与最低允许值均为 3；更高阈值只延后清理。Mirror 开关与阈值按需求校验。关闭期间不积累新缺失证明，已确认再出现仍使旧证明失效；重新启用须先完成当前源必要处理和再确认。存储仅补齐归属、精确远端／本地路径映射、完整轮及缺失次数所需事实。旧库归属保留，旧成功轮不变成缺失证据；无法通过后续观察补齐映射的历史缺失记录保留并可解释，不猜扩展名。接口和表结构已在 Slice 2 落地，当前行为见上方 CURRENT，不表示仍需 B 规划。
 
 远端删除判定按用户最终简化规则：配置源根 Get 未成功读取为目录时保留且不增加计数；源根可读取时，对正常对账未观察到的已有归属路径调用 Get，未读到即作缺失观察，不再按 HTTP／应用错误、权限、驱动、缓存或单请求失败原因细分。目标 Get 成功则保留／清零，类型冲突保留。整轮取消仍中止提交；列表失败／分页不全和必要本地处理失败仍不能成为完整轮。精确规则见[需求](requirements.md#简化删除判定2026-10-18-用户最终决定)。
 

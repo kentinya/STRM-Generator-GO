@@ -41,6 +41,7 @@ python3 scripts/development_environment.py install-cc --cc-archive /path/to/zig-
 ```bash
 mkdir -p artifacts/slice-1/bin
 bash scripts/go-local build -trimpath -o artifacts/slice-1/bin/strmgen-amd64 ./cmd/strmgen
+cp config.example.yaml config.yaml   # 编辑地址、源与专用输出／状态路径
 export OPENLIST_TOKEN=...   # 必须与配置 openlist.token_env 一致
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml --dry-run
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
@@ -91,7 +92,7 @@ docker compose -f dev/compose.yaml stop
 
 专用 project `strm-generator-dev`，仅发布本机 15244；只读挂载夹具脚本和数据、非 root、固定 image digest、128 MB 限制。不挂载生产路径、Docker socket 或 Jellyfin 数据。停止保留项目资源，不提供全局清理。另一工作副本应通过 `-p` 指定独立 project 和调整端口，避免共享同名项目。
 
-固定镜像当前仅在 amd64 运行验证，ARM64 主机可使用原生 Python 夹具；不能把 Go 的 ARM64 编译结论当作该镜像支持证明。后续真实 OpenList／Jellyfin 集成须另建固定隔离环境，不启动或接管同机生产容器。
+固定镜像当前仅在 amd64 运行验证，ARM64 主机可使用原生 Python 夹具；不能把 Go 的 ARM64 编译结论当作该镜像支持证明。真实 OpenList／Jellyfin 集成使用独立隔离环境；Slice 4 已有资产按[清单](slice-4-assets.md)保留，不因文档整理另建或接管生产容器。
 
 ## T4 验证与 Git 证据
 
@@ -169,7 +170,7 @@ TTL 自然到期后仍不能被读取。运行器准备、轮询与取证请求�
 场景同时保留“根可读 → 缺失观察”和“根不可读 → 保留”两种真实结果。`nested_mount_masking`
 与 `hidden_entries` 记录的是用户明确接受的局限，不写成已安全辨别或已修复。
 
-Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。当前 V4.4 万文件／最少同步／原始扫描与完整决策均由新任务取得，尚未验收；
+Task 2.2 已接入发布 CLI 并经 Slice 2 A Final 接受：`cleanup.enabled: true` 在 `sync.mirror` 开启时按完整轮缺失确认与已提交阈值执行本地安全删除，mirror=false 与 cleanup=true 在输出／数据库变更前拒绝；`sync`／`sync --dry-run` 行为保持既有回归。V4.4 万文件／最少同步／原始扫描与完整决定已由 Task 4.4–4.6 独立 B 验收并经 A 最终接受；
 所需输入见 [资产清单](slice-4-assets.md)。ARM64 实机／正式发布仍 NOT RUN。
 
 ## Slice 4 隔离资产复用与新任务

@@ -15,12 +15,12 @@ Implementation Head: 24e1ba0ab88173f2c7374f450c9750e5a1e9b504
 同批最少样本证明同步、Jellyfin 原始产物扫描与插件完整探测／复用决策。
 记录实际数量、耗时和峰值 RSS，只核对插件决定，不要求探测结果成功或客户端播放。
 
-## 当前执行基线
+## 重规划时的执行基线（历史）
 
 按用户最新澄清，旧 4.1／4.2／4.3 从当前任务安排中撤下；不继承其待审事项、修复清单
 或验收结论。历史记录留在 Git 与原始证据中，当前只保留后续需要的实际成果。
-Slice 1–3 PASS / CLOSED 与原 Slice Base 不变。新 4.4／4.5／4.6 均未实施；
-Implementation Head 为 NOT SET，待新任务产生实际实现检查点后填写。
+重规划提交时，Slice 1–3 PASS / CLOSED 与原 Slice Base 不变；新 4.4／4.5／4.6 均未实施，
+Implementation Head 为 NOT SET。现三项均已独立 B PASS，实际实现 Head 以上方顶栏为准。
 
 可复用成果仅作为输入资产：隔离环境、媒体原件、生成／启动／停止脚本、固定插件源码／
 包及当前适用的产品／测试工具。当前 RO 的结果由新任务取得，不以旧任务记录抵扣。
@@ -75,10 +75,10 @@ Implementation Head 为 NOT SET，待新任务产生实际实现检查点后填�
 | 4.5 | 4.4 PASS 后，发布 CLI 万文件生成／测量与同批最少样本同步、清理、恢复 | T4 |
 | 4.6 | 4.5 PASS 后，最少原始 STRM 扫描与 D-01..08 实际决策，完成全部 RO 及 Slice Final | T4 |
 
-当前可实施任务仅以 [TASK](TASK.md) 为准；后续候选分别见
+当前无活动实施任务，见 [TASK](TASK.md)；重规划时的后续候选分别见
 [4.5](Task/4.5-generation-sync-plan.md)、[4.6](Task/4.6-plugin-decisions-plan.md)。
-候选不提前填写不存在的 Base／实施 Head，前序 PASS 后由 B 基于真实仓库正式规划提交。
-本次仅重规划，不执行建集、生成、启动／停止或真实验收，不宣称新的环境／产品 PASS。
+当时的候选不提前填写不存在的 Base／实施 Head，前序 PASS 后由 B 基于真实仓库正式规划提交。
+该次提交仅重规划，未执行建集、生成、启动／停止或真实验收；后续完成结果见关闭记录。
 
 ## 比较与证据判定
 
@@ -116,7 +116,7 @@ Reviewed Range: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63..24e1ba0ab88173f2c7374f
 Reviewed Documentation Successor: 93b0b02aa2bcce854dd82293979aa5f22e8aae27
 Decision: PASS
 P0/P1 Blockers: NONE
-Next Action: A SELECTS THE NEXT LARGE SLICE
+Next Action: NONE — CURRENT REQUIREMENTS COMPLETE
 ```
 
 
@@ -132,5 +132,6 @@ A 已审原 Base..最终实现 Head 及纯文档后继，RO-1..6 最终 PASS、�
 
 本关闭检查点同步 SLICE／TASK／README、架构 CURRENT、范围与兼容性等当前文档、
 Roadmap／Progress 及 Closure Packet；根 TASK 撤为无活动实施任务，三角色经验已复盘。
-原 Base、已审实现 Head、RO／验收和 V4.4 内容身份不变，不修改产品或隔离服务。
-Slice 4 **PASS / CLOSED**，停止，不自动选择或启动下一 Slice。
+原 Base、已审实现 Head、RO／验收及业务规则不变，不修改产品或隔离服务。
+本地参考方案随后已退出治理与版本跟踪，见[进度](docs/progress.md)。
+Slice 4 **PASS / CLOSED**，当前 V4.4 开发需求已完成，没有必须继续的下一 Slice；新增工作须由用户另行授权。

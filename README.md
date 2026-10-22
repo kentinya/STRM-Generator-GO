@@ -2,19 +2,22 @@
 
 OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。当前 V4.4 行为要求见[需求文档](docs/requirements.md)。
 
-**Slice 1–3 已 PASS / CLOSED。** Slice 3 完整 A 审查至 `410fc0e0a8964046de4707d58c0c7505385c6002`。
-Slice 4 已由 A 最终审查 **PASS / CLOSED**，按用户要求在原 Base 内完成：保留复用隔离环境、媒体原件及
-媒体生成／启动／停止脚本，固定万文件数据集、少量样本同步、原始 STRM 扫描和插件完整决策。
-新顺序为 4.4 资产复用与建集 → 4.5 生成与同步 → 4.6 扫描与决策，详见
-[当前合同](SLICE.md)、[当前 Task](TASK.md) 和 [保留资产](docs/slice-4-assets.md)。
-4.4／4.5／4.6 均已独立 B PASS；原始扫描、完整八行决定及最终恢复已验证。
-[A Final](docs/slice-4-a-final-review.md) 已审完整原 Base 至实现 Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`，
-RO-1..6 PASS、无 P0／P1 阻塞；[Closure Packet](docs/slice-4-closure-packet.md) 已收口，根 TASK 无活动任务，关闭后停止。
-只复用所需输入资产，不继承旧 4.1–4.3 的待审事项或完成结论。
-当前无播放、代理、旧暂缓例外或更高规模压力门槛；只验证决定，不要求探测结果成功。
-ARM64 实机及正式发布仍 NOT RUN，历史接受／UNKNOWN 不追认为当时授权或无泄露证明。
+**当前 V4.4 开发需求已完成，Slice 1–4 均 PASS / CLOSED，无活动实施任务或必须继续的下一 Slice。**
+已交付一次性／定时同步、增量更新、安全清理与恢复、容器运行包；固定 10000 个 S3 文件经
+真实 OpenList 生成 STRM，最少样本同步、Jellyfin 原始扫描及插件完整八行决定已独立验收。
+最终范围与限制见 [A 最终审查](docs/slice-4-a-final-review.md)和 [Closure Packet](docs/slice-4-closure-packet.md)。
+插件探测决定不等于探测成功；ARM64 实机及正式发布仍 NOT RUN，播放、代理及更高规模不属当前合同。
 
-从 [AGENTS.md](AGENTS.md)、[开发流程](docs/development-workflow.md)、[环境说明](docs/development-environment.md) 开始，再读 [需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 和 [Task](TASK.md)。[进度](docs/progress.md) 区分已验证环境与未运行产品验收。
+## 文档入口
+
+| 目的 | 入口 |
+|---|---|
+| 使用和部署 | 下方构建命令、[配置示例](config.example.yaml)、[部署说明](docs/deployment.md) |
+| 行为、架构与恢复边界 | [需求](docs/requirements.md)、[架构](docs/architecture.md)、[用户旅程](docs/product-experience.md) |
+| 参与开发或查阅验收历史 | [文档导航](docs/README.md)、[AGENTS](AGENTS.md)、[开发流程](docs/development-workflow.md)、[测试矩阵](docs/test-matrix.md) |
+| 当前治理状态 | [SLICE](SLICE.md)、[TASK](TASK.md)、[路线图](docs/roadmap.md)、[进度](docs/progress.md) |
+
+## 开发环境与检查
 
 仓库根目录执行（Python 3.11+、Git；SDK 与 C 工具链安装需要 HTTPS）：
 
@@ -28,7 +31,10 @@ python3 scripts/check_governance.py
 python3 -m unittest discover -s tests -v
 ```
 
-无 HEAD 时使用 `--bootstrap`；建立首个提交后使用常规治理检查。`smoke` 只验证编译器、标准库、Linux amd64／arm64 交叉编译，不生成产品二进制。module 暂为本地名 `strm-generator-go`，发布仓库确定后显式修改；没有配置配套项目为本仓库远程。
+新克隆需保留完整 Git 历史并使用常规治理检查；`--bootstrap` 仅供尚无 HEAD 的开发准备基线。
+完整本地质量入口为 `python3 scripts/quality.py`，安装及 race 命令见[开发环境](docs/development-environment.md)。
+`smoke` 只验证编译器、标准库及 Linux amd64／arm64 交叉编译，不生成产品二进制。
+module 保持 `strm-generator-go`，GitHub 仓库及推送状态见[文档导航](docs/README.md#github-推送与证据边界)。
 
 用户最终选择的清理规则：源根未成功读取为目录时保留且不增加缺失次数；源根可读时，对需判断缺失的已拥有路径 Get 未读到即计缺失，不再区分同样响应背后的原因。默认三次完整轮及删除前同规则重核，保留归属／输出边界检查；所有列表 refresh:false。此前刷新列表证明及请求预算方案已撤回，详见[需求](docs/requirements.md#简化删除判定2026-10-18-用户最终决定)。
 
@@ -37,19 +43,21 @@ python3 -m unittest discover -s tests -v
 ```bash
 mkdir -p artifacts/slice-1/bin
 bash scripts/go-local build -trimpath -o artifacts/slice-1/bin/strmgen-amd64 ./cmd/strmgen
+cp config.example.yaml config.yaml   # 编辑 OpenList 地址、源与专用输出／数据库路径
 export OPENLIST_TOKEN=...   # 来自 openlist.token_env 指定变量
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml --dry-run
 ./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
 ./artifacts/slice-1/bin/strmgen-amd64 serve --config config.yaml
 ```
 
-成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60；`serve` 要求正整数且不溢出，`sync`／`sync --dry-run` 接受零）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)；V4.4 真实服务／万文件／插件完整决策及 ARM64 实机尚未整体验收。
+成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60；`serve` 要求正整数且不溢出，`sync`／`sync --dry-run` 接受零）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)。Slice 4 的真实服务／万文件／插件完整决定已验收；ARM64 实机及正式发布仍 NOT RUN。
 
 隔离 CLI 验收（自建动态端口假服务；故障二进制仅供测试）：
 
 ```bash
 bash scripts/go-local build -tags strmgen_testhooks -trimpath \
   -o artifacts/slice-1/bin/strmgen-testhooks-amd64 ./cmd/strmgen
+mkdir -p artifacts/validation-evidence
 RUN_DIR="$(mktemp -d artifacts/validation-evidence/slice-1-local-XXXXXX)"
 python3 scripts/run_isolated_sync_integration.py --binary artifacts/slice-1/bin/strmgen-amd64 \
   --fault-binary artifacts/slice-1/bin/strmgen-testhooks-amd64 \
@@ -68,6 +76,7 @@ python3 scripts/run_serve_integration.py --binary artifacts/slice-1/bin/strmgen-
 部署镜像与容器验收（本机 amd64 运行、arm64 OCI manifest 核对）：
 
 ```bash
+mkdir -p artifacts/task-3.2/oci
 docker buildx build --platform linux/amd64 --load --tag strmgen:local .
 docker buildx build --platform linux/arm64 \
   --output type=oci,dest=artifacts/task-3.2/oci/strmgen-arm64.oci.tar .
@@ -86,7 +95,7 @@ python3 scripts/run_container_integration.py --image strmgen:local \
 python3 scripts/mock_openlist.py
 ```
 
-仅监听 `127.0.0.1:15244`，公开假 token 为 `strmgen-fixture-only`，夹具查询方法与可选 Compose 见环境文档。目标配置见 [config.example.yaml](config.example.yaml)，其中 `serve` 与 `sync.interval_minutes` 已由 Slice 3 实现。V4.4 万文件与插件完整决策仍待验收。
+仅监听 `127.0.0.1:15244`，公开假 token 为 `strmgen-fixture-only`，夹具查询方法与可选 Compose 见环境文档。配置见 [config.example.yaml](config.example.yaml)。合成夹具不提供真实媒体或播放端点，不替代 Slice 4 的真实服务证据。
 
 ## 安全操作与恢复
 
