@@ -339,6 +339,36 @@ B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-
   后继为 Head 登记／合同保持／计时修正的文档提交。**不自签 PASS**，交 B 独立
   复现原始扫描与全部八行，并保留指定全量、Slice Final 与 Closure Packet。
 
+## Developer Completion Report（2026-10-22，F-46-02／F-46-03 同 Task 修正）
+
+完整修正报告见 [F-46-02 修正交接](docs/task-4.6-f4602-fix-report.md)；本节为摘要。
+
+- Changed Files / Implemented：仅四个已跟踪取证辅助文件
+  `docs/task-4.6-artifacts/{fingerprint_read,matrix,decision_model,test_task46_tools}.py`
+  及其 `artifacts/task-4.6/` 工作副本（唯一差异为 `parents[2]→parents[3]` 深度适配）。
+  **F-46-02**：`fingerprint_read.py` 退役为 fail-closed 桩（无 sqlite3、无库路径、
+  调用即抛 `DirectStoreReadForbidden`、CLI 退出码 3），保留事实历史声明；
+  `matrix.py` 删除逐行指纹库读取依赖，历史侧改为从原生插件决定日志镜像
+  （`historical_reason`＋基准 A 事实，FirstTrust 镜像为无可比历史，基准 URL 绑定
+  保证 D-05 预测 UrlChanged），行输出记录 `fingerprint_store_read=false`。
+  **F-46-03**：`phase_restore` 前值改读 `RESULTS["setup"]["plugin_configuration_before"]`，
+  缺失时抛错拒绝回退到当前（可能已缩小）配置。未改 Go 产品、锁定插件／服务／
+  4.4 数据集／4.5 输出；未触碰任何 Jellyfin／插件数据库，未取密，未触发扫描／任务，
+  未改 S3。
+- Tests and Results / Evidence：证据根
+  `artifacts/validation-evidence/task-4.6-dev-f4602-20261022T005140Z/`（Git 忽略）：
+  治理 PASS；工具直接测试 16→25 项全部 OK（含历史镜像精确性、fail-closed 行为、
+  restore 双案例复现）；退役桩实测；只读复核 2026-10-21 证据 INDEX：20 条非自引用
+  条目字节摘要全部匹配、自引用 INDEX 条目按构造失效，未改写旧文件；执行输入摘要
+  与路径差异逐对记录。**未运行**：Go 测试（零改动，B 持有全量）、八行真实矩阵
+  重跑（B2 明确不要求）、任何真实服务操作。历史不合规证据保留并标记，不伪造。
+- Decisions / Risks：历史侧镜像不是从库读出的指纹，预测仅用于发现无关条件触发；
+  不可比历史镜像与锁定决策器分支一致。剩余：B 独立原生复现（原始扫描＋完整 8 行）、
+  B 指定全量、Slice Final／Closure、A Final。不自判 PASS。
+- 计时：本轮约 50 分钟墙钟；测试／验收类约 1 分钟，远低于 30%。
+- Head SHA：修正检查点 `HEADSHA`（本轮提交后填入；如有后继文档提交以最新为准）。
+  Task 4.6 **READY FOR B REVIEW**（同 Task 修正交 B）。
+
 ## B Review Result（2026-10-22，当前）
 
 ```text

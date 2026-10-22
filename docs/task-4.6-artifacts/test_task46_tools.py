@@ -9,7 +9,10 @@ the log-window decision extraction. They are NOT real Jellyfin or S3 evidence.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import sys
 import unittest
 from pathlib import Path
 
@@ -26,6 +29,7 @@ def _load(name: str, filename: str):
 
 model = _load("task46_decision_model", "decision_model.py")
 scenario = _load("task46_scenario", "scenario.py")
+retired = _load("task46_fingerprint_read_retired", "fingerprint_read.py")
 
 
 class DecisionModelTests(unittest.TestCase):
@@ -133,6 +137,89 @@ class ManifestParsingTests(unittest.TestCase):
     def test_an_unsupported_version_is_rejected(self):
         with self.assertRaises(ValueError):
             model.parse_manifest("# strm-probe-version:2\nhttp://x/a.mkv\n")
+
+
+class HistoryMirroringTests(unittest.TestCase):
+    """The historical side comes from native log reasons, never a store read."""
+
+    BASE = "http://openlist:5244/d/s3/Plain%20Movie.mkv"
+    # The recorded baseline A facts of the decision copy.
+    BASELINE_SHA1 = "1b7aa9d139d059cdcc579d04e9e36a6b005fcd7e"
+    BASELINE_SIZE = 24404
+
+    def baseline_text(self, url=None):
+        return ("# strm-probe-version:1\n"
+                "# strm-probe-sha1:" + self.BASELINE_SHA1 + "\n"
+                "# strm-probe-size:" + str(self.BASELINE_SIZE) + "\n"
+                + (url or self.BASE) + "\n")
+
+    def predicted(self, text, historical_reason, native_url=None,
+                  has_primary_stream=True):
+        import matrix
+        return matrix.predicted_reason(text, historical_reason,
+                                       native_url if native_url is not None else self.BASE,
+                                       has_primary_stream,
+                                       self.BASE, self.BASELINE_SHA1,
+                                       self.BASELINE_SIZE)
+
+    def setUp(self):
+        if "matrix" not in sys.modules:
+            sys.modules["matrix"] = _load("task46_matrix", "matrix.py")
+
+    def test_sha1_matches_history_mirrors_the_baseline_facts(self):
+        p = self.predicted(self.baseline_text(), "Sha1Matches")
+        self.assertEqual(p["reason"], "Sha1Matches")
+        self.assertEqual(p["history_side"]["fingerprint_store_read"], False)
+        self.assertEqual(p["previous_sha1"], self.BASELINE_SHA1)
+        self.assertEqual(p["history_side"]["baseline_url"], self.BASE)
+
+    def test_unchanged_history_mirrors_a_size_only_fingerprint(self):
+        text = ("# strm-probe-version:1\n"
+                "# strm-probe-size:" + str(self.BASELINE_SIZE) + "\n"
+                + self.BASE + "\n")
+        p = self.predicted(text, "Unchanged")
+        self.assertEqual(p["reason"], "Unchanged")
+        self.assertIsNone(p["previous_sha1"])
+        self.assertEqual(p["previous_size"], self.BASELINE_SIZE)
+
+    def test_first_trust_history_has_no_comparable_fingerprint(self):
+        p = self.predicted(self.baseline_text(), "FirstTrust")
+        self.assertEqual(p["reason"], "FirstTrust")
+        self.assertIsNone(p["previous_sha1"])
+        self.assertIsNone(p["previous_url_hash"])
+
+    def test_url_change_with_sha1_history_requires_a_probe(self):
+        other = "http://openlist:5244/d/s3/Synthetic%20001.mkv"
+        p = self.predicted(self.baseline_text(other), "Sha1Matches",
+                           native_url=other)
+        self.assertEqual(p["reason"], "UrlChanged")
+
+    def test_native_address_still_the_baseline_url_is_a_mismatch(self):
+        other = "http://openlist:5244/d/s3/Synthetic%20001.mkv"
+        p = self.predicted(self.baseline_text(other), "Sha1Matches",
+                           native_url=self.BASE)
+        self.assertEqual(p["reason"], "NativeUrlMismatch")
+
+    def test_missing_primary_stream_wins_over_history(self):
+        p = self.predicted(self.baseline_text(), "Sha1Matches",
+                           has_primary_stream=False)
+        self.assertEqual(p["reason"], "MissingPrimaryStream")
+
+    def test_row_result_records_no_store_read(self):
+        """The retired store entry cannot be called from the row path."""
+        matrix = sys.modules["matrix"]
+        with self.assertRaises(RuntimeError):
+            matrix.fingerprint_of("any-item")
+
+    def test_retired_entry_is_fail_closed(self):
+        with self.assertRaises(retired.DirectStoreReadForbidden):
+            retired.read("any-item")
+        self.assertIsNone(retired.STORE)
+
+    def test_retired_entry_main_returns_3(self):
+        with contextlib.redirect_stderr(io.StringIO()) as captured:
+            self.assertEqual(retired.main(), 3)
+        self.assertIn("retired", captured.getvalue())
 
 
 class LogWindowTests(unittest.TestCase):

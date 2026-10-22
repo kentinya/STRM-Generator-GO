@@ -46,6 +46,29 @@ SAMPLE = "Plain Movie.mkv"
 ALTERNATE = "Synthetic 001.mkv"
 OPENLIST_BASE = "http://127.0.0.1:25244"
 
+# The historical side of the comparison comes from the plugin's own decision
+# log: the AC-2 baseline was accepted when the plugin itself recorded an
+# explicit Sha1Matches reuse, and every row restore re-confirms that same
+# reuse. This is the last reason the plugin held for this item; it is never
+# taken from the plugin's database (forbidden, F-46-02).
+BASELINE_REASON = "Sha1Matches"
+# The baseline A copy URL: the address the plugin's own reuse was recorded
+# against, used to mirror the historical side without any database read.
+BASELINE_URL = "http://openlist:5244/d/s3/Plain%20Movie.mkv"
+
+# Task Base b599dbc5..69d022e history note: that implementation read the
+# plugin's own fingerprint store through the now-retired fingerprint_read.py
+# entry to record fingerprint_before/after/after_restore per row. That direct
+# database dependency violated the Task boundary (AC-2 forbids Jellyfin / plugin
+# database reads; F-46-02 in docs/task-4.6-b-review-2.md) and has been removed.
+# The historical side of every row is established by native evidence only: the
+# AC-2 baseline reuse and each row's post-restore explicit reuse from the
+# plugin's own decision log. The rows in the 2026-10-21 evidence root
+# task-4.6-dev-20261021T153126Z keep those recorded values; they are preserved
+# as-is and marked non-compliant in the reviewer record, not deleted or
+# rewritten. This implementation never touches the plugin's database and never
+# predicts a reason from values taken out of it.
+
 RESULTS: dict[str, object] = {}
 
 
@@ -160,6 +183,8 @@ def phase_setup() -> None:
             "bytes": (ORIGINAL_DIR / "Plain Movie.strm").stat().st_size,
         },
         "plugin_configuration_before": plugin_config(),
+        "fingerprint_store_reads": "none: direct plugin database access is forbidden "
+                                  "for Task 4.6 (F-46-02)",
         "libraries": [{"Name": v["Name"], "ItemId": v["ItemId"], "Locations": v["Locations"]}
                       for v in virtual_folders()],
     }
@@ -288,31 +313,52 @@ def restore_baseline(item_id: str, tag: str) -> dict:
 
 
 def fingerprint_of(item_id: str) -> dict | None:
-    """Read the plugin's own held fingerprint for the compared item."""
-    out = subprocess.run(
-        ["python3", str(REPO_ROOT / "artifacts" / "task-4.6" / "tools" / "fingerprint_read.py"),
-         item_id],
-        capture_output=True, text=True, timeout=120, check=True)
-    return json.loads(out.stdout)
+    """Removed: direct reads of the plugin's fingerprint store are forbidden.
+
+    Retired with F-46-02 (docs/task-4.6-b-review-2.md). Kept as a fail-closed
+    stub so any accidental caller fails loudly instead of silently reading the
+    plugin's database.
+    """
+    raise RuntimeError(
+        "fingerprint_of was removed: the plugin's own database may not be read "
+        "for Task 4.6; see docs/task-4.6-b-review-2.md (F-46-02)")
 
 
-def predicted_reason(copy_text: str, fingerprint: dict | None,
-                     native_url: str | None, has_primary_stream: bool) -> dict:
+def predicted_reason(copy_text: str, historical_reason: str | None,
+                     native_url: str | None, has_primary_stream: bool,
+                     baseline_url: str, baseline_sha1: str | None,
+                     baseline_size: int | None) -> dict:
     """Predict the branch the locked plugin must take for this input.
 
-    This only predicts which reason a given (manifest, held fingerprint,
+    This only predicts which branch a given (manifest, baseline history,
     native address) pair must produce, so a row whose observed behaviour comes
     from an unrelated condition is detected instead of being accepted.
+
+    The historical side is the reason the plugin itself last recorded for this
+    item in native logs (the AC-2 baseline or the previous row's restored
+    reuse); it is mirrored from that reason plus the recorded baseline A facts
+    and is never taken from the plugin's database.
     """
     manifest = decision_model.parse_manifest(copy_text)
     previous = None
-    if fingerprint is not None:
-        previous = decision_model.Fingerprint(fingerprint["url_hash"], fingerprint["sha1"],
-                                              fingerprint["file_size"])
+    if historical_reason in ("Sha1Matches", "Unchanged", "InsufficientFingerprint"):
+        # The history is bound to the baseline A URL and facts, not to the
+        # copy being tested: a changed copy URL must still be a UrlChanged
+        # against the mirrored history.
+        sha1 = baseline_sha1 if historical_reason == "Sha1Matches" else None
+        size = baseline_size if historical_reason in ("Sha1Matches", "Unchanged") else None
+        previous = decision_model.Fingerprint(decision_model.hash_url(baseline_url),
+                                              sha1, size)
+    # FirstTrust means the plugin recorded no comparable history at all, so
+    # the mirror stays None and the branch is FirstTrust.
     kind, reason = decision_model.decide(manifest, previous, has_primary_stream, native_url)
     return {"kind": kind, "reason": reason, "manifest_url": manifest.url,
             "manifest_sha1": manifest.sha1, "manifest_size": manifest.size,
             "manifest_url_hash": manifest.url_hash,
+            "history_side": {"source": "plugin decision log only",
+                             "last_reason": historical_reason,
+                             "baseline_url": baseline_url,
+                             "fingerprint_store_read": False},
             "previous_url_hash": previous.url_hash if previous else None,
             "previous_sha1": previous.sha1 if previous else None,
             "previous_size": previous.size if previous else None,
@@ -338,39 +384,45 @@ def has_primary_stream(item_id: str) -> bool:
 
 
 def row_result(row: str, item_id: str, change: dict, expected: str,
-               expected_branch: str | None = None) -> dict:
+               historical_reason: str | None, baseline_sha1: str, baseline_size: int,
+               expected_branch: str | list[str] | None = None) -> dict:
     """Apply one single-variable change, observe the decision, restore.
 
     The per-item decision is taken from the plugin's own per-item decision log
     inside the observation window. The native scheduled task is also executed in
     the same window as auxiliary native-task evidence; its aggregate counters
-    never replace the per-item decision. The plugin's held fingerprint is read
-    before and after the row so the reported reason can be checked against the
-    real previous values.
+    never replace the per-item decision.
 
-    ``expected_branch`` is the reason the locked plugin must produce for this
-    row's own single variable. When the observation produced no explicit reason
-    because the row required a probe, the probe start is the observed decision
-    and the predicted branch must still be the row's own branch.
+    ``historical_reason`` is the reason the plugin itself last recorded for
+    this item in native logs (the AC-2 baseline or the previous row's restored
+    reuse); it is the historical side of the comparison and is never read from
+    the plugin's database. ``baseline_sha1`` / ``baseline_size`` are the
+    baseline A content facts the copy is restored to between rows; they are
+    recorded as row inputs for review, not read from any store.
+
+    When the observation produced no explicit reason because the row required a
+    probe, the probe start is the observed decision and the predicted branch
+    must still be the row's own branch.
     """
     write_decision(change["copy_text"])
     before = read_decision()
-    fingerprint_before = fingerprint_of(item_id)
-    prediction = predicted_reason(before["text"], fingerprint_before,
-                                  native_url_of(item_id), has_primary_stream(item_id))
+    prediction = predicted_reason(before["text"], historical_reason,
+                                  native_url_of(item_id), has_primary_stream(item_id),
+                                  BASELINE_URL, baseline_sha1, baseline_size)
     info = playback_info(item_id)
     facts = decide_from_log(info["log_window"], item_id)
     task = run_native_task()
     task_facts = decide_from_log(task["log_window"], item_id)
     detail = item_detail(item_id)
-    fingerprint_after = fingerprint_of(item_id)
     payload = {
         "row": row,
         "expected": expected,
         "change": {k: v for k, v in change.items() if k != "copy_text"},
         "copy_before": before,
-        "fingerprint_before": fingerprint_before,
-        "fingerprint_after": fingerprint_after,
+        "baseline_input": {"baseline_sha1": baseline_sha1, "baseline_size": baseline_size,
+                           "historical_reason": historical_reason,
+                           "historical_side_source": "native plugin decision log",
+                           "fingerprint_store_read": False},
         "predicted_branch": prediction,
         "observation": {"entry": "public native PlaybackInfo of this item",
                         "http_status": info["http_status"], "error": info["error"],
@@ -384,7 +436,6 @@ def row_result(row: str, item_id: str, change: dict, expected: str,
     }
     restored = restore_baseline(item_id, row + "-restore")
     payload["restore"] = restored
-    payload["fingerprint_after_restore"] = fingerprint_of(item_id)
     observed = facts["reason"] or ("Native STRM probe started" if facts["probe_started"] else None)
     payload["observed_decision"] = observed
     payload["expected_branch"] = expected_branch
@@ -411,7 +462,8 @@ def phase_rows() -> None:
     # D-01: nothing changes at all.
     rows.append(row_result("D-01", item_id, {"copy_text": BASELINE_TEXT,
                                              "change": "no change at all"},
-                           "reuse / Sha1Matches", "Sha1Matches"))
+                           "reuse / Sha1Matches", BASELINE_REASON,
+                           A_SHA1, A_SIZE, "Sha1Matches"))
 
     # D-02: only the source-side modification time changes; content, size and
     # the copied STRM bytes stay identical. The object is rewritten with the
@@ -442,7 +494,8 @@ def phase_rows() -> None:
         "service_bytes_after": served,
         "s3_set_unchanged": sorted(before_list["paths"]) == sorted(s3_listing()["paths"]),
         "copy_bytes_unchanged": True,
-    }, "reuse / Sha1Matches", "Sha1Matches"))
+    }, "reuse / Sha1Matches", BASELINE_REASON,
+       A_SHA1, A_SIZE, "Sha1Matches"))
 
     # D-03: identical URL and identical real SHA-1, but the copied Size line is
     # deliberately wrong. The Size branch must not be reached.
@@ -457,7 +510,8 @@ def phase_rows() -> None:
         "change": "only the copied Size metadata is deliberately wrong; URL and real SHA-1 unchanged",
         "declared_size": B_SIZE,
         "real_size": A_SIZE,
-    }, "reuse / Sha1Matches, never SizeChanged", "Sha1Matches"))
+    }, "reuse / Sha1Matches, never SizeChanged", BASELINE_REASON,
+       A_SHA1, A_SIZE, "Sha1Matches"))
 
     # D-04: same URL, the served content really changes A -> B and the copy
     # carries the real SHA-1 and Size of B.
@@ -477,7 +531,8 @@ def phase_rows() -> None:
                   "the real SHA-1 and Size of B",
         "source_rewrite": put_b,
         "service_bytes_after": served_b,
-    }, "probe / Sha1Changed", "Sha1Changed"))
+    }, "probe / Sha1Changed", BASELINE_REASON,
+       A_SHA1, A_SIZE, "Sha1Changed"))
 
     # D-05: identical content, SHA-1 and Size, but a different verified stable
     # URL of the same batch that serves the same content A.
@@ -495,7 +550,8 @@ def phase_rows() -> None:
         "change": "same content, SHA-1 and Size; the URL changed to another verified stable URL "
                   "of the same batch that serves the same content A",
         "alternate_service_bytes": alternate_served,
-    }, "probe / UrlChanged or this change's NativeUrlMismatch", ["UrlChanged", "NativeUrlMismatch"]))
+    }, "probe / UrlChanged or this change's NativeUrlMismatch", BASELINE_REASON,
+       A_SHA1, A_SIZE, ["UrlChanged", "NativeUrlMismatch"]))
 
     # D-06: current side SHA-1 missing, history A valid, same URL, and the
     # effective Size differs because the same URL now serves content B.
@@ -518,7 +574,8 @@ def phase_rows() -> None:
         "history_size": A_SIZE,
         "current_sha1": "omitted",
         "current_size": B_SIZE,
-    }, "probe / SizeChanged", "SizeChanged"))
+    }, "probe / SizeChanged", BASELINE_REASON,
+       A_SHA1, A_SIZE, "SizeChanged"))
 
     # D-07: current side SHA-1 missing, history A valid, same URL, same
     # effective Size.
@@ -541,7 +598,8 @@ def phase_rows() -> None:
         "history_size": A_SIZE,
         "current_sha1": "omitted",
         "current_size": A_SIZE,
-    }, "reuse / Unchanged", "Unchanged"))
+    }, "reuse / Unchanged", BASELINE_REASON,
+       A_SHA1, A_SIZE, "Unchanged"))
 
     # D-08: current side omits SHA-1 and Size, history A valid, same URL.
     d08_text = (
@@ -556,11 +614,13 @@ def phase_rows() -> None:
         "history_size": A_SIZE,
         "current_sha1": "omitted",
         "current_size": "omitted",
-    }, "reuse / InsufficientFingerprint", "InsufficientFingerprint"))
+    }, "reuse / InsufficientFingerprint", BASELINE_REASON,
+       A_SHA1, A_SIZE, "InsufficientFingerprint"))
 
     payload = {"captured_utc": scenario.utc_now(),
                "item_id": item_id,
                "library": {"Name": DECISION_LIBRARY, "ItemId": decision_library},
+               "historical_side": "native plugin decision log only; no plugin database read",
                "rows": rows}
     save("03-matrix-rows.json", payload)
     RESULTS["rows"] = payload
@@ -577,7 +637,14 @@ def phase_restore() -> None:
     steps.append({"action": "copy-restore-baseline", "result": read_decision()})
     listing = s3_listing()
     steps.append({"action": "s3-listing", "count": listing["count"]})
-    original_config = RESULTS.get("plugin_configuration_before") or plugin_config()
+    original_config = (RESULTS.get("setup") or {}).get("plugin_configuration_before")
+    if original_config is None:
+        raise RuntimeError(
+            "no setup-time plugin configuration was captured in this process; "
+            "refusing to fall back to the current (possibly narrowed) "
+            "configuration as the restore source. Run the setup phase in this "
+            "process first, or restore the original plugin configuration "
+            "through the native configuration page.")
     set_plugin_config(**original_config)
     steps.append({"action": "plugin-config-restored", "config": plugin_config()})
     payload = {"captured_utc": scenario.utc_now(), "steps": steps}

@@ -1,48 +1,52 @@
 #!/usr/bin/env python3
-"""Task 4.6 only: read the fixed plugin's fingerprint row for one item.
+"""RETIRED entry: direct reads of the plugin's fingerprint store are forbidden.
 
-This is a read-only inspection of the plugin's own SQLite fingerprint store.
-It never writes to it. It exists only to record which fingerprint the plugin
-actually held for the compared item before and after each matrix row, so the
-reported reason can be checked against the real previous values instead of
-being inferred.
+History (kept factual, not re-authorised): an earlier version of this file
+opened the isolated Jellyfin plugin's ``strm-fingerprints.db`` read-only and
+queried ``strm_fingerprint``. The second B review of Task 4.6 (F-46-02,
+``docs/task-4.6-b-review-2.md``) established that this violates the Task
+boundary: AC-2 forbids reading or writing the Jellyfin / plugin databases, and
+read-only access is still access. Historical evidence that used this entry
+stays in place and is marked as non-compliant in the reviewer record; it is
+not deleted or rewritten.
+
+This file is now a fail-closed tombstone. It performs no file system or
+database access, it never imports ``sqlite3``, and any call raises
+``DirectStoreReadForbidden``. The historical side of a comparison is described
+by the native baseline evidence (02-ac2 and the per-row restore reuse of the
+locked plugin's own decision log), never by this entry.
 """
 from __future__ import annotations
 
-import json
-import sqlite3
 import sys
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-STORE = (REPO_ROOT / "artifacts" / "task-4.1" / "isolated-s3" / "jellyfin-config" / "data" /
-         "plugins" / "b061643ed17d4c6e8ba26b57e286bd20" / "strm-fingerprints.db")
+RETIREMENT_REFERENCE = "docs/task-4.6-b-review-2.md (F-46-02)"
+
+
+class DirectStoreReadForbidden(RuntimeError):
+    """Raised because reading the plugin's own store is outside the Task."""
+
+
+# No store path is configured any more. The previous constant pointed at the
+# plugin's database under the isolated Jellyfin config; it is intentionally
+# gone so the entry cannot be re-pointed by accident.
+STORE = None
 
 
 def read(item_id: str) -> dict | None:
-    if not STORE.exists():
-        return None
-    connection = sqlite3.connect(f"file:{STORE}?mode=ro", uri=True)
-    try:
-        row = connection.execute(
-            "select item_id, source_key, url_hash, sha1, file_size "
-            "from strm_fingerprint where item_id = ? and source_key = ?",
-            (item_id, item_id),
-        ).fetchone()
-    finally:
-        connection.close()
-    if row is None:
-        return None
-    return {"item_id": row[0], "source_key": row[1], "url_hash": row[2],
-            "sha1": row[3], "file_size": row[4]}
+    raise DirectStoreReadForbidden(
+        "direct reads of the plugin fingerprint store are forbidden for "
+        "Task 4.6; see " + RETIREMENT_REFERENCE
+    )
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: fingerprint_read.py <item-id>", file=sys.stderr)
-        return 2
-    print(json.dumps(read(sys.argv[1].replace("-", "")), ensure_ascii=False))
-    return 0
+    print(
+        "fingerprint_read.py is retired: direct plugin database access is "
+        "forbidden for Task 4.6; see " + RETIREMENT_REFERENCE,
+        file=sys.stderr,
+    )
+    return 3
 
 
 if __name__ == "__main__":

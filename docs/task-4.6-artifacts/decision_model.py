@@ -22,6 +22,11 @@ VERSION = "1"
 MARKERS = ("# strm-probe-version:", "# strm-probe-sha1:", "# strm-probe-size:")
 
 
+def hash_url(url: str) -> str:
+    """The url hash the locked plugin holds; exposed for history mirroring."""
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
 class Manifest:
     """The fields of one STRM file the locked plugin actually reads."""
 
