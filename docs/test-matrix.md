@@ -1,7 +1,7 @@
 # 测试矩阵
 
 当前依据为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 PASS / CLOSED；[Slice 4](../SLICE.md)
-在原 Base 内 ACTIVE。4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；4.5生成／同步已获独立B PASS；4.6正式规划、未实施，
+在原 Base 内 READY FOR A REVIEW。4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；4.5生成／同步已获独立B PASS；4.6原始扫描／八行决定已独立B PASS，见[Closure Packet](slice-4-closure-packet.md)；A Final仍PENDING，
 当前结果由新任务取得；所需环境／媒体／三脚本见 [资产清单](slice-4-assets.md)。本表定义当前覆盖与执行入口，
 旧任务记录不作为验收完成或审查前置。
 
@@ -116,4 +116,4 @@ mock_openlist.py、dev/fixtures/openlist.json、dev/compose.yaml 是 Slice 1–3
 工具验收重建或删数据。保留脚本不恢复播放门槛。
 
 新顺序为 4.4 资产复用与固定数据集 → 4.5 万文件／少量同步 → 4.6 原始扫描／完整决策。
-4.4 固定10000本地／S3对象、最终清单、工具修正及原生任务入口已由 B4 验收 PASS。4.5生成／同步／恢复已获独立B PASS；4.6已正式规划、未实施，不继承旧任务审查或修复要求。
+4.4 固定10000本地／S3对象、最终清单、工具修正及原生任务入口已由 B4 验收 PASS。4.5生成／同步／恢复已获独立B PASS；4.6已独立B PASS，Slice Final与Closure齐备，交A最终审查；不继承旧任务审查或修复要求。

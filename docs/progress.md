@@ -149,3 +149,12 @@
 - 用户在B解释历史201条目诊断／196条FirstTrust指纹及Developer再次办理B专属官方账户恢复／密码变更／临时Key创建后明确“这条接受”；F-46-04登记为ACCEPTED BY USER，不再阻断，也不等待用户／A重复处置。
 - 保留原始披露与审查，不改写为当时已获授权、无副作用或无泄露的证明；不要求追查、清理指纹或再改账号，不扩大未来权限，不授权直接访问Jellyfin／插件DB或Developer自行恢复账户。
 - 本次仅T0接受事实登记，无产品／工具／媒体／服务／凭据操作。F-46-02同Task修正及B指定全量／原始扫描与8行独立复现／Slice Final仍未闭合，Task仍FIX REQUIRED、Slice仍ACTIVE；不造Task、不提交完成Closure或自行关闭，Task／Slice Base及实现Head不变。
+
+
+## 2026-10-22 Task 4.6 B3 PASS／Slice Closure 交 A
+
+- B在干净main／治理PASS后审完整原Task Base `b599dbc5…` 至修正Head `24e1ba0…` 与文档后继 `54f2dd2…`；F-46-02退出禁止DB依赖，F-46-03前值修正及实际配置恢复接受，F-46-04保持用户接受的历史处置，不追认授权。
+- B经已核对的现有原生入口独立完成原始字节刷新扫描／固定插件读取、正常A基准与D-01..08全部8行当次决定；每行恢复后明确Sha1Matches。仅最少自有样本、专用库候选1，无直接DB、插件私有接口、历史201条目扩大或服务生命周期变更。三个探测行只接受实际启动，不宣称结果成功。
+- 当前82项产品输入、四份4.5／八份4.4操作输入与原证据匹配；94份B7原始摘要匹配，完整指定门槛准确复用，当前仓库Python111／工具25项通过。最终10000 S3路径／Size完全匹配清单，10000原输出0问题，10001条输出／状态字节与mtime相同，DB身份未变；插件配置逐字段恢复。本次Key已撤销、同Key401、会话退出204，密码确已按B授权更改但未保存。
+- [Task4.6 B3决定PASS](task-4.6-b-review-3.md)，全部RO的B验收面及Slice Final齐备；[Closure Packet](slice-4-closure-packet.md)提交A，Slice／Roadmap READY FOR A REVIEW，A Final仍PENDING。停止造Task、不自行关闭、不选择下一Slice；保持原Slice Base，最终Implementation Head为 `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`。
+- 原始证据 `artifacts/validation-evidence/task-4.6-B3-20261022T010708Z/`，保留首轮缺TASK46_EVIDENCE导致的工具导入失败与正确环境重跑。真实等待、恢复、只读核对和文档检查均计入测试，严格低于本轮50%；不沿用4.5豁免，不空等凑比。证据为本机Git忽略文件，保留至A决定，不冒称远端CI可读。

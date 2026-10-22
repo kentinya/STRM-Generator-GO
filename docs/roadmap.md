@@ -1,18 +1,22 @@
 # Slice 路线图
 
 当前需求为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 已 PASS / CLOSED；
-Slice 4 在原 Base 内重规划，未验收、未关闭。当前工作与交接见 [Task](../TASK.md)。
+Slice 4 已完成三个 Task 的独立 B 验收及 Slice Final，READY FOR A REVIEW，尚未由 A 最终审查／关闭。当前工作与交接见 [Task](../TASK.md)。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
 |---|---|---|---|---|
 | 1 | 安全单轮生成 | PASS / CLOSED | 开发基线 | 配置／API／V1／稳定 URL、原子写入、归属、正常恢复、dry-run／互斥 |
 | 2 | 安全目录镜像与清理恢复 | PASS / CLOSED | Slice 1 | 源根／目标 Get、三完整轮、归属／边界清理、移动／再出现与恢复 |
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
-| 4 | 复用隔离资产的万文件与插件决策验收 | ACTIVE | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
+| 4 | 复用隔离资产的万文件与插件决策验收 | READY FOR A REVIEW | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 
 Slice 4 Base：`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，不随重规划移动。
 当前只按 4.4／4.5／4.6 推进：4.4 本地与远端固定均已实施（适配建集工具与只读 probe、
-10000 本地／S3 对象、最终清单与 dataset_id），B4 已接受固定数据集、工具修正及原生任务可用性，4.4 PASS；4.5已完成独立B真实同步／恢复复现，用户明确接受历史凭据UNKNOWN后B决定PASS；4.6已交原始扫描／读取、基准A与D-01..08当次日志，但2026-10-22 [B2决定FIX REQUIRED](task-4.6-b-review-2.md)：同Task退出禁止的插件DB读取依赖；用户已接受F-46-04两项历史范围／角色偏差，不再阻断且不扩大未来权限；restore工具缺陷因最终实际恢复已核对而降P2，不单独阻断。B保留指定全量精确复用／补跑、独立原始扫描与8行、Slice Final。已有交付见[Developer完成报告](task-4.6-developer-report.md)，不将其自报完成当B通过。
+10000 本地／S3 对象、最终清单与 dataset_id），B4 已接受固定数据集、工具修正及原生任务可用性，4.4 PASS；4.5已完成独立B真实同步／恢复复现，用户明确接受历史凭据UNKNOWN后B决定PASS；4.6经同Task修正及[第三次B审查](task-4.6-b-review-3.md)已PASS：退出禁止DB取证依赖，
+B独立完成原始扫描／读取与全部8行决定，确认逐场景及最终恢复、临时认证撤销；
+指定全量按准确输入／原始证据复用并补齐当前检查。全部RO的B验收面满足，
+[Closure Packet](slice-4-closure-packet.md)已提交；停止造Task，交A审查原Slice Base..
+最终Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`，A Final仍PENDING，不自行关闭。
 旧 4.1–4.3 的任务、审查和修复清单退出当前安排，后续只复用需要的环境／媒体／脚本／固定产物和适用工具。
 
 | 新 Task | 结果 | 前置 |

@@ -9,10 +9,10 @@ Slice 1–3 已 PASS / CLOSED，接受的本地能力包括 OpenList list/get、
 正常失败恢复、单轮互斥、有界目录并发、sync／dry-run／serve、Linux 双架构构建与 amd64 容器。
 Slice 3 完整 A 审查至 `410fc0e0a8964046de4707d58c0c7505385c6002`。
 
-当前 [Slice 4](../SLICE.md) ACTIVE，在原 Base 内按 V4.4 重规划：固定复用隔离 S3 的
+当前 [Slice 4](../SLICE.md) READY FOR A REVIEW，在原 Base 内按 V4.4 重规划：固定复用隔离 S3 的
 10000 个文件，经真实 OpenList 生成 10000 个 STRM，同时用最少样本验证同步；
 少量原始产物经 Jellyfin 入库，实际插件按完整比较表记录探测／不探测。
-4.4 已固定同批10000本地／S3对象与最终清单；B4 接受数据集／工具及原生任务可用性，Task 4.4 PASS。4.5生成／同步／恢复已获独立B PASS；4.6已正式规划、未实施，原始扫描／完整决策结果仍须取得。
+4.4 已固定同批10000本地／S3对象与最终清单；B4 接受数据集／工具及原生任务可用性，Task 4.4 PASS。4.5生成／同步／恢复已获独立B PASS；4.6原始扫描／完整决策与B独立八行已PASS，全部RO的B验收面及Slice Final齐备，见[Closure Packet](slice-4-closure-packet.md)；A Final待审，未关闭。
 本轮完全重规划为 4.4 资产复用／固定数据集 → 4.5 万文件生成／少量同步 → 4.6 原始扫描／
 完整决策。只复用后续需要的成果，旧任务不构成当前依赖；当前任务见 [TASK](../TASK.md)。
 

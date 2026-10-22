@@ -3,7 +3,7 @@
 ```text
 Task ID: 4.6
 Parent Slice: 4
-Status: FIX REQUIRED
+Status: PASS
 Task Base: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Contract Checkpoint: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab
 Difficulty: High
@@ -11,15 +11,15 @@ Test Level: T4
 Planner / Reviewer: B
 ```
 
-2026-10-22 当前B决定：**FIX REQUIRED**，完整复审见[第二次B审查](docs/task-4.6-b-review-2.md)。
-已核对实现 `69d022e2f7acb41fe1002fad9652386e4460cc75` 及后继至
-`e42dc384b2abbb6946cec82cfe0995e76e71d4af`；真实八行日志已有，不改称未交付。
-同Task退出禁止的插件DB读取依赖；restore辅助入口缺陷降为P2，本次最终配置已恢复，
-不以完善自动恢复工具单独阻断。用户于2026-10-22明确接受第三项F-46-04：已披露的
-历史201条目诊断／196条FirstTrust指纹及Developer再恢复账号的范围／角色问题，
-不再阻断；保留历史事实，不追认当时授权、不扩大未来权限，不擅自清库或再改账号。
-B继续持有指定全量精确复用／补跑、原始扫描与全部8行独立复现、Slice Final；
-本轮明确阻塞下提前拒绝，不把这些职责交回Developer。此前报告／B结果保留原时点事实。
+2026-10-22 当前 B 决定：**PASS**，完整原 Task Base..修正 Head 及文档后继审查见
+[第三次 B 审查](docs/task-4.6-b-review-3.md)。最终实现检查点为
+`24e1ba0ab88173f2c7374f450c9750e5a1e9b504`；F-46-02 已退出禁止 DB 依赖，
+B 已独立从原生入口完成原始扫描／读取、正常 A 基准及全部八行当次决定和逐行恢复。
+指定全量由 B 精确匹配复用／补齐，未交回 Developer；最终 10000 S3 路径／Size、
+原输出／状态库及配置恢复已核对，本次临时 Key 已撤销并验证 401、恢复会话退出 204。
+用户接受的历史 F-46-04 保留原披露，不追认授权或扩大权限；此前 B 决定均为历史。
+全部 RO 的 B 验收面满足，已提交 [Closure Packet](docs/slice-4-closure-packet.md)，
+Slice 4 READY FOR A REVIEW；A Final 仍 PENDING，不自行关闭，不新造 Task。
 
 本计划由 B 在真实仓库、治理 PASS、4.5 独立 B PASS 后正式提交；提交后为当前实施任务。
 4.5 完整计划／报告保留于 `b599dbc5c0e6bd394ee361343d74ebbb12d1ecab:TASK.md`，
@@ -369,7 +369,7 @@ B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-
 - Head SHA：修正检查点 `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`（本轮提交后填入；如有后继文档提交以最新为准）。
   Task 4.6 **READY FOR B REVIEW**（同 Task 修正交 B）。
 
-## B Review Result（2026-10-22，当前）
+## B Review Result（2026-10-22，B2 历史）
 
 ```text
 Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..69d022e2f7acb41fe1002fad9652386e4460cc75
@@ -381,3 +381,18 @@ Next: SAME TASK 4.6; F-46-02 DEVELOPER FIX; F-46-03 P2 NON-BLOCKING; F-46-04 ACC
 
 受影响验证、原始证据复用和全部RO重评见[第二次B审查](docs/task-4.6-b-review-2.md)。
 不新建Task、不移动Base或实现Head、不要求探测成功，不自行关闭Slice。
+
+## B Review Result（2026-10-22，B3 当前）
+
+```text
+Reviewed: b599dbc5c0e6bd394ee361343d74ebbb12d1ecab..24e1ba0ab88173f2c7374f450c9750e5a1e9b504
+Reviewed Documentation Successor: 54f2dd2be0c3bc0c5de06f40c7b9d837b80f6850
+Decision: PASS
+Slice Required Outcomes all satisfied: YES — B acceptance; A final review pending
+Next: SLICE READY FOR A REVIEW; A REVIEWS ORIGINAL SLICE RANGE; NO NEW TASK; NO B CLOSURE
+```
+
+原始扫描／完整八行、本次实际恢复与认证撤销、完整 T4 门槛精确复用及当前文档检查见
+[第三次 B 审查](docs/task-4.6-b-review-3.md)；RO、Task 索引、不变量、历史处置、
+未运行边界及 A 协调项见 [Closure Packet](docs/slice-4-closure-packet.md)。
+Developer 无新增修正任务；B 停止造 Task，由 A 最终审查，不自行 PASS / CLOSED。

@@ -2,7 +2,7 @@
 
 ## CURRENT
 
-Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。4.4 已适配本地建集工具与只读 OpenList probe；经用户授权从已核对的专用隔离容器内存取用凭据后，真实 S3 对象补足至 10000、最终清单／dataset_id 已固定，真实 OpenList 递归分页与样本匹配，经 B4 接受数据集／工具及原生任务可用性，Task 4.4 PASS；插件完整决策尚未验收，当前交接见 [TASK](../TASK.md)。用户本轮要求完全重排为 4.4 资产复用／建集、4.5 生成／同步、4.6 原始扫描／完整决策；4.5生成／同步／恢复已获独立B PASS，4.6已正式规划、未实施；旧任务不作为审查依赖或当前验收完成依据。
+Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。当前 CLI 为 sync／dry-run／serve。Slice 4 在原 Base 内按 V4.4 重规划；只新增隔离验收证据和必要验证支持，不引入产品运行时组件。4.4 已适配本地建集工具与只读 OpenList probe；经用户授权从已核对的专用隔离容器内存取用凭据后，真实 S3 对象补足至 10000、最终清单／dataset_id 已固定，真实 OpenList 递归分页与样本匹配，经 B4 接受数据集／工具及原生任务可用性，Task 4.4 PASS；插件完整决策已由4.6独立B验收，A最终审查待完成，当前交接见 [TASK](../TASK.md)。用户本轮要求完全重排为 4.4 资产复用／建集、4.5 生成／同步、4.6 原始扫描／完整决策；4.5生成／同步／恢复已获独立B PASS，4.6已独立B PASS，Slice READY FOR A REVIEW，见[Closure Packet](slice-4-closure-packet.md)；旧任务不作为审查依赖或当前验收完成依据。
 
 `internal/scheduler` 提供有界调度外壳：`serve` 首轮立即执行，之后用单个可复用 timer 按校验后的 `sync.interval_minutes`（缺省 60 分钟，必须为正整数且分钟到 `time.Duration` 转换不溢出）触发；每个 tick 最多一个 round，不创建每 tick goroutine、不累积 tick、不重入 Reconciler。手动 `sync` 与 `serve` 共用 `reconciler.AcquireLockFor` 固定锁与同一单轮装配；锁忙只报告 `busy-skip` 不进入 Reconciler；单轮失败记录脱敏摘要后继续下一 tick；SIGINT／SIGTERM 经 `signal.NotifyContext` 传播，当前轮按既有取消边界结束、不提交不完整轮、释放锁并以非零 cancelled 结果退出。调度状态不持久化，重启只从既有 ownership／round 事实继续。
 
@@ -13,7 +13,7 @@ Slice 1–3 PASS / CLOSED；Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c750
 恢复沿用 LocalFS／Recover：每次相对绑定目录独立打开枚举流，按 128 项分批、最多保留两个匹配名；可靠归属、唯一可识别 regular 暂存及仍匹配旧哈希的目标允许恢复未写／半写状态，正常交换中断也支持 desired 改变后的重试。恢复目录变更须经过目录 sync，失败非零且不提交完整 round。无归属、歧义、类型或路径冲突保留；首次发布后归属未登记仍不自动认领。Slice 3 的 serve 必须复用这一取消／恢复边界。
 
 正常写者边界为需求 SW-1..SW-6：消费者只读，多生成器共享固定 flock 资源；不承诺无损抵御绕过锁的任意外部写入。F-14／F-15／F-16 已由新候选回归与进程重启验证，F-10／F-13／外部来源 F-11 的旧 FAIL 按边界保留为历史，不改称绝对防护已实现。A Slice Final、B 完整 T4 及复用身份保留于 Slice 2 关闭检查点；真实 OpenList 的固定隔离 Get／缓存证据已在 Task 2.1 独立验收；当前 S3/RustFS、媒体原件及固定插件包作为输入保留复用，4.5真实生成／同步与万文件测量已获独立B PASS，原始扫描／
-完整插件决策待4.6；ARM64 实机及正式发布仍 NOT RUN，代理不属于当前 Slice 4 验收范围。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时和发布镜像已由 Task 3.1／3.2 实现并经 B PASS，Slice 3 A 已完成最终审查并关闭。
+完整插件决策已由4.6独立B原生八行验收，A Final仍PENDING；ARM64 实机及正式发布仍 NOT RUN，代理不属于当前 Slice 4 验收范围。Mirror 清理已由 Task 2.2 实现并经 B 审查和 A 最终审查接受；serve／定时和发布镜像已由 Task 3.1／3.2 实现并经 B PASS，Slice 3 A 已完成最终审查并关闭。
 
 现有配置支持显式 `cleanup.enabled: true` 且 `sync.mirror` 为 true；mirror=false 与 cleanup=true 在写入前拒绝，`cleanup.missing_confirmations` 最低 3。`sync.interval_minutes` 缺省 60；`sync`／`sync --dry-run` 不调度，故接受零间隔，负数由共享 `config.Load` 拒绝；`serve` 在任何输出／数据库／锁／token 动作前调用 `Resolved.ValidateServeInterval()` 拒绝零／负数／非整数／分钟到 `time.Duration` 溢出间隔。SQLite 写模式事务升级 Slice 1 表，新增精确 `remote_path` 与 `missing_round` 标记；旧行保留归属但映射未知、历史计数不具资格，后续观察可补齐。每个完整成功轮对未观察到且映射可靠的已拥有目标重核，缺失仅在轮次提交事务中增加一次；再出现／Get 成功清零。清理只消费已提交阈值证据并在删除前重核，本地失败停止该源后续删除且不提交失败轮计数；进程重启后依据当前事实收敛。观察、缺失待提交集合与候选枚举均有界（固定批量、keyset、内存 scratch 工作区）；dry-run 不写原库／文件／计数／轮次，也不迁移旧库。列表仍只有普通 `List`，每页显式 `refresh:false`，`ListFresh`／强刷接口与祖先链确认已移除；`openlist.Confirmer` 只做“源根 Get + 目标 Get”两次读取，源根门槛同时被 Reconciler 复用（`openlist.CheckSourceRoot`）。serve／定时与部署镜像／Compose 已由 Task 3.1／3.2 实现并经独立 B PASS，A 已完成 Slice 3 最终审查并关闭；以下 TARGET 不表示新的活动 Slice。
 
