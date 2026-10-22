@@ -1,0 +1,72 @@
+
+name: Build and Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Linux Binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+
+      - name: Verify dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Build and package binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist/package
+
+          for arch in amd64 arm64; do
+            echo "Building linux/$arch"
+
+            CGO_ENABLED=0 \
+            GOOS=linux \
+            GOARCH="$arch" \
+            go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o dist/package/strmgen \
+              ./cmd/strmgen
+
+            cp config.example.yaml \
+              dist/package/config.example.yaml
+
+            tar -czf \
+              "dist/strmgen_${GITHUB_REF_NAME}_linux_${arch}.tar.gz" \
+              -C dist/package \
+              strmgen config.example.yaml
+
+          done
+
+          cd dist
+          sha256sum *.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
