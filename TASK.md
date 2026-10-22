@@ -366,7 +366,7 @@ B完整范围审查与本轮只读独立核对见 [4.6 B审查](docs/task-4.6-b-
   不可比历史镜像与锁定决策器分支一致。剩余：B 独立原生复现（原始扫描＋完整 8 行）、
   B 指定全量、Slice Final／Closure、A Final。不自判 PASS。
 - 计时：本轮约 50 分钟墙钟；测试／验收类约 1 分钟，远低于 30%。
-- Head SHA：修正检查点 `HEADSHA`（本轮提交后填入；如有后继文档提交以最新为准）。
+- Head SHA：修正检查点 `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`（本轮提交后填入；如有后继文档提交以最新为准）。
   Task 4.6 **READY FOR B REVIEW**（同 Task 修正交 B）。
 
 ## B Review Result（2026-10-22，当前）
