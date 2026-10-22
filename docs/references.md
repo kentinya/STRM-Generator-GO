@@ -4,7 +4,7 @@
 
 | 输入 | 固定身份／用途 |
 |---|---|
-| 用户开发方案 | [V4.4](<../STRM Generator Go.md>)，SHA-256 `16ba27b6f5deaf609c020628daf791af28197f151e9e08807b6f09cc875e09bc`；V4.3 原件留在 Git 历史 |
+| 当前行为需求 | [需求](requirements.md)（V4.4）、[范围](scope.md)和[架构](architecture.md)；本地参考资料不纳入治理输入 |
 | 当前插件参考／部署源码 | `kentinya/jellyfin-strm-probe@2afc6517fda5a7b4170ebea625619a552c47dabc`；包与实际加载身份仍须核对 |
 | OpenList 源码 | `OpenListTeam/OpenList@3b28270a4066ea52943a69ecddd850d83f7e8bdc`，API 数据形状参考；不是已实测服务版本 |
 | Go SDK | `1.27.2`，官方模块代理 ZIP 与固定 SHA-256；官方 checksum database 内容摘要已比对 |

@@ -237,9 +237,6 @@ def doctor():
     check("configured host", host_key)
     check("pinned Go SDK", lambda: sdk_version(SDK))
     check("Git", lambda: subprocess.check_output(["git", "--version"], text=True).strip())
-    check("pinned plan V" + SPEC["plan"]["version"] + " identity",
-          lambda: "matched" if sha256(ROOT / SPEC["plan"]["path"]) == SPEC["plan"]["sha256"]
-          else (_ for _ in ()).throw(ValueError("Pinned plan changed")))
     cc_binary = ROOT / SPEC["cc"]["binary"]
     check("pinned C toolchain (race/CGO)", lambda: "missing" if not cc_binary.exists()
           else subprocess.check_output([str(cc_binary), "--version"], text=True).splitlines()[0])

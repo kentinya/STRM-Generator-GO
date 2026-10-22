@@ -1,6 +1,6 @@
 # Slice 路线图
 
-当前需求为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 已 PASS / CLOSED；
+当前[需求](requirements.md)版本为 V4.4。Slice 1–3 已 PASS / CLOSED；
 Slice 4 已完成三个 Task 的独立 B 验收、Slice Final 及 [A 最终审查](slice-4-a-final-review.md)，PASS / CLOSED。根 [Task](../TASK.md) 无活动实施任务，关闭后停止，不自动选择或激活下一 Slice。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |

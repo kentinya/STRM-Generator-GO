@@ -166,3 +166,8 @@
 - 当前82项产品输入、四份4.5／八份4.4操作输入与原证据匹配；94份B7原始摘要匹配，完整指定门槛准确复用，当前仓库Python111／工具25项通过。最终10000 S3路径／Size完全匹配清单，10000原输出0问题，10001条输出／状态字节与mtime相同，DB身份未变；插件配置逐字段恢复。本次Key已撤销、同Key401、会话退出204，密码确已按B授权更改但未保存。
 - [Task4.6 B3决定PASS](task-4.6-b-review-3.md)，全部RO的B验收面及Slice Final齐备；[Closure Packet](slice-4-closure-packet.md)提交A，Slice／Roadmap READY FOR A REVIEW，A Final仍PENDING。停止造Task、不自行关闭、不选择下一Slice；保持原Slice Base，最终Implementation Head为 `24e1ba0ab88173f2c7374f450c9750e5a1e9b504`。
 - 原始证据 `artifacts/validation-evidence/task-4.6-B3-20261022T010708Z/`，保留首轮缺TASK46_EVIDENCE导致的工具导入失败与正确环境重跑。真实等待、恢复、只读核对和文档检查均计入测试，严格低于本轮50%；不沿用4.5豁免，不空等凑比。证据为本机Git忽略文件，保留至A决定，不冒称远端CI可读。
+
+## 2026-10-22 本地参考方案脱离治理与版本跟踪
+
+- 按用户要求，原开发方案仅作本地参考：撤下必读／必需文件、版本与内容摘要门禁及当前文档权威链接，业务规则仍由 V4.4 需求、范围、架构及合同定义。取消 Git 跟踪并加入忽略，本地原件字节保留，已有可达历史不改写。
+- 治理14项、环境工具7项测试及 doctor 通过；提交后的完整质量门槛、无方案文件的干净检出及原件／Git状态核对结果留在 `artifacts/validation-evidence/governance-plan-detach-20261022T031747Z/`。本次为用户授权的治理维护，不改产品／服务或已关闭 Slice 的验收结论，不启动新 Slice／Task。

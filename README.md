@@ -1,6 +1,6 @@
 # STRM Generator Go
 
-OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。当前依据为 [V4.4 方案](<STRM Generator Go.md>)。
+OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。当前 V4.4 行为要求见[需求文档](docs/requirements.md)。
 
 **Slice 1–3 已 PASS / CLOSED。** Slice 3 完整 A 审查至 `410fc0e0a8964046de4707d58c0c7505385c6002`。
 Slice 4 已由 A 最终审查 **PASS / CLOSED**，按用户要求在原 Base 内完成：保留复用隔离环境、媒体原件及

@@ -3,5 +3,3 @@
 *.py text eol=lf
 *.md text eol=lf
 *.strm text eol=lf
-# Preserve the supplied plan's intentional Markdown hard-break spaces.
-"STRM Generator Go.md" whitespace=-blank-at-eol

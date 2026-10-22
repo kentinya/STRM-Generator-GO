@@ -28,8 +28,6 @@ def main():
         run(["git", "diff", "--check"])
         spec = json.loads((ROOT / "dev/environment-spec.json").read_text())
         for name in spec["required_files"]:
-            if name == spec["plan"]["path"]:
-                continue  # Preserve user-supplied Markdown bytes, including intentional trailing spaces.
             patch = subprocess.run(["git", "diff", "--no-index", "--check", "--", "/dev/null", name],
                                    cwd=ROOT, text=True, capture_output=True)
             # --no-index returns 1 for a different file even when --check has no diagnostics.

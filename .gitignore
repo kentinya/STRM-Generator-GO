@@ -1,4 +1,5 @@
 artifacts/
+/STRM Generator Go.md
 .env
 .env.*
 !.env.example

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Check document identity and committed Slice/Task boundaries; not product acceptance."""
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -51,15 +50,6 @@ def validate(root=ROOT, bootstrap=False):
         item = root / path
         if not item.is_file() or item.is_symlink() or not item.resolve().is_relative_to(root.resolve()):
             raise ValueError("Required file missing or unsafe: " + path)
-    plan = root / spec["plan"]["path"]
-    if hashlib.sha256(plan.read_bytes()).hexdigest() != spec["plan"]["sha256"]:
-        raise ValueError("Pinned plan identity changed")
-    plan_version = spec["plan"].get("version", "")
-    if not isinstance(plan_version, str) or not re.fullmatch(r"\d+\.\d+", plan_version):
-        raise ValueError("Plan version must be explicit major.minor")
-    if not re.search(r"^# STRM Generator Go — 开发方案 V" + re.escape(plan_version) + r"$",
-                     plan.read_text(), re.MULTILINE):
-        raise ValueError("Plan version does not match pinned title")
     version = spec["go"]["version"]
     if (root / ".go-version").read_text().strip() != version:
         raise ValueError("Go SDK pin mismatch")

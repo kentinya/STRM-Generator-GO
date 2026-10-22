@@ -1,10 +1,5 @@
 {
   "schema_version": 1,
-  "plan": {
-    "path": "STRM Generator Go.md",
-    "sha256": "16ba27b6f5deaf609c020628daf791af28197f151e9e08807b6f09cc875e09bc",
-    "version": "4.4"
-  },
   "probe": {
     "repository": "https://github.com/kentinya/jellyfin-strm-probe.git",
     "reference_sha": "2afc6517fda5a7b4170ebea625619a552c47dabc"
@@ -53,7 +48,6 @@
     "CLAUDE.md",
     "README.md",
     "SLICE.md",
-    "STRM Generator Go.md",
     "TASK.md",
     "Task/FIRST_TASK.md",
     "Task/TEMPLATE.md",

@@ -1,6 +1,6 @@
 # 测试矩阵
 
-当前依据为 [V4.4](<../STRM Generator Go.md>)。Slice 1–3 PASS / CLOSED；[Slice 4](../SLICE.md)
+当前依据为 [V4.4 需求](requirements.md)。Slice 1–3 PASS / CLOSED；[Slice 4](../SLICE.md)
 在原 Base 内完成并 PASS / CLOSED。4.4 固定数据集及原生任务可用性已由 B4 验收 PASS；4.5生成／同步已获独立B PASS；4.6原始扫描／八行决定已独立B PASS，见[Closure Packet](slice-4-closure-packet.md)；[A Final](slice-4-a-final-review.md)已接受RO-1..6、无P0／P1阻塞，
 当前结果由新任务取得；所需环境／媒体／三脚本见 [资产清单](slice-4-assets.md)。本表定义当前覆盖与执行入口，
 旧任务记录不作为验收完成或审查前置。
@@ -85,7 +85,7 @@ Python 工具单测不启动真实外部服务，不替代四个驱动的实际�
 | tests 下文件 | 覆盖 | 当前方法数 |
 |---|---|---|
 | test_development_environment.py | SDK 校验／解压／缓存边界 | 7 |
-| test_governance.py | 当前方案身份、文档链接、Slice／Task 状态和提交边界；版本漂移／缺失／协调升级 | 17 |
+| test_governance.py | 必需文档／链接、Slice／Task 状态和提交边界；本地参考资料缺失或修改不影响治理 | 14 |
 | test_mock_openlist.py | 合成 API 鉴权／分页／错误／元数据及故障 hook | 11 |
 | test_run_openlist_absence_integration.py | 固定真实服务驱动前置、失败／SKIP、归属清理与 Get 约束 | 35 |
 | test_run_isolated_sync_integration.py | 发布 CLI 驱动证据边界、STRM／DB、故障与 Mirror 场景 | 19 |
@@ -106,7 +106,7 @@ mock_openlist.py、dev/fixtures/openlist.json、dev/compose.yaml 是 Slice 1–3
 不能仅因名称相同删除。真实服务驱动的隐藏／同码／虚拟挂载案例保留为用户接受的局限，
 不改称已权威辨别。正常中断恢复、未归属保护和 dry-run 等安全要求保持。
 
-当前 Python 共 7 个文件、111 个测试方法；执行结果以新任务报告为准。
+当前 Python 共 7 个文件、108 个测试方法；执行结果以当前验证记录为准，历史审查保留当时计数。
 旧目标运行器 `run_isolated_target_integration.py` 及其专属测试已不在当前工具清单，
 后续使用发布 CLI、已有 S3／容器工具和 Jellyfin 原生检查，不恢复播放运行器。
 

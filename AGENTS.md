@@ -2,13 +2,13 @@
 
 项目：STRM Generator Go，OpenList 到本地 STRM 的独立生成器；需求版本为 V4.4，协议／决策规则与配套 jellyfin-strm-probe 锁定源码对照。
 
-开始工作先读本文件、[开发流程](docs/development-workflow.md)、[V4.4 方案](<STRM Generator Go.md>)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
+开始工作先读本文件、[开发流程](docs/development-workflow.md)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
 
 先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。Slice 1–4 已 PASS / CLOSED，Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。Slice 4 保持原 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，按用户授权完全重规划为 Task 4.4 资产复用与固定数据集 → 4.5 万文件生成／最少同步 → 4.6 原始扫描／完整决策；三项均已独立 B PASS。A 已审完整 Base 至实现 Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504` 及纯文档后继，RO-1..6 PASS、无 P0／P1 阻塞，见 [A 最终审查](docs/slice-4-a-final-review.md)。已有隔离环境、媒体原件、generate_media.py／bootstrap.sh／teardown.sh 及固定产物保留；旧 4.1／4.2／4.3 不作为当前验收完成或审查前置。根 TASK 无活动实施任务，关闭后停止，不自动选择或启动下一 Slice。当前状态仅以 SLICE／TASK 为准，无播放、代理、旧暂缓例外或更高规模压力门槛。下列授权和旧状态保留历史时点，不追认历史越界／UNKNOWN，也不扩大未来权限。用户会话授权优先于本文件。
 
 ## 固定业务边界
 
-- 当前方案为 V4.4，版本与内容摘要由 dev/environment-spec.json 锁定；用户授权更新时显式协调需求、架构、合同及测试，不保留退出要求作为当前兼容门槛。
+- 当前需求版本为 V4.4，业务规则以仓库[需求](docs/requirements.md)、范围、架构及合同为准；用户授权变更时显式协调需求、架构、合同及测试，不保留退出要求作为当前兼容门槛。本地参考资料不属于治理必读、必需文件、摘要锁定或测试门禁；环境规范只维护工具／外部输入与仓库必需文件。
 - 只生成／更新／安全清理自己拥有的 STRM；不运行 ffprobe、不下载媒体计算哈希、不操作 Jellyfin 数据库、不调用插件内部接口、不改写 JellyfinProxy。
 - 使用 UTF-8 版本 1 协议、稳定 HTTP(S) URL；SHA-1 必须是真实内容的 40 位十六进制哈希；Size 为非负 Int64 字节数。缺失或无效元数据省略，不写 Modified、不使用签名临时播放 URL，总长最多 65,536 字节。
 - URL 变化必须更新，即使 SHA-1／Size 相同；URL 不变且有效 SHA-1 相同则忽略 Size 差异并记录异常；SHA-1 不可比时比较有效 Size。详细缺失信息规则见需求。

@@ -1,7 +1,7 @@
 # 范围
 
-当前依据为 [V4.4 方案](<../STRM Generator Go.md>)，内容身份由
-[环境规范](../dev/environment-spec.json) 锁定。配套项目只读 STRM；生成器维护 STRM。
+当前行为要求由仓库[需求](requirements.md)定义，需求版本为 V4.4。
+配套项目只读 STRM；生成器维护 STRM。
 两者共享文件协议，不共享状态库、调度器或内部接口。
 
 Slice 1–3 已 PASS / CLOSED，接受的本地能力包括 OpenList list/get、V1 协议和稳定 URL、
