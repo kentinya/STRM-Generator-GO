@@ -2,6 +2,7 @@
 """Check document identity and committed Slice/Task boundaries; not product acceptance."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -39,6 +40,50 @@ def check_sha(root, value, label):
 def capability(text):
     obligations = text.split("## Closure Packet")[0].strip()
     return re.sub(r"^(Status|Implementation Head):.*$", "", obligations, flags=re.MULTILINE)
+
+
+def normalize_history_links(root, document, text):
+    """Treat a pinned copy of the same committed document as its local link.
+
+    Only this repository's reachable commits with identical HEAD blobs qualify;
+    changing obligations, labels, anchors or referenced content still fails.
+    """
+    try:
+        remote = git(root, "remote", "get-url", "origin").removesuffix(".git")
+    except ValueError:
+        return text
+    if remote.startswith("git@github.com:"):
+        remote = "https://github.com/" + remote.removeprefix("git@github.com:")
+    if not re.fullmatch(r"https://github\.com/[^/]+/[^/]+", remote):
+        return text
+    prefix = remote + "/blob/"
+
+    def replace(match):
+        target = match.group(1) or match.group(2)
+        if not target.startswith(prefix):
+            return match.group(0)
+        revision, slash, rest = target[len(prefix):].partition("/")
+        path, fragment, anchor = rest.partition("#")
+        path = unquote(path)
+        if (not slash or not SHA.fullmatch(revision) or not path.endswith(".md")
+                or Path(path).is_absolute() or ".." in Path(path).parts):
+            raise ValueError("History link must pin a repository Markdown file")
+        check_sha(root, revision, "History revision")
+        pinned_blob = git(root, "rev-parse", revision + ":" + path)
+        try:
+            current_blob = git(root, "rev-parse", "HEAD:" + path)
+        except ValueError:
+            # Once removal is committed, retain the full URL as contract identity.
+            return match.group(0)
+        if pinned_blob != current_blob:
+            raise ValueError("History link content differs from committed HEAD: " + path)
+        local = os.path.relpath(root / path, (root / document).parent)
+        value = local + fragment + anchor
+        # Preserve the original label and angle-bracket style.
+        start, end = match.span(1 if match.group(1) is not None else 2)
+        return match.group(0)[:start - match.start()] + value + match.group(0)[end - match.start():]
+
+    return LINK.sub(replace, text)
 
 
 def validate(root=ROOT, bootstrap=False):
@@ -93,11 +138,13 @@ def validate(root=ROOT, bootstrap=False):
     committed = git(root, "show", "HEAD:SLICE.md")
     committed_roadmap = git(root, "show", "HEAD:docs/roadmap.md")
     # Review/report sections may change; capability obligations must already be committed.
-    if capability(committed) != capability(contract):
+    normalized_contract = normalize_history_links(root, "SLICE.md", contract)
+    if capability(normalize_history_links(root, "SLICE.md", committed)) != capability(normalized_contract):
         raise ValueError("Working Slice contract differs from committed HEAD")
     if status != "PLANNED" and field(committed, "Status") == "PLANNED":
         raise ValueError("Activation must be committed in HEAD")
-    if committed_roadmap != roadmap.strip():
+    if (normalize_history_links(root, "docs/roadmap.md", committed_roadmap)
+            != normalize_history_links(root, "docs/roadmap.md", roadmap).strip()):
         raise ValueError("Working roadmap differs from committed HEAD")
     if status == "PLANNED":
         if not inactive or implementation != "NOT SET":
@@ -135,7 +182,7 @@ def validate(root=ROOT, bootstrap=False):
         snapshot = git(root, "show", checkpoint + ":SLICE.md")
         if field(snapshot, "Status") != "ACTIVE" or field(snapshot, "Base SHA") != base:
             raise ValueError("Task checkpoint must identify the active contract")
-        if capability(snapshot) != capability(contract):
+        if capability(normalize_history_links(root, "SLICE.md", snapshot)) != capability(normalized_contract):
             raise ValueError("Task checkpoint does not match current capability contract")
     return "PASS: committed contract governance (not product or review acceptance)"
 

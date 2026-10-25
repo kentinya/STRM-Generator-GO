@@ -4,7 +4,7 @@
 History (kept factual, not re-authorised): an earlier version of this file
 opened the isolated Jellyfin plugin's ``strm-fingerprints.db`` read-only and
 queried ``strm_fingerprint``. The second B review of Task 4.6 (F-46-02,
-``docs/task-4.6-b-review-2.md``) established that this violates the Task
+``https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-2.md``) established that this violates the Task
 boundary: AC-2 forbids reading or writing the Jellyfin / plugin databases, and
 read-only access is still access. Historical evidence that used this entry
 stays in place and is marked as non-compliant in the reviewer record; it is
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import sys
 
-RETIREMENT_REFERENCE = "docs/task-4.6-b-review-2.md (F-46-02)"
+RETIREMENT_REFERENCE = "https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-2.md (F-46-02)"
 
 
 class DirectStoreReadForbidden(RuntimeError):

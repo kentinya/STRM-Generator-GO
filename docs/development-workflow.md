@@ -1,20 +1,108 @@
-# 开发流程
+# 开发与维护
 
-这是 Slice／Task 生命周期、Git、测试与审查的唯一流程定义。复用配套项目的职责和门槛，来源固定在 [references.md](references.md)；长期业务规则见 [AGENTS.md](../AGENTS.md)。原项目的实现、历史授权、SDK 和审查结论均不迁入本项目。
+长期约束见 [AGENTS](../AGENTS.md)，业务规则见[需求](requirements.md)，
+包职责见[架构](architecture.md)，状态见根 [SLICE](../SLICE.md)／[TASK](../TASK.md)。
+本文件统一记录环境、测试、开发流程与历史查看，不再维护分散的角色经验、任务模板或进度账本。
 
-## 1. 对象与职责
+## 环境安装
 
-Slice 是一个可交付完整能力合同；Task 是合同内可整体审查的实施单元。P0～P4 仅表示原方案优先级，不新增阶段状态机，修正留在原 Task。
+需要 Linux amd64／arm64、Python 3.11+、Git 和 HTTPS；Docker／Compose／Buildx 仅在
+容器测试时需要。工具版本、源码 SHA、归档摘要和必需文件由[环境规范](../dev/environment-spec.json)
+固定；Go 版本与 `.go-version`／`go.mod` 一致，不自动追随 latest。
 
-| 职责 | 责任 |
+```bash
+python3 scripts/development_environment.py install
+python3 scripts/development_environment.py install-cc
+python3 scripts/development_environment.py doctor
+bash scripts/go-local version
+python3 scripts/development_environment.py smoke
+python3 scripts/quality.py
+```
+
+安装器校验 SHA-256 后写入 `artifacts/dev-env/`；wrapper 隔离 Go 缓存，默认 CGO=0，
+禁止自动切换工具链。固定 Zig C 工具链仅用于 race／CGO，不是产品运行依赖。
+离线安装可传 `install --sdk-archive <固定ZIP>` 和 `install-cc --cc-archive <固定归档>`。
+`smoke` 检查 SDK、标准库和双架构交叉编译，不生成产品二进制或代替 ARM64 原生运行。
+
+```bash
+CC="$PWD/artifacts/dev-env/cc/bin/cc" CGO_ENABLED=1 bash scripts/go-local test -race -count=1 ./...
+```
+
+## 测试入口
+
+| 检查 | 命令或驱动 |
 |---|---|
-| A：Slice 所有者／架构／最终审查 | 确定用户结果、Required Outcomes、边界、Base 与最终验收；协调关闭 |
-| B：Task 规划／审查 | 检查真实仓库，规划合理实施单元，独立审查 Task，重评全部 RO |
-| Developer：实施 | 按活动 Task 实现、验证、提交可核验证据，不自签独立审查 PASS |
+| 合同、必需路径和文档链接 | `python3 scripts/check_governance.py` |
+| Python 工具回归 | `python3 -m unittest discover -s tests -v` |
+| 常规质量 | `python3 scripts/quality.py`：治理、Python、语法／空白、gofmt、vet、Go test／build |
+| Go 产品回归 | `bash scripts/go-local test ./...`；覆盖配置、API、协议、路径、SQLite、同步／清理、恢复、锁和调度 |
+| CLI／Mirror／故障恢复 | `scripts/run_isolated_sync_integration.py` |
+| 真实 OpenList Get／缓存／权限边界 | `scripts/run_openlist_absence_integration.py` |
+| 定时、多进程和取消 | `scripts/run_serve_integration.py` |
+| 容器、挂载、重启和共享锁 | `scripts/run_container_integration.py`，镜像构建见[部署](deployment.md#构建) |
 
-职责不等于必须启动多个模型；多代理仅在用户或适用指令明确要求时使用。没有独立审查就保持 PENDING。
+构建发布与故障注入二进制；后者只供隔离测试，不用于生产：
 
-## 2. 状态与实施准入
+```bash
+mkdir -p artifacts/bin artifacts/validation-evidence
+bash scripts/go-local build -trimpath -o artifacts/bin/strmgen ./cmd/strmgen
+bash scripts/go-local build -tags strmgen_testhooks -trimpath \
+  -o artifacts/bin/strmgen-testhooks ./cmd/strmgen
+RUN_DIR="$(mktemp -d artifacts/validation-evidence/sync-local-XXXXXX)"
+python3 scripts/run_isolated_sync_integration.py --binary artifacts/bin/strmgen \
+  --fault-binary artifacts/bin/strmgen-testhooks --scenario all --output-dir "$RUN_DIR"
+SERVE_RUN_DIR="$(mktemp -d artifacts/validation-evidence/serve-local-XXXXXX)"
+python3 scripts/run_serve_integration.py --binary artifacts/bin/strmgen \
+  --fault-binary artifacts/bin/strmgen-testhooks --output-dir "$SERVE_RUN_DIR"
+```
+
+四个集成驱动的 `--output-dir` 必须位于 `artifacts/validation-evidence/` 且为新空目录。
+真实 OpenList 驱动只创建自有专用容器；先检查其 `--help` 和固定镜像身份，再运行：
+
+```bash
+mkdir -p artifacts/task-2.1/bin artifacts/validation-evidence
+bash scripts/go-local test -c -tags openlist_integration \
+  -o artifacts/task-2.1/bin/openlist-integration.test ./internal/openlist
+OPENLIST_RUN_DIR="$(mktemp -d artifacts/validation-evidence/openlist-local-XXXXXX)"
+python3 scripts/run_openlist_absence_integration.py \
+  --test-binary artifacts/task-2.1/bin/openlist-integration.test \
+  --output-dir "$OPENLIST_RUN_DIR/real-openlist"
+```
+
+真实服务未配置时的 SKIP 不算真实兼容 PASS；Python 测试不启动真实外部服务。
+固定万文件和 Jellyfin／插件八行实际决定属于独立验收，不能用预测模型或合成夹具替代，
+预期矩阵见[需求](requirements.md#插件决策验收矩阵)。
+
+## 合成夹具
+
+```bash
+python3 scripts/mock_openlist.py
+```
+
+默认只监听 `127.0.0.1:15244`，公开假 token 为 `strmgen-fixture-only`，Ctrl-C 停止。
+数据见 [openlist.json](../dev/fixtures/openlist.json)，包含分页、中文特殊名、可选哈希／Size
+和合成错误。夹具无真实媒体、稳定播放端点或对外请求；`raw_url` 中的假签名用于防止误复制。
+
+```bash
+curl --fail http://127.0.0.1:15244/api/fs/list \
+  -H 'Authorization: strmgen-fixture-only' -H 'Content-Type: application/json' \
+  -d '{"path":"/Movies","page":1,"per_page":2,"refresh":false}'
+```
+
+可选 [dev/compose.yaml](../dev/compose.yaml) 使用同一端口，运行前停止原生夹具。
+不要停止占用端口的其他服务；另一工作副本使用独立 project／端口。该夹具不挂生产路径。
+
+## 任务与审查
+
+| 职责 | 工作 |
+|---|---|
+| A | 定义完整用户结果、RO、边界与 Base；最终审查和关闭 Slice |
+| B | 基于真实代码规划 Task、独立审查完整 Base..Head、重评全部 RO |
+| Developer | 在活动 Task 内实现／修复，提供真实实现 SHA、验证和剩余限制 |
+
+职责不自动授权多代理。实施者不能自签独立审查 PASS，没有独立审查保持 PENDING。
+按完整成功／失败／恢复闭环规划，不按文件或类拆任务；每次通过后重评剩余 RO，
+不为非阻塞润色无限追加任务。
 
 ```text
 Task: PLANNED -> IN PROGRESS -> READY FOR B REVIEW -> PASS
@@ -23,64 +111,55 @@ Slice: PLANNED -> ACTIVE -> READY FOR A REVIEW -> PASS / CLOSED
                         -> FIX REQUIRED -> 原 Slice 内修正
 ```
 
-没有活动任务时，根 TASK.md 第一行必须为 `# NO ACTIVE IMPLEMENTATION TASK`。Task 没有 CLOSED 状态；A 才能关闭 Slice。开发准备基线不计为已通过产品 Slice。
+新增产品实施顺序：真实基线提交 → A 提交 ACTIVE 合同及路线图 → B 提交 Task → Developer 实施。
+Base 是实施前真实可达完整 SHA，激活后固定；Implementation Head 指向实际实现检查点。
+规划阶段可为 NOT SET，不能伪造。Task 计划在根 TASK 中记录 ID、Parent Slice、Status、Task Base、
+Contract Checkpoint、Goal／Scope、Difficulty、Test Level、验收条件、测试、非目标及完成／审查报告。
 
-合法顺序为：真实基线提交 → A 提交 ACTIVE Slice 合同及同步 Roadmap → B 提交 Task 计划 → Developer 实现检查点。规划阶段 Base、Implementation Head 为 NOT SET；激活后 Base 固定为实施前真实可达完整 SHA，不随文档提交移动。Implementation Head 只指向实际实现检查点，不填自引用 SHA。
+改变 RO、安全不变量或验收含义时先显式修订合同，不把需求变更伪装成纯文档维护。
+修正在原 Task 增加检查点，不重写已审历史。用户另行授权的文档维护可以独立执行，
+不重新激活已关闭的产品 Slice，也不签发新的产品 PASS。
 
-实施前执行 `python3 scripts/check_governance.py`，检查已提交合同与当前工作区一致、Roadmap、Task 身份和 SHA 祖先关系。没有 HEAD 时 `--bootstrap` 只接受 PLANNED／NOT SET／无活动 Task，输出不是实施准入。已初始化但未激活也不能开始产品实现。
-
-开发准备基线已提交，用户随后明确要求激活第一个 Slice。A 将 Slice 1 设为 ACTIVE 并固定真实 Base；B 必须在合同激活提交后规划 Task，Developer 才能在活动 Task 内实施。SDK 可用、Go module 存在或合同激活本身都不代表产品验收通过。
-
-## 3. 合同与 Task
-
-Slice 包含 ID、Owner、Status、Base、Implementation Head、用户目标、Required Outcomes／Surfaces、约束、不变量、排除范围、最终验收、Closure Packet 和 A Final Review。Task 使用 [模板](../Task/TEMPLATE.md)，声明 Parent Slice、Task Base、Contract Checkpoint、Goal、Scope、Difficulty、Test Level、验收、测试、非目标、完成报告与 B 决定。
-
-一个 Slice 通常规划 3～7 个行为闭环；超过 8 个应检查是否仅按文件或类拆分。首先攻克紧密关联的高风险接入问题。B 依据真实代码规划，不把预想接口当成已存在实现。
-
-不改变结果、边界和验收含义的事实修正可保留合同；改变 RO、安全不变量或验收含义属于实质变更，A 先提交修订合同，B 决定当前 Task 调整或重规划，之后才能实施。PARTIAL / RESCOPE 保留已有效的实现与历史结论，不能粉饰成 PASS。用户明确冻结时记录原因并撤下活动任务，不自动丢弃未接受改动。
-
-Developer 在活动范围内自主完成必要修复、测试和普通本地检查点；实现完成报告记录真实 Head、行为、文件、原始证据、剩余 RO 与限制，将 Task 交为 READY FOR B REVIEW。B 审查完整 Task Base..Head，返回 PASS 或 FIX REQUIRED；修正增加提交，不改写已审查历史。
-
-## 4. 测试等级与执行
-
-| 等级 | 风险 | 门槛 |
+| 等级 | 适用变更 | 检查 |
 |---|---|---|
-| T0 | 不改变需求／架构／范围的事实文档 | 相关链接、治理、补丁空白检查 |
-| T1 | 仅增加已有行为测试 | 新增与受影响测试 |
-| T2 | 单一低风险模块 | 聚焦模块测试和静态检查 |
-| T3 | API／CLI／配置等跨模块接入 | 聚焦、相关集成和受影响回归 |
-| T4 | 持久化、原子写入、删除、并发、迁移、真实兼容决策 | 全部已有回归及适用真实运行、故障恢复、打包验证 |
+| T0 | 事实文档 | 相关链接、治理、补丁空白 |
+| T1 | 增加已有行为测试 | 新增与受影响测试 |
+| T2 | 单一低风险模块 | 聚焦测试与静态检查 |
+| T3 | API／CLI／配置等跨模块接入 | 聚焦、相关集成与受影响回归 |
+| T4 | 持久化、原子写入、删除、并发、迁移和真实兼容 | 全部已有回归及适用真实运行／故障恢复／打包验证 |
 
-需求／架构改变不伪装成 T0。Go 产品包创建后，Task 指定准确的 `bash scripts/go-local test ...`、`vet`、`gofmt`、构建命令；race 检测需要 C 编译器并显式开启 CGO。尚无产品包时环境 smoke 不能替代这些门槛。
+先运行新增、已知失败及直接影响检查；最终候选执行对应等级门槛。
+完整套件覆盖聚焦检查时不机械重复；真实服务、重启或删除恢复的独立要求仍执行。
+证据复用须匹配准确输入和原始产物，不只看报告标签。不能删测试、弱化断言或隐藏首次失败换取通过；
+已有 Task 测试计划由 B 显式调整并说明原因。
 
-测试计划分开发／修正反馈、最终检查点、B 独立验证、证据与重跑四部分。先验证新增、已知失败和直接影响；最终候选执行指定等级门槛。完整套件已覆盖聚焦测试时说明覆盖关系，不机械重复；真实 OpenList、插件解析、Jellyfin 扫描／决策、重启、删除恢复或性能的单独要求仍执行。最终后修改可执行输入，按影响重跑；T4 候选保留完整门槛。
+所有 Task 通过后汇总 Base／Head、RO、证据、不变量、P2、延期与未运行项，交 A 审查完整范围。
+A 记录 Reviewed Range、Decision、Blockers，判 PASS、FIX REQUIRED 或 PARTIAL / RESCOPE。
+通过后同步 SLICE／TASK／路线图，根 TASK 撤为无活动；无剩余已授权需求时停止。
+关闭后原范围 P0／P1 回原 Slice 修正，P2 不无限延长交付。
 
-B 独立复现指定关键行为，检查可复用的原始证据，不因角色不同重跑所有相同输入，也不凭报告标签通过。有明确阻塞可先拒绝；未执行门槛如实记录。既有测试计划只有 B 可显式调整并说明原因，不能删测试、弱化断言、隐藏 skip／首次失败来获得通过。
+## 证据与 Git
 
-## 5. 证据
+记录源码 SHA、未提交输入摘要、命令／cwd、工具与依赖、配置／夹具身份、退出码、计数、耗时、
+原始日志、产物摘要、首次失败／重跑、验收映射、复用和未运行项。证据放
+`artifacts/validation-evidence/<run-id>/` 或 CI artifact，保留至最终决定；本机证据不等于远端可读。
+正常恢复应独立枚举目录并传播 sync 失败；出现观察清除待提交缺失；样本恢复必须使用原始前值，
+不能拿已修改配置冒充。外部决定须关联原始字节、正常基准、单变量和当次日志，预测、启动、成功分别报告。
 
-每次候选保留证据索引：完整源码 SHA；未提交输入准确内容摘要；命令、工作目录、运行版本、依赖／配置／夹具身份；退出码、计数、耗时；原始日志、产物摘要、首次失败与重跑；验收映射、复用与未运行项。
+提交前检查 status、完整 diff、未跟踪文件、秘密与空白；显式暂存，不自动 push 或改写历史。
+没有真实 Git 身份时保留未提交状态。完整克隆用于核对历史 SHA，质量 CI 使用 `fetch-depth: 0`。
+治理检查允许把合同链接改为本仓库固定祖先提交的同内容文件；不允许改变正文、锚点或历史内容。
 
-证据放 `artifacts/validation-evidence/<run-id>/` 或 CI artifact，保留至 A 最终决定。本机证据不是远端可读证据，临时目录不作为唯一交接来源。纯文档后继提交可在核实全部可执行输入相同时复用编译／运行证据，但消费文档的治理检查应重跑。Slice Final 仍验证当前合同。
+## 历史记录
 
-结果使用 PASS、FAIL、NOT RUN、BLOCKED、SKIPPED，并说明缺失原因。Python 夹具不代表真实 OpenList 兼容，交叉编译不代表 ARM64 实机运行，环境验证不代表 STRM 生成／插件决策通过。真实联调只操作明确隔离实例和临时媒体，不自动使用生产配置。
+旧计划、审查、角色经验和进度不再放在当前目录。原始记录位于清理前固定检查点
+`4d16846722f31aa9615494b90df715cf4b5bb6df`，可离线查看：
 
-## 6. Git
+```bash
+git ls-tree -r --name-only 4d16846722f31aa9615494b90df715cf4b5bb6df -- docs Task
+git show 4d16846722f31aa9615494b90df715cf4b5bb6df:docs/slice-4-a-final-review.md
+```
 
-提交前检查 status、完整 diff、未跟踪文件、空白、秘密及范围；使用显式文件清单暂存，不一概 `git add .`。普通检查点保留可达历史，不自动 push、不把配套仓库设为本项目 origin、不重写历史或破坏性 clean／reset。
-
-本次可初始化本地 main。没有真实 Git 用户身份时保留未提交状态并报告，不填虚假用户身份；无真实提交不得伪造 Base。Git 不可写时报告实际限制，不另设 Git 目录绕过。
-
-## 7. Slice 收尾
-
-每个 Task PASS 后 B 逐项重评全部 RO；满足后不为非阻塞润色新造 Task。运行 Slice Final，形成 Closure Packet（Base／Head、RO、Task 索引、最终证据、不变量、P2、延期、文档协调项），交 READY FOR A REVIEW。
-
-A 审查完整 Base..Implementation Head 与用户结果，记录 Reviewed Range、Decision、P0/P1 Blockers，可判 PASS、FIX REQUIRED、PARTIAL / RESCOPE。FIX REQUIRED 保持原 Base 回到当前合同修正。
-
-PASS 后在一个关闭检查点协调 SLICE、TASK、README、架构 CURRENT、Roadmap、Progress，记录已审查 Implementation Head、Closure Reconciliation 和 PASS / CLOSED，TASK 撤为无活动后停止。当前授权需求全部完成时写 `Next Action: NONE — CURRENT REQUIREMENTS COMPLETE`，不预设必须选择下一 Slice；仍有用户已授权需求时记录实际剩余结果，下一 Slice 的选择／激活作为独立动作。新增需求须先取得用户授权。关闭后发现原范围 P0／P1 保留历史重新激活同一 Slice。P2 不无限延长交付。
-
-关闭时阅读三份角色经验，每份最多新增 1～3 条真实可复用方法，按“问题 → 做法 → 适用条件”；无新经验不凑数，不复制原项目实施经历或 Task 流水账。
-
-## 8. 文档分工
-
-AGENTS 保存不变量；本文件保存流程；需求／范围／用户旅程定义稳定行为；架构分 CURRENT 与 TARGET；SLICE／TASK 限定当前授权；Roadmap 保存次序与依赖；Progress 保存简短事实账本；角色文件只保存方法。环境规范维护工具／外部输入与仓库必需文件，不锁定本地参考资料的版本或内容；本地参考资料不作为治理必读或验收前置。用户授权变更业务要求时协调需求、架构、合同及测试。详细任务与审查历史留在可达 Git 检查点。
+历史“当前”、授权与 UNKNOWN 仅属原时点，不转成新权限或无泄露证明；Slice 4 临时认证已撤销。
+`artifacts/` 中的媒体、隔离服务数据、原始日志与专用工具不随克隆提供。
+原开发机的固定数据集和三个脚本继续保留，本次清理不删除或重建这些资产。

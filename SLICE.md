@@ -28,7 +28,7 @@ Implementation Head 为 NOT SET。现三项均已独立 B PASS，实际实现 He
 ## 已有资产与复用边界
 
 - 隔离环境、媒体和三个脚本原地保留在 `artifacts/task-4.1/isolated-s3/`；不因重规划
-  删除、重建或改名。媒体／工具当前事实及摘要见 [资产清单](docs/slice-4-assets.md)。
+  删除、重建或改名。媒体／工具当前事实及摘要见 [资产清单](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-assets.md)。
 - 本轮只读清点：`media/` 有 201 个同内容媒体文件，`media-src/` 有 1 份源媒体，均为
   24404 字节。不是现成的 10000 文件数据集；远端现存对象数和服务运行状态仍须实际核对。
 - `generate_media.py`、`bootstrap.sh`、`teardown.sh` 均保留复用；生成脚本当前会覆盖
@@ -76,13 +76,13 @@ Implementation Head 为 NOT SET。现三项均已独立 B PASS，实际实现 He
 | 4.6 | 4.5 PASS 后，最少原始 STRM 扫描与 D-01..08 实际决策，完成全部 RO 及 Slice Final | T4 |
 
 当前无活动实施任务，见 [TASK](TASK.md)；重规划时的后续候选分别见
-[4.5](Task/4.5-generation-sync-plan.md)、[4.6](Task/4.6-plugin-decisions-plan.md)。
+[4.5](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/Task/4.5-generation-sync-plan.md)、[4.6](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/Task/4.6-plugin-decisions-plan.md)。
 当时的候选不提前填写不存在的 Base／实施 Head，前序 PASS 后由 B 基于真实仓库正式规划提交。
 该次提交仅重规划，未执行建集、生成、启动／停止或真实验收；后续完成结果见关闭记录。
 
 ## 比较与证据判定
 
-按 [需求](docs/requirements.md) 和 [D-01..08](docs/test-matrix.md#slice-4-实际插件决策矩阵)。
+按 [需求](docs/requirements.md) 和 [D-01..08](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/test-matrix.md#slice-4-实际插件决策矩阵)。
 哈希／Size 比较和不探测行须有必要主媒体流、历史指纹和当前原生地址匹配；URL 变化行
 先建立地址匹配的旧基准，变更后可由 UrlChanged 或本次变化导致的 NativeUrlMismatch
 触发探测。必须排除无关主流／地址缺失，不能借其他条件冒充该行通过。
@@ -110,8 +110,8 @@ B 审查各 Task 完整 Base..Head，关键真实行为独立复现；新任务�
 ## Closure Packet
 
 ```text
-Closure Packet: docs/slice-4-closure-packet.md (B COMPLETE)
-A Final Review: docs/slice-4-a-final-review.md (COMPLETE)
+Closure Packet: https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-closure-packet.md (B COMPLETE)
+A Final Review: https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md (COMPLETE)
 Reviewed Range: d1c95ad079a0e3f952d9e57ab50299c6ae93ad63..24e1ba0ab88173f2c7374f450c9750e5a1e9b504
 Reviewed Documentation Successor: 93b0b02aa2bcce854dd82293979aa5f22e8aae27
 Decision: PASS
@@ -121,11 +121,11 @@ Next Action: NONE — CURRENT REQUIREMENTS COMPLETE
 
 
 2026-10-22 关闭事实：4.4／4.5／4.6 均已独立 B PASS，见
-[4.6 B3](docs/task-4.6-b-review-3.md) 与 [Closure Packet](docs/slice-4-closure-packet.md)。
+[4.6 B3](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-3.md) 与 [Closure Packet](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-closure-packet.md)。
 正文中的“本次重规划／未实施”保留规划时点与已提交能力合同，不表示当前交付缺失；
 当前状态以上方顶栏及本关闭事实为准。全部 RO 的 B 验收及 Slice Final 已齐备；
 A 已审原 Base..最终实现 Head 及纯文档后继，RO-1..6 最终 PASS、无 P0／P1 阻塞，
-详见 [A Final](docs/slice-4-a-final-review.md)。不追认历史越界或 UNKNOWN、不宣称探测
+详见 [A Final](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)。不追认历史越界或 UNKNOWN、不宣称探测
 成功／播放；非阻断 P2 与未运行边界保留。
 
 ## Closure Reconciliation
@@ -133,5 +133,5 @@ A 已审原 Base..最终实现 Head 及纯文档后继，RO-1..6 最终 PASS、�
 本关闭检查点同步 SLICE／TASK／README、架构 CURRENT、范围与兼容性等当前文档、
 Roadmap／Progress 及 Closure Packet；根 TASK 撤为无活动实施任务，三角色经验已复盘。
 原 Base、已审实现 Head、RO／验收及业务规则不变，不修改产品或隔离服务。
-本地参考方案随后已退出治理与版本跟踪，见[进度](docs/progress.md)。
+本地参考方案随后已退出治理与版本跟踪，见[进度](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/progress.md)。
 Slice 4 **PASS / CLOSED**，当前 V4.4 开发需求已完成，没有必须继续的下一 Slice；新增工作须由用户另行授权。

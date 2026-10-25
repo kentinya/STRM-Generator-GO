@@ -9,7 +9,7 @@
 #
 # All host paths default to deploy/data/ so a local run never touches a
 # production media tree. Override STRMGEN_OUTPUT, STRMGEN_STATE, STRMGEN_LOCK_DIR
-# and STRMGEN_CONFIG for a real deployment. See deploy/README.md for the
+# and STRMGEN_CONFIG for a real deployment. See docs/deployment.md for the
 # permission, backup and multi-instance contract.
 name: strmgen
 

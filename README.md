@@ -1,113 +1,59 @@
 # STRM Generator Go
 
-OpenList 目录到本地 STRM 的 Go 生成器，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。当前 V4.4 行为要求见[需求文档](docs/requirements.md)。
+把 OpenList 目录同步为本地 STRM，配套 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe)。
+支持一次性／定时同步、增量更新、Mirror 清理和中断恢复，运行目标为 Linux amd64／arm64。
 
-**当前 V4.4 开发需求已完成，Slice 1–4 均 PASS / CLOSED，无活动实施任务或必须继续的下一 Slice。**
-已交付一次性／定时同步、增量更新、安全清理与恢复、容器运行包；固定 10000 个 S3 文件经
-真实 OpenList 生成 STRM，最少样本同步、Jellyfin 原始扫描及插件完整八行决定已独立验收。
-最终范围与限制见 [A 最终审查](docs/slice-4-a-final-review.md)和 [Closure Packet](docs/slice-4-closure-packet.md)。
-插件探测决定不等于探测成功；ARM64 实机及正式发布仍 NOT RUN，播放、代理及更高规模不属当前合同。
+## 文档
 
-## 文档入口
+仓库只维护以下 10 份文档；已完成任务的过程记录从 Git 历史查阅。
 
-| 目的 | 入口 |
+| 文档 | 用途 |
 |---|---|
-| 使用和部署 | 下方构建命令、[配置示例](config.example.yaml)、[部署说明](docs/deployment.md) |
-| 行为、架构与恢复边界 | [需求](docs/requirements.md)、[架构](docs/architecture.md)、[用户旅程](docs/product-experience.md) |
-| 参与开发或查阅验收历史 | [文档导航](docs/README.md)、[AGENTS](AGENTS.md)、[开发流程](docs/development-workflow.md)、[测试矩阵](docs/test-matrix.md) |
-| 当前治理状态 | [SLICE](SLICE.md)、[TASK](TASK.md)、[路线图](docs/roadmap.md)、[进度](docs/progress.md) |
-
-## 开发环境与检查
-
-仓库根目录执行（Python 3.11+、Git；SDK 与 C 工具链安装需要 HTTPS）：
-
-```bash
-python3 scripts/development_environment.py install
-python3 scripts/development_environment.py install-cc
-python3 scripts/development_environment.py doctor
-bash scripts/go-local version
-python3 scripts/development_environment.py smoke
-python3 scripts/check_governance.py
-python3 -m unittest discover -s tests -v
-```
-
-新克隆需保留完整 Git 历史并使用常规治理检查；`--bootstrap` 仅供尚无 HEAD 的开发准备基线。
-完整本地质量入口为 `python3 scripts/quality.py`，安装及 race 命令见[开发环境](docs/development-environment.md)。
-`smoke` 只验证编译器、标准库及 Linux amd64／arm64 交叉编译，不生成产品二进制。
-module 保持 `strm-generator-go`，GitHub 仓库及推送状态见[文档导航](docs/README.md#github-推送与证据边界)。
-
-用户最终选择的清理规则：源根未成功读取为目录时保留且不增加缺失次数；源根可读时，对需判断缺失的已拥有路径 Get 未读到即计缺失，不再区分同样响应背后的原因。默认三次完整轮及删除前同规则重核，保留归属／输出边界检查；所有列表 refresh:false。此前刷新列表证明及请求预算方案已撤回，详见[需求](docs/requirements.md#简化删除判定2026-10-18-用户最终决定)。
+| 本 README | 构建、运行与日常入口 |
+| [部署](docs/deployment.md) | Docker／Compose、发布、权限、备份与恢复 |
+| [需求](docs/requirements.md) | V4.4 规则、范围、STRM 协议与比较矩阵 |
+| [架构](docs/architecture.md) | 包职责、数据流、持久化与并发设计 |
+| [开发流程](docs/development-workflow.md) | 环境安装、测试入口、任务／审查流程和历史查看 |
+| [路线图](docs/roadmap.md) | 已交付能力与最终验收索引 |
+| [SLICE](SLICE.md) | 最近关闭的能力合同 |
+| [TASK](TASK.md) | 当前产品实施任务状态 |
+| [AGENTS](AGENTS.md) | 仓库开发约束 |
+| [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
 ## 构建与运行
 
-```bash
-mkdir -p artifacts/slice-1/bin
-bash scripts/go-local build -trimpath -o artifacts/slice-1/bin/strmgen-amd64 ./cmd/strmgen
-cp config.example.yaml config.yaml   # 编辑 OpenList 地址、源与专用输出／数据库路径
-export OPENLIST_TOKEN=...   # 来自 openlist.token_env 指定变量
-./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml --dry-run
-./artifacts/slice-1/bin/strmgen-amd64 sync --config config.yaml
-./artifacts/slice-1/bin/strmgen-amd64 serve --config config.yaml
-```
-
-成功退出 0；配置／参数／不支持命令退出 2；API、文件、数据库、冲突或忙碌退出 1；`serve` 被 SIGINT／SIGTERM 取消时以非零 cancelled 结果退出。`sync` 与 `sync --dry-run` 保持一次性行为，按 URL／SHA-1／Size 规则更新已拥有文件；`cleanup.enabled` 默认 false，显式 true 且 `sync.mirror` 开启时启用完整轮缺失确认与本地安全删除。`serve` 首轮立即执行，之后每 `sync.interval_minutes` 分钟（缺省 60；`serve` 要求正整数且不溢出，`sync`／`sync --dry-run` 接受零）运行一轮；手动 `sync` 与 `serve` 共用同一固定锁，锁忙的 tick 只报告 `busy-skip` 并在后续 tick 继续；单轮 API／文件／数据库失败记录脱敏摘要后继续下一 tick；信号到达时当前轮按既有取消边界结束、不提交不完整轮并释放锁。调度摘要写 stdout，脱敏诊断写 stderr，均不含 token、签名 URL 或私有完整路径。Linux amd64／arm64 产品镜像与 Compose 运行包已由 Task 3.2 实现，详见 [部署与运行包](docs/deployment.md)。Slice 4 的真实服务／万文件／插件完整决定已验收；ARM64 实机及正式发布仍 NOT RUN。
-
-隔离 CLI 验收（自建动态端口假服务；故障二进制仅供测试）：
+仓库根目录执行，需要 Linux、Python 3.11+、Git 和下载 SDK 的 HTTPS 网络：
 
 ```bash
-bash scripts/go-local build -tags strmgen_testhooks -trimpath \
-  -o artifacts/slice-1/bin/strmgen-testhooks-amd64 ./cmd/strmgen
-mkdir -p artifacts/validation-evidence
-RUN_DIR="$(mktemp -d artifacts/validation-evidence/slice-1-local-XXXXXX)"
-python3 scripts/run_isolated_sync_integration.py --binary artifacts/slice-1/bin/strmgen-amd64 \
-  --fault-binary artifacts/slice-1/bin/strmgen-testhooks-amd64 \
-  --scenario all --output-dir "$RUN_DIR"
+python3 scripts/development_environment.py install
+mkdir -p artifacts/bin
+bash scripts/go-local build -trimpath -o artifacts/bin/strmgen ./cmd/strmgen
+cp config.example.yaml config.yaml
 ```
 
-`serve` 调度隔离验收（发布二进制验证首轮与取消，testhooks 二进制缩短调度间隔）：
+编辑 `config.yaml` 中的 OpenList API／公开地址、源根、专用输出与数据库路径，再注入
+`openlist.token_env` 指定的环境变量。示例配置见 [config.example.yaml](config.example.yaml)。
+相对输出与数据库路径按启动工作目录解析。
 
 ```bash
-SERVE_RUN_DIR="$(mktemp -d artifacts/validation-evidence/serve-local-XXXXXX)"
-python3 scripts/run_serve_integration.py --binary artifacts/slice-1/bin/strmgen-amd64 \
-  --fault-binary artifacts/slice-1/bin/strmgen-testhooks-amd64 \
-  --output-dir "$SERVE_RUN_DIR"
+export OPENLIST_TOKEN=...  # 替换为自己的 token，不写入配置或提交
+./artifacts/bin/strmgen sync --config config.yaml --dry-run
+./artifacts/bin/strmgen sync --config config.yaml
+./artifacts/bin/strmgen serve --config config.yaml
 ```
 
-部署镜像与容器验收（本机 amd64 运行、arm64 OCI manifest 核对）：
+`sync` 运行一轮；`--dry-run` 预览；`serve` 首轮立即运行，随后按
+`sync.interval_minutes` 调度，默认 60 分钟。退出码：0 成功，1 运行失败／忙碌／取消，
+2 参数或配置错误。`serve` 收到 SIGINT／SIGTERM 后取消当前轮并释放锁，不提交不完整轮。
+容器用法与自动发布工作流见[部署说明](docs/deployment.md)。
 
-```bash
-mkdir -p artifacts/task-3.2/oci
-docker buildx build --platform linux/amd64 --load --tag strmgen:local .
-docker buildx build --platform linux/arm64 \
-  --output type=oci,dest=artifacts/task-3.2/oci/strmgen-arm64.oci.tar .
-CONTAINER_RUN_DIR="$(mktemp -d artifacts/validation-evidence/container-local-XXXXXX)"
-python3 scripts/run_container_integration.py --image strmgen:local \
-  --arm64-oci artifacts/task-3.2/oci/strmgen-arm64.oci.tar \
-  --output-dir "$CONTAINER_RUN_DIR"
-```
+## 清理与恢复
 
-镜像构建、Compose 挂载、非特权运行、token 环境注入、正常停止／重启及双容器共享
-锁竞争细节见 [部署与运行包](docs/deployment.md)。
+- 清理默认关闭。开启 `cleanup.enabled` 时要求 `sync.mirror: true`，至少连续三次完整成功轮缺失，并在删除前再次核对源根与目标 Get。
+- 源根不可读时保留；源根可读而目标未读到时计缺失，即使原因是权限、驱动或缓存异常。这是当前业务规则，详见[需求](docs/requirements.md#完整轮与缺失确认)。
+- 只维护数据库可靠归属的文件。数据库丢失后不会自动接管已有 STRM；优先恢复可信备份，未知文件和冲突保留。
+- 生成器单写、消费者只读；共享输出的生成器必须共享同一锁对象。不要在运行时删除 `/tmp/strmgen-locks/sync.lock` 或 SQLite sidecar。
+- 普通中断可重试；人工处理残留前先停生成器并备份。暂存、WAL 快照和多实例规则见[部署说明](docs/deployment.md#状态备份与恢复)。
 
-启动无需 Docker 的 OpenList 假服务：
-
-```bash
-python3 scripts/mock_openlist.py
-```
-
-仅监听 `127.0.0.1:15244`，公开假 token 为 `strmgen-fixture-only`，夹具查询方法与可选 Compose 见环境文档。配置见 [config.example.yaml](config.example.yaml)。合成夹具不提供真实媒体或播放端点，不替代 Slice 4 的真实服务证据。
-
-## 安全操作与恢复
-
-- **正常写入边界：** 生成器写输出／暂存／DB，Jellyfin／插件等消费者只读；所有生成器共享同一锁对象，跨容器私有 /tmp 的同名路径不能协调共享输出。避免其他程序同时改写，可选专用身份或只读挂载；不要求新增 UID／权限管理能力或消费者 OS 拒写实验。不承诺无损抵御任意绕过锁的外部修改。已拥有可再生成 STRM 的可识别偏差与正常中断，按既有比较规则和恢复流程在后续成功同步中收敛，不保证下一次必然成功。详见 [需求 SW-1..SW-6](docs/requirements.md)。
-
-- 相对配置中的 `sources[].output` 与 `database.path` 按启动工作目录解析，不按配置文件所在目录解析。输出路径的现有祖先必须是实际目录而非符号链接；真实同步需要对输出目录有目录遍历、建目录和创建文件的权限，读取既有 STRM 还需要读权限。数据库父目录需可访问并可写；token 必须存在于配置指定的环境变量中。
-- 单轮锁使用固定运行时位置 `/tmp/strmgen-locks/sync.lock`，目录需由当前有效 UID 所有且不可被组／其他用户写入。所有受支持 CLI 同步共享该 `flock`；环境变量、TMPDIR、数据库或源配置不能另选锁空间。锁文件会保留以避免 inode 替换；进程正常退出、SIGTERM 或 SIGKILL 后内核释放锁，不要在运行时手动删除锁文件。
-- SQLite 是文件归属的证据。数据库丢失后，已有 STRM 不会自动认领；同步会把没有数据库归属记录的目标作为冲突保留。数据库损坏／不可用会在媒体输出前失败。恢复时优先还原可信备份；若无法还原，先由管理员独立核验 STRM 与业务归属，不能用扫描结果自动重建所有权。
-- 人工维护建议先停止生成器并备份 DB、输出及残留；普通重试或已拥有 STRM 的可识别内容变化，不一律要求换新输出／新状态。真正未归属文件和无法安全解释的冲突先保留排查；不盲删暂存或伪造归属，数据库丢失后仍没有自动再认领功能。不要在生产路径试验恢复。
-- 发布或归属记录中断可能留下已发布但未登记的 STRM；再次运行会将其视为未归属冲突，不覆盖、不登记、不删除。失败前已成功发布并登记的文件可以保留；失败源不会提交完整轮次。
-- 清理默认关闭；`cleanup.enabled: true` 且 `sync.mirror: true` 时，源根可读取的完整成功轮对未观察到的已拥有精确路径用 Get 判定，连续三次不同完整轮达到阈值后才具备删除资格，删除前按相同源根／目标 Get 规则重核。只删除可靠归属、精确映射、输出边界内且仍为 regular STRM 的自身目标；目录、符号链接、特殊文件、未知暂存与失配记录保留。dry-run 只列符合已提交阈值的候选，不写文件、库、计数或轮次。清理本地失败会停止该源后续删除并保留已发生操作的报告；重启后按当前源根／Get 重核与可靠本地事实收敛。
-- 已拥有更新使用确定性 `.update.tmp` 暂存；正常中断留下的唯一可识别暂存可在真实同步中恢复，再按当前远端信息比较。dry-run 只报告残留冲突；无归属、多个残留或无法解释的路径／类型冲突仍保留。
-- 正常失败会尽力移除同目录 `.strmgen-*.tmp`；SIGKILL、系统崩溃或突然断电可能遗留该临时文件。dry-run 读取 WAL 数据库时会在数据库父目录创建并正常清理私有 `.strmgen-ro-*` 快照目录，异常中断也可能残留。SQLite 的 `-wal`／`-shm`／`-journal` 文件由 SQLite 管理；确认相关进程退出前不得手工删除。对遗留项目先核实进程、目录和文件归属，不对未知文件做批量清理。
-
-更多安装、权限、夹具和证据说明见 [开发环境与交接](docs/development-environment.md)。
+V4.4 与 Slice 1–4 已验收，包含固定 10000 文件、最少同步样本、原始扫描和插件八行决定。
+探测启动不等于探测成功；ARM64 原生实机与正式发布验收未包含在原合同内。

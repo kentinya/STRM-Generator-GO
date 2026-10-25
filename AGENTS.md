@@ -1,31 +1,36 @@
 # 仓库开发约束
 
-项目：STRM Generator Go，OpenList 到本地 STRM 的独立生成器；需求版本为 V4.4，协议／决策规则与配套 jellyfin-strm-probe 锁定源码对照。
+STRM Generator Go 是 OpenList 到本地 STRM 的独立生成器。先读本文件、
+[需求](docs/requirements.md)、[架构](docs/architecture.md)与[开发流程](docs/development-workflow.md)；
+实施范围和状态见 [SLICE](SLICE.md)／[TASK](TASK.md)。用户当前会话授权优先。
 
-开始工作先读本文件、[开发流程](docs/development-workflow.md)、[范围](docs/scope.md)、[需求](docs/requirements.md)、[用户旅程](docs/product-experience.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)、[当前 Slice](SLICE.md) 与 [当前 Task](TASK.md)。按职责读 [A](docs/agent-experience/slice-owner-architect-final-reviewer.md)、[B](docs/agent-experience/task-planner-reviewer.md)、[Developer](docs/agent-experience/developer-implementation-role.md) 指南。
+## 工作方式
 
-先检查 `git status --short --branch`，保留已有改动；实施前运行 `python3 scripts/check_governance.py`。Slice 1–4 已 PASS / CLOSED，Slice 3 A 已审至 `410fc0e0a8964046de4707d58c0c7505385c6002`。Slice 4 保持原 Base `d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，按用户授权完全重规划为 Task 4.4 资产复用与固定数据集 → 4.5 万文件生成／最少同步 → 4.6 原始扫描／完整决策；三项均已独立 B PASS。A 已审完整 Base 至实现 Head `24e1ba0ab88173f2c7374f450c9750e5a1e9b504` 及纯文档后继，RO-1..6 PASS、无 P0／P1 阻塞，见 [A 最终审查](docs/slice-4-a-final-review.md)。已有隔离环境、媒体原件、generate_media.py／bootstrap.sh／teardown.sh 及固定产物保留；旧 4.1／4.2／4.3 不作为当前验收完成或审查前置。当前 V4.4 开发需求已完成，根 TASK 无活动实施任务，没有必须继续的下一 Slice；新增工作须由用户另行授权。当前状态仅以 SLICE／TASK 为准，无播放、代理、旧暂缓例外或更高规模压力门槛。历史授权和旧状态保留对应时点，不追认历史越界／UNKNOWN，也不扩大未来权限。用户会话授权优先于本文件。
+- 开始先检查 `git status --short --branch`，保留用户改动，运行 `python3 scripts/check_governance.py`。
+- 在用户授权范围内完成实现、修复和必要验证；不自动 push、不重写历史、不捏造 Git 身份。
+- A／B／Developer 是职责，不自动启动多代理；实施者不得自签独立 B／A PASS。
+- Slice 1–4 已 PASS / CLOSED，无活动产品实施任务。用户另行授权的维护可以继续，不自动启动下一 Slice。
+- 本次文档维护采用 10 份文件结构，入口见 [README](README.md)。重复说明合并，已完成任务的过程记录从 Git 历史查阅，不再复制归档目录。
 
-## 固定业务边界
+## 业务不变量
 
-- 当前需求版本为 V4.4，业务规则以仓库[需求](docs/requirements.md)、范围、架构及合同为准；用户授权变更时显式协调需求、架构、合同及测试，不保留退出要求作为当前兼容门槛。本地参考资料不属于治理必读、必需文件、摘要锁定或测试门禁；环境规范只维护工具／外部输入与仓库必需文件。
-- 只生成／更新／安全清理自己拥有的 STRM；不运行 ffprobe、不下载媒体计算哈希、不操作 Jellyfin 数据库、不调用插件内部接口、不改写 JellyfinProxy。
-- 使用 UTF-8 版本 1 协议、稳定 HTTP(S) URL；SHA-1 必须是真实内容的 40 位十六进制哈希；Size 为非负 Int64 字节数。缺失或无效元数据省略，不写 Modified、不使用签名临时播放 URL，总长最多 65,536 字节。
-- URL 变化必须更新，即使 SHA-1／Size 相同；URL 不变且有效 SHA-1 相同则忽略 Size 差异并记录异常；SHA-1 不可比时比较有效 Size。详细缺失信息规则见需求。
-- Directory Reconciler + Mirror + 最终一致性；不另造文件发现或媒体版本状态机。SQLite 仅记录归属、路径映射、完整对账轮次与连续缺失次数，媒体指纹从 STRM 读取。
-- 删除采用用户明确简化的规则：配置源根未成功读取为目录时保留，不增加缺失次数；源根可读取时，目标 Get 未读到即按缺失处理，不再辨别其他原因造成的相同响应。所有列表请求均使用 refresh:false。连续三次完整轮缺失、当前相同 Get 判定、可靠归属与输出边界仍是删除条件；整轮取消、列表分页不完整或本地必要处理失败不推进计数。详见需求的简化删除判定。
-- dry-run 不改 STRM、数据库、缺失计数或轮次；允许输出脱敏日志。不能用 dry-run 结果作为下一轮删除依据。
-- 只在已配置输出根内操作；拒绝目录穿越、符号链接逃逸、输出重叠及同名目标冲突。不覆盖或删除未拥有的文件。
-- 同一输出范围禁止同步轮次重叠，包含手动／定时与多进程；轮内目录并发有界，不一次加载全库对象或创建每文件 goroutine。
-- 本地输出按生成器单写者、消费者只读的正常使用方式设计；多生成器共享同一互斥资源。不保证绕过锁的外部程序在操作间隙任意改写／替换本地对象时仍绝不误操作，也不开发 UID／权限加固系统或强制只读消费者实证。已拥有、可重新生成的 STRM 出现暂时偏差，按现有比较规则和正常恢复流程在后续成功同步中收敛；不自动认领、覆盖或删除真正未归属文件。详见需求 SW-1..SW-6。
-- 扫描期间变化由下一轮纠正，不要求每次写入前再请求远端，不引入远程版本锁。
+- 只维护可靠归属的 STRM；不覆盖、认领或删除未归属文件。SQLite 只保存归属、路径、完整轮次和缺失计数，媒体指纹从 STRM 读取。
+- V1 UTF-8、稳定 HTTP(S) URL、最多 65,536 字节；真实 SHA-1 为 40 位十六进制，Size 为非负 Int64；无效字段省略，不写 Modified 或签名临时 URL。
+- URL 变化必更新；同 URL 且有效 SHA-1 相同则跳过并记录 Size 异常；哈希不可比才比较有效 Size，信息不足不伪造变化。
+- 所有列表 `refresh:false`。源根未成功读取为目录时冻结缺失；源根可读而目标 Get 未读到即计缺失，不区分相同响应的其他原因。至少三次完整成功轮及删除前重核后才清理。
+- 整轮取消、列表不完整或必要本地处理失败不推进缺失计数。dry-run 不改 STRM、原数据库、轮次或计数，不为后续删除提供新证据。
+- 拒绝穿越、符号链接逃逸、输出根重叠和同名冲突；同输出范围跨进程互斥，目录与数据库处理有界，不加载全库或创建每文件 goroutine。
+- 正常部署由生成器单写、消费者只读，多生成器共享同一锁。正常失败与已拥有文件的可识别偏差应在后续成功同步中收敛；不承诺抵御绕过锁的任意外部写入，不建设 UID／权限加固系统。
+- 采用目录对账、Mirror 与最终一致性，不另造媒体版本／发现状态机或远端版本锁；扫描期间变化由后续轮纠正。
+- 不运行 ffprobe、不下载媒体补算哈希、不操作 Jellyfin／插件数据库、不调用插件内部接口、不改写 JellyfinProxy。
 
-## 工作与证据
+## 环境与证据
 
-Slice 4 的[历史授权与处置](docs/authorization-history.md)及[认证交接记录](docs/task-4.6-jellyfin-access.md)保留原始时点和限制。Slice 4 已关闭，临时 Key 已撤销，无活跃认证租约；不从历史记录恢复秘密或推导新操作授权。历史 UNKNOWN 与用户接受不改写为当时已授权、已清除或无泄露证明。
+只操作本仓库 `artifacts/` 和明确授权的专用隔离夹具；不修改配套仓库、运行中的生产
+Jellyfin／OpenList／代理或生产媒体。历史授权不用于新操作，不从旧文件恢复秘密。
+Slice 4 的临时认证已撤销，历史 UNKNOWN 与用户接受不改写为当时已授权或无泄露证明。
 
-Slice／Task 状态和 Git 检查点仅由开发流程定义。A／B／Developer 是职责，不自动授权多代理；只有用户或适用指令明确要求才委派。实施者不得签发自己的独立 B 审查或 A 最终审查 PASS。
-
-保留用户文件与真实状态。已授权范围内持续完成必要实现、修复和隔离验证；不自动推送、不重写历史、不破坏性清理。只操作本仓库 `artifacts/` 及专用隔离夹具，不修改 `/opt/jf-strm-probe`、运行中的 Jellyfin、OpenList、代理和生产媒体。Git 身份缺失时如实记录，不捏造用户身份或提交。
-
-单元、夹具、真实 OpenList、当前源码插件解析、真实 Jellyfin 原生扫描／插件逐项决策及万文件测量证据分开报告。Slice 4 不运行或验证代理。NOT RUN／BLOCKED／SKIPPED 不能写成 PASS，环境 smoke 不代表产品通过。日志不包含真实 token、Cookie、签名 URL 或私有完整路径。
+单元、合成夹具、真实 OpenList、Jellyfin 扫描／插件实际决定和规模测量分层报告。
+NOT RUN／BLOCKED／SKIPPED 不写成 PASS，探测启动不等于探测成功。
+不输出真实 token、Cookie、签名 URL 或私有完整路径。测试等级、证据和历史查看命令见
+[开发流程](docs/development-workflow.md)。

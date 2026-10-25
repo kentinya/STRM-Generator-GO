@@ -92,6 +92,59 @@ class GovernanceTests(unittest.TestCase):
         self.commit()
         self.assertIn("no active implementation", governance.validate(self.root))
 
+    def history_fixture(self):
+        self.git("init", "-b", "main")
+        self.git("remote", "add", "origin", "https://github.com/test/docs.git")
+        (self.root / "docs/old.md").write_text("# Original evidence\n")
+        self.edit("SLICE.md", "A safe result.", "A safe result. [evidence](docs/old.md#original-evidence)")
+        self.edit("docs/roadmap.md", "| 1 |", "[evidence](old.md#original-evidence)\n| 1 |")
+        revision = self.commit()
+        url = f"https://github.com/test/docs/blob/{revision}/docs/old.md#original-evidence"
+        return revision, url
+
+    def test_pinned_history_link_migration_survives_commit(self):
+        _, url = self.history_fixture()
+        self.edit("SLICE.md", "docs/old.md#original-evidence", url)
+        self.edit("docs/roadmap.md", "old.md#original-evidence", url)
+        (self.root / "docs/old.md").unlink()
+        self.assertIn("planning", governance.validate(self.root))
+        self.commit()
+        self.assertIn("planning", governance.validate(self.root))
+
+    def test_history_migration_does_not_allow_contract_changes(self):
+        _, url = self.history_fixture()
+        for replacement in (url.replace("test/docs", "other/docs"),
+                            url.replace("#original-evidence", "#different"),
+                            url.replace("/blob/", "/blob/main/")):
+            with self.subTest(url=replacement):
+                self.edit("SLICE.md", "docs/old.md#original-evidence", replacement)
+                with self.assertRaises(ValueError):
+                    governance.validate(self.root)
+                self.edit("SLICE.md", replacement, "docs/old.md#original-evidence")
+        self.edit("SLICE.md", "docs/old.md#original-evidence", url)
+        self.edit("SLICE.md", "A safe result.", "A changed obligation.")
+        with self.assertRaisesRegex(ValueError, "Working Slice contract"):
+            governance.validate(self.root)
+
+    def test_history_migration_rejects_different_blob(self):
+        _, url = self.history_fixture()
+        (self.root / "docs/old.md").write_text("# Changed evidence\n")
+        self.commit()
+        self.edit("SLICE.md", "docs/old.md#original-evidence", url)
+        with self.assertRaisesRegex(ValueError, "content differs"):
+            governance.validate(self.root)
+
+    def test_history_migration_requires_ancestor_revision(self):
+        _, url = self.history_fixture()
+        self.git("switch", "-c", "unrelated")
+        (self.root / "branch-only.txt").write_text("Unmerged branch\n")
+        other = self.commit()
+        self.git("switch", "main")
+        replacement = url.replace(url.split("/blob/")[1].split("/")[0], other)
+        self.edit("SLICE.md", "docs/old.md#original-evidence", replacement)
+        with self.assertRaisesRegex(ValueError, "Git boundary"):
+            governance.validate(self.root)
+
     def test_real_activation_requires_real_base(self):
         self.git("init", "-b", "main")
         base = self.commit()

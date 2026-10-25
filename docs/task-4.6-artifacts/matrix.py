@@ -60,7 +60,7 @@ BASELINE_URL = "http://openlist:5244/d/s3/Plain%20Movie.mkv"
 # plugin's own fingerprint store through the now-retired fingerprint_read.py
 # entry to record fingerprint_before/after/after_restore per row. That direct
 # database dependency violated the Task boundary (AC-2 forbids Jellyfin / plugin
-# database reads; F-46-02 in docs/task-4.6-b-review-2.md) and has been removed.
+# database reads; F-46-02 in https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-2.md) and has been removed.
 # The historical side of every row is established by native evidence only: the
 # AC-2 baseline reuse and each row's post-restore explicit reuse from the
 # plugin's own decision log. The rows in the 2026-10-21 evidence root
@@ -315,13 +315,13 @@ def restore_baseline(item_id: str, tag: str) -> dict:
 def fingerprint_of(item_id: str) -> dict | None:
     """Removed: direct reads of the plugin's fingerprint store are forbidden.
 
-    Retired with F-46-02 (docs/task-4.6-b-review-2.md). Kept as a fail-closed
+    Retired with F-46-02 (https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-2.md). Kept as a fail-closed
     stub so any accidental caller fails loudly instead of silently reading the
     plugin's database.
     """
     raise RuntimeError(
         "fingerprint_of was removed: the plugin's own database may not be read "
-        "for Task 4.6; see docs/task-4.6-b-review-2.md (F-46-02)")
+        "for Task 4.6; see https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-2.md (F-46-02)")
 
 
 def predicted_reason(copy_text: str, historical_reason: str | None,
