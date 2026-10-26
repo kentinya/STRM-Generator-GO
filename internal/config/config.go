@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/securepath"
 
 	"gopkg.in/yaml.v3"
@@ -57,6 +58,12 @@ type Sync struct {
 	AtomicWrite      *bool        `yaml:"atomic_write"`
 	SkipUnchanged    *bool        `yaml:"skip_unchanged"`
 	Mirror           *bool        `yaml:"mirror"`
+	// MediaExtensions replaces the default media extension set when it is
+	// present. The raw YAML node is kept so an omitted field can be told apart
+	// from an explicit null: yaml.v3 never calls a custom unmarshaler for a null
+	// value, and its plain slice decode would silently accept null, a single
+	// string, a number, a boolean or nested structures as an extension list.
+	MediaExtensions yaml.Node `yaml:"media_extensions"`
 }
 
 // MinuteCount is a strictly integral YAML scalar. The default yaml.v3 integer
@@ -124,8 +131,12 @@ type Resolved struct {
 	// non-positive when the value is zero or would overflow the conversion;
 	// ValidateServeInterval rejects those cases before any serve side effect.
 	Interval time.Duration
-	Sources  []ResolvedSource
-	baseDir  string
+	// MediaExtensions is the validated, normalised extension list used by this
+	// process. It is either the 11-item default or the operator's explicit
+	// replacement list; the two are never merged.
+	MediaExtensions []string
+	Sources         []ResolvedSource
+	baseDir         string
 }
 
 // Load reads, strictly decodes and validates a YAML file.
@@ -192,6 +203,7 @@ func safeFieldFromError(message string) string {
 	for _, field := range []string{
 		"openlist.api_url", "openlist.public_url", "openlist.token_env",
 		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged", "sync.mirror",
+		"sync.media_extensions",
 		"cleanup.enabled", "cleanup.missing_confirmations", "database.path",
 	} {
 		if strings.HasPrefix(message, field+":") || strings.HasPrefix(message, field+" ") {
@@ -293,6 +305,10 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if cfg.Sync.DirectoryWorkers != nil {
 		workers = *cfg.Sync.DirectoryWorkers
 	}
+	mediaExtensions, err := resolveMediaExtensions(cfg.Sync.MediaExtensions)
+	if err != nil {
+		return nil, err
+	}
 
 	resolved := &Resolved{
 		APIURL:               apiURL,
@@ -304,6 +320,7 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 		MissingConfirmations: missingConfirmations,
 		IntervalMinutes:      intervalMinutes,
 		Interval:             interval,
+		MediaExtensions:      mediaExtensions,
 		baseDir:              baseDir,
 	}
 
@@ -347,6 +364,71 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	}
 	resolved.DatabasePath = dbPath
 	return resolved, nil
+}
+
+// resolveMediaExtensions returns the process extension list. An omitted field
+// keeps the default list unchanged; an explicit list completely replaces it
+// and must normalise to at least one valid extension. Every diagnostic names
+// the field only, so SafeDiagnostic never echoes a configured value.
+func resolveMediaExtensions(node yaml.Node) ([]string, error) {
+	switch node.Kind {
+	case 0:
+		// The field was omitted: keep the historical default set.
+		return pathmap.DefaultExtensions(), nil
+	case yaml.ScalarNode:
+		if node.Tag == "!!null" {
+			return nil, errors.New("sync.media_extensions must be a list of strings, not null")
+		}
+		return nil, errors.New("sync.media_extensions must be a list of strings")
+	case yaml.SequenceNode:
+	default:
+		return nil, errors.New("sync.media_extensions must be a list of strings")
+	}
+	if len(node.Content) == 0 {
+		return nil, errors.New("sync.media_extensions must not be empty")
+	}
+	seen := make(map[string]struct{}, len(node.Content))
+	resolved := make([]string, 0, len(node.Content))
+	for _, item := range node.Content {
+		if item.Kind != yaml.ScalarNode || item.Tag != "!!str" {
+			return nil, errors.New("sync.media_extensions must contain only strings")
+		}
+		ext, ok := normalizeExtension(item.Value)
+		if !ok {
+			return nil, errors.New("sync.media_extensions contains an unsupported extension")
+		}
+		if _, duplicate := seen[ext]; duplicate {
+			continue
+		}
+		seen[ext] = struct{}{}
+		resolved = append(resolved, ext)
+	}
+	return resolved, nil
+}
+
+// normalizeExtension applies the configured extension rules: trim surrounding
+// whitespace, accept one optional leading dot, require ASCII letters or digits
+// only, then lower-case and prefix the dot. Paths, internal whitespace,
+// wildcards, a bare dot, multi-segment suffixes and the .strm output suffix are
+// rejected rather than adjusted.
+func normalizeExtension(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	body := strings.TrimPrefix(trimmed, ".")
+	if body == "" {
+		return "", false
+	}
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			continue
+		}
+		return "", false
+	}
+	ext := "." + strings.ToLower(body)
+	if ext == ".strm" {
+		return "", false
+	}
+	return ext, true
 }
 
 // validateBaseURL accepts only a clean http(s) origin plus optional path

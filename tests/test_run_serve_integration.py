@@ -27,6 +27,7 @@ class ServeDriverUnitTests(unittest.TestCase):
             self.assertTrue(resolved.is_dir())
 
     def test_scenarios_are_registered(self):
+        self.assertIn("serve_custom_extensions", driver.ALL_SCENARIOS)
         for name in driver.ALL_SCENARIOS:
             self.assertIn(name, driver.SCENARIOS)
 

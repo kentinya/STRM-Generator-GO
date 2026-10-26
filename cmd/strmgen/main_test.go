@@ -527,3 +527,120 @@ func TestSourceIdentityBindsAPIRemoteAndOutputWithoutPlaintext(t *testing.T) {
 		t.Fatalf("source identity must not expose path data: %q", base)
 	}
 }
+
+// startExtensionAPI serves a tree with one .mkv and one .flv file so a test can
+// prove which extensions the resolved configuration actually generates.
+func startExtensionAPI(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	write := func(w http.ResponseWriter, data any, code int) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"code": code, "message": "m", "data": data})
+	}
+	mux.HandleFunc("/api/fs/get", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Path string }
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Path == "/Movies" {
+			write(w, map[string]any{"name": "Movies", "is_dir": true, "size": 0, "hash_info": nil}, 200)
+			return
+		}
+		name := req.Path[strings.LastIndex(req.Path, "/")+1:]
+		write(w, map[string]any{"name": name, "is_dir": false, "size": 1, "hash_info": nil}, 200)
+	})
+	mux.HandleFunc("/api/fs/list", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Path string }
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Path != "/Movies" {
+			write(w, nil, 404)
+			return
+		}
+		write(w, map[string]any{"content": []map[string]any{
+			{"name": "Sample.mkv", "is_dir": false, "size": 10, "hash_info": map[string]any{"sha1": strings.Repeat("a", 40)}},
+			{"name": "Clip.flv", "is_dir": false, "size": 20, "hash_info": map[string]any{"sha1": strings.Repeat("b", 40)}},
+			{"name": "notes.txt", "is_dir": false, "size": 1, "hash_info": nil},
+		}, "total": 3}, 200)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func TestCustomExtensionsDriveCLIEntryPoints(t *testing.T) {
+	ts := startExtensionAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	cfg := writeConfigWithExtra(t, ts.URL, root, db, "sync:\n  media_extensions: [\"FLV\"]\n")
+
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"sync", "--config", cfg, "--dry-run"}, &out, &errBuf); code != exitOK {
+		t.Fatalf("dry-run exit=%d stderr=%s", code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "created=1") || !strings.Contains(out.String(), "filtered=2") {
+		t.Fatalf("dry-run did not use the custom list: %s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "Clip.strm")); !os.IsNotExist(err) {
+		t.Fatal("dry-run created output")
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitOK {
+		t.Fatalf("sync exit=%d stderr=%s", code, errBuf.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "Clip.strm")); err != nil {
+		t.Fatalf("custom extension was not generated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "Sample.strm")); !os.IsNotExist(err) {
+		t.Fatal("an excluded default extension was still generated")
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "Clip.strm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "https://openlist.example.invalid/d/Movies/Clip.flv") {
+		t.Fatalf("unexpected stable URL: %q", raw)
+	}
+}
+
+func TestMediaExtensionConfigErrorsExitBeforeProductAction(t *testing.T) {
+	ts := startExtensionAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	// Each command is checked with one representative invalid list; the full
+	// error matrix is covered by the config package against the real loader.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty", "sync:\n  media_extensions: []\n"},
+		{"null", "sync:\n  media_extensions: null\n"},
+		{"non-string", "sync:\n  media_extensions: [\".mkv\", 5]\n"},
+		{"strm", "sync:\n  media_extensions: [\".strm\"]\n"},
+	}
+	commands := [][]string{{"sync"}, {"sync", "--dry-run"}, {"serve"}}
+	for _, tc := range cases {
+		for _, command := range commands {
+			root := filepath.Join(t.TempDir(), "out")
+			db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+			cfg := writeConfigWithExtra(t, ts.URL, root, db, tc.body)
+			cfg = strings.ReplaceAll(cfg, "cleanup:\n", "")
+			var out, errBuf bytes.Buffer
+			args := append(append([]string{}, command...), "--config", cfg)
+			if code := run(args, &out, &errBuf); code != exitUsage {
+				t.Fatalf("%s %v exit=%d want %d (%s)", tc.name, command, code, exitUsage, errBuf.String())
+			}
+			if !strings.Contains(errBuf.String(), "sync.media_extensions") {
+				t.Fatalf("%s %v diagnostic = %q", tc.name, command, errBuf.String())
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatalf("%s %v created an output root", tc.name, command)
+			}
+			if _, err := os.Stat(db); !os.IsNotExist(err) {
+				t.Fatalf("%s %v created a database", tc.name, command)
+			}
+			if strings.Contains(errBuf.String(), ".strm") || strings.Contains(errBuf.String(), "5") {
+				t.Fatalf("%s %v echoed the configured value: %q", tc.name, command, errBuf.String())
+			}
+		}
+	}
+}

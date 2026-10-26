@@ -11,6 +11,7 @@
 ## ✨ 特性
 
 - **目录映射**：保留源目录层级，将媒体扩展名替换为 `.strm`，支持配置多个源目录。
+- **自定义扩展名**：`sync.media_extensions` 决定生成哪些后缀；省略时沿用内置 11 项。
 - **增量同步**：依次比较 URL、有效 SHA-1 和 Size；无变化时保留文件内容与修改时间。
 - **稳定链接**：生成 OpenList `/d/` 地址，逐段编码路径，不写入临时签名链接。
 - **插件元数据**：将源端已有的有效 SHA-1、Size 写入 V1 STRM，供配套插件比较与复用媒体信息。
@@ -129,11 +130,43 @@ export OPENLIST_TOKEN='替换为你的 OpenList token'
 | `sync.interval_minutes` | 定时同步间隔，单位为分钟 | `60`；`serve` 要求正整数 |
 | `sync.directory_workers` | 并行读取目录的工作数 | `4`，范围 `1–32` |
 | `sync.mirror` | 启用镜像对账，清理还需单独开启 | `true` |
+| `sync.media_extensions` | 生成哪些源文件扩展名；显式列表完整替换默认项 | 省略时用内置 11 项，见下节 |
 | `cleanup.enabled` | 是否清理已确认缺失的自有 STRM | `false` |
 | `cleanup.missing_confirmations` | 清理前所需的完整成功轮缺失次数 | `3`，最低 `3` |
 
 相对输出与数据库路径均按**进程启动工作目录**解析。`sync.atomic_write` 和
 `sync.skip_unchanged` 在示例中均为 `true`，当前实现要求保持开启。
+
+### 自定义扩展名
+
+`sync.media_extensions` 决定哪些源文件会生成 STRM。省略该字段时使用内置 11 项：
+`.mkv`、`.mp4`、`.m4v`、`.avi`、`.mov`、`.wmv`、`.webm`、`.ts`、`.m2ts`、`.mpg`、`.mpeg`。
+旧配置无需修改。
+
+显式列表**完整替换**默认项，不与默认值合并：
+
+```yaml
+sync:
+  media_extensions: [".mkv", ".mp4", ".flv", ".mp3", ".flac"]
+```
+
+- 每项可带一个前导点，大小写和首尾空白会被规范化，重复项合并，例如
+  `MKV`、`.mkv`、` .MKV ` 等价。
+- 必须是非空字符串列表。空列表、`null`、单个字符串、非字符串元素、空项、路径、
+  通配符、多段后缀（如 `.tar.gz`）和 `.strm` 都会被拒绝，命令以退出码 `2` 在访问
+  API、创建输出或数据库之前结束。
+- 只匹配文件名最后一个扩展名，大小写无关；目录始终遍历，不按目录名筛选。
+  `.mp4` 匹配 `Movie.MP4`，不匹配 `Movie.mp4.bak`。
+- `sync`、`sync --dry-run` 与 `serve` 使用同一列表。`serve` 在启动时读取配置，
+  修改后需**重启**才生效；运行中的进程不会热加载。
+
+**移除扩展名后的清理**：把某个扩展名从列表中移除后，对应源文件不再生成或更新，
+已有可靠归属的 STRM 会被视为不再需要的输出，按普通缺失计数处理——即使该源文件
+仍然存在且可读取。`cleanup.enabled` 默认仍为 `false`，关闭时不计数也不删除；开启后
+仍需每个完整成功轮累计一次、达到 `cleanup.missing_confirmations`（默认与最低 `3`）
+并经过删除前重核才会删除。把扩展名加回列表且源文件可读时，计数清零并保留文件；
+若已按阈值删除，后续同步会重新生成。清单只表示允许生成链接，不承诺对应格式能被
+Jellyfin 或插件播放。
 
 ## 💻 常用命令
 
@@ -223,5 +256,6 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 最少同步样本、Jellyfin 原始扫描与插件八行实际决定。探测启动不等于探测成功；
 ARM64 原生实机与正式发布验收未包含在原合同内，具体证据与边界见[路线图](docs/roadmap.md)。
 
-新增 [Slice 5：配置自定义扩展名](SLICE.md) 处于 **ACTIVE**，尚未实现；
-当前版本仍使用固定的 11 种扩展名，暂不接受 `sync.media_extensions` 配置。
+[Slice 5：配置自定义扩展名](SLICE.md) 的实现已提交给独立 B 审查，当前 Task 状态见
+[TASK](TASK.md)。说明与边界以本文配置章节、[需求](docs/requirements.md)和
+[架构](docs/architecture.md)为准；产品验收结论以独立审查记录为准。

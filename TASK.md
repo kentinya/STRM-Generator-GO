@@ -4,17 +4,18 @@
 Task ID: 5.1
 Parent Slice: 5
 Owner: B
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
 Contract Checkpoint: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
-Implementation Head: NOT SET
+Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER
 Difficulty: Medium
 Test Level: T4
 ```
 
 用户于 2026-10-26 授权代行 B 规划首个 Task，并指定 kentinya 身份提交。本计划基于实际
 代码制定，完整覆盖 [Slice 5](SLICE.md) 的 RO-1..5；不拆成“先加配置、以后补清理”的半成品任务。
-Slice 已提交为 ACTIVE；本 Task 为正式 PLANNED，Developer 尚未开始。
+Slice 已提交为 ACTIVE。Developer 已按本 Task 完成实现与验证，当前提交独立 B 审查；
+实施者不自签 B／A PASS。
 
 ## 提交边界与交接
 
@@ -144,12 +145,82 @@ Bash 语法及补丁空白通过；真实 Task Base／Contract Checkpoint 与已
 此前治理因合同未提交返回 2；A 合同提交后以及本 Task 填写真实 SHA 后均已重跑通过，
 不改写先前失败。产品测试均 NOT RUN，未签发独立产品审查 PASS。
 
+## Developer 完成报告（2026-10-26）
+
+```text
+Parent Task Base: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
+Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER
+Task Status at Handover: READY FOR B REVIEW
+```
+
+### 变更范围（Task Base..Implementation Head）
+
+| 文件 | 变更 |
+|---|---|
+| `internal/config/config.go` | `sync.media_extensions` 以原始 YAML 节点严格解析：省略保留默认 11 项，显式列表完整替换；拒绝 `null`、标量、空序列、非字符串元素、空项、路径、通配符、多段后缀与 `.strm`；规范化前导点／大小写／首尾空白并去重；字段名进入 `SafeDiagnostic` |
+| `internal/pathmap/pathmap.go` | 新增 `DefaultExtensions()` 与实例级 `MediaSet`（只比较最后后缀）；`IsMedia` 保持默认语义，构造实例集合不修改共享全局 map |
+| `internal/openlist/absence.go` | 新增 `Confirmer.WithMediaSet`／`IsMedia`，并导出 `ValidateDescendant` 复用既有源根／子路径／深度边界定义，供清理资格统一调用 |
+| `internal/reconciler/syncer.go` | `Options.MediaExtensions` 为实例列表（零值回落默认），目录筛选使用实例集合；新增单点判定 `currentTarget`，供缺失计数、实际删除与 dry-run 预览共用；排除分支删除时诊断标明原因 |
+| `cmd/strmgen/main.go` | 启动时一次构建 `pathmap.MediaSet` 并放入 `roundDeps`，`sync`／`sync --dry-run`／`serve` 共用；serve 运行中不热加载 |
+| 测试 | `internal/config`、`internal/pathmap`、`internal/openlist`、`internal/reconciler`（含新增排除清理用例）、`cmd/strmgen`；驱动新增 `custom_extensions` 与 `serve_custom_extensions` 场景 |
+| 文档 | `README.md`、`config.example.yaml`、`deploy/config.example.yaml`、`docs/requirements.md`、`docs/architecture.md`；删除“尚未支持”提示 |
+
+未改 source identity、锁资源、SQLite schema、STRM V1 协议、HTTP／分页／远端缺失语义与部署装配。
+
+### 验收条件到测试与原始结果
+
+| AC | 覆盖测试 | 结果 |
+|---|---|---|
+| AC-01 | `config`：`TestMediaExtensionsDefaultIsUnchanged`、`TestMediaExtensionsExplicitListReplacesAndNormalises`、`TestMediaExtensionsBlockSequenceAccepted`；`pathmap`：`TestDefaultExtensionsCopyIsIsolated`、`TestMediaSetsDoNotPolluteEachOther`、`TestMediaSetZeroValueFallsBackToDefault` | PASS（`bash scripts/go-local test ./internal/config ./internal/pathmap`） |
+| AC-02 | `config`：`TestMediaExtensionsRejectInvalidInput`（24 种非法输入经真实 `Load`）、`TestMediaExtensionsDiagnosticDoesNotEchoInput`、`TestMediaExtensionsUnknownFieldStillRejected`；`cmd/strmgen`：`TestMediaExtensionConfigErrorsExitBeforeProductAction`（三个命令 × 代表性错误） | PASS（退出码 2，未创建输出／库，诊断不含配置值） |
+| AC-03 | `cmd/strmgen`：`TestCustomExtensionsDriveCLIEntryPoints`；驱动 `custom_extensions`（`.flv` 生成、最后后缀、`Trailer.mkv.bak` 不入选、重复同步 `skipped=2` 且快照不变） | PASS |
+| AC-04 | `reconciler`：`TestExcludedExtensionCountsAndDeletesWithSourcePresent`、`TestExcludedExtensionHigherThresholdApplies`、`TestExcludedExtensionNeverCountsWhenCleanupDisabled`；驱动 `custom_extensions`（阈值 3、dry-run 预览、`mirror_cleanup` 回归） | PASS |
+| AC-05 | `reconciler`：`TestReincludedExtensionClearsCountAndKeepsFile`、`TestReincludedButUnreadableTargetKeepsCounting`、`TestStillExcludedSourceReappearanceDoesNotClear`、`TestExcludedThenReincludedRegeneratesAfterCleanup`；驱动 `custom_extensions`（加回清零、清理后重新生成） | PASS |
+| AC-06 | `reconciler`：`TestExcludedBranchRequiresBothSelectedCandidatesForConflict`、`TestExcludedWalkLeavesUnownedTargetAlone`、`TestExcludedRecheckPresentTypeConflictIsRetained`、`TestExcludedBranchRejectsForeignRemotePath`；既有 `TestFixedBoundaryMismatchIsRetained`、`TestLegacyUnmappedRowIsPreservedUntilObserved` | PASS |
+| AC-07 | `reconciler`：`TestExcludedExtensionPreviewChangesNothing`、`TestCleanupDisabledNeverCountsOrDeletes`、`TestSourceRootFailureFreezesCounts`、`TestListFailureDoesNotAdvanceCounts`、`TestCommittedEvidenceIsNotConsumedByCurrentRound`；驱动 `custom_extensions` 取消代表场景 | PASS |
+| AC-08 | 驱动 `custom_extensions`：`excluded-delete-failure`（`STRMGEN_TEST_DELETE_AFTER_UNLINK_FAIL_TARGET`）与 `excluded-delete-cancel`（`STRMGEN_TEST_DELETE_BEFORE_UNLINK_GATE`／`MARKER`），以及既有 `mirror_recovery` 全场景 | PASS |
+| AC-09 | 驱动 `serve_custom_extensions`：发布首轮 + testhooks 后续轮使用同一列表、运行中改配置不生效、仅重启后采用新列表；既有 `serve_release_first_round`、`serve_interval_and_skip`、`serve_busy_skip`、`serve_failure_continue`、`serve_cancel` | PASS |
+| AC-10 | 文档检查（`check_governance.py` 链接／锚点／合同边界）、`python3 scripts/quality.py`、上述两个集成驱动全场景 | PASS |
+
+### 首次失败与修复重跑
+
+1. `config` 首版用“指针 + 自定义 `UnmarshalYAML`”类型。实测 yaml.v3 对 `null` 不调用自定义
+   解码器，`*ExtensionList` 会保持 `nil`，与“字段省略”无法区分，`media_extensions: null`
+   会被静默当作默认列表接受。改为保留原始 `yaml.Node`：`Kind==0` 表示省略，`!!null` 与
+   非序列节点一律报 `sync.media_extensions` 字段错误。修复后 `TestMediaExtensionsRejectInvalidInput`
+   覆盖 `null`／`~`／标量／空序列／非字符串元素全部通过。
+2. `reconciler` 首版新增用例把 `fakeLister` 的精确 Get 全部当作“目录”，导致排除分支判定为
+   类型冲突而保留。为测试替身增加 `getFile map[string]bool`（只让指定路径 Get 读为普通文件），
+   不改变既有用例语义；修复后排除分支用例通过。
+3. 驱动 `custom_extensions` 首版按 `ownership_details()[rel][1]` 取缺失次数，实际列序为
+   `(missing_count, missing_round, remote_path)`，断言取错字段；改用 `[0]` 后通过。
+4. 驱动 `custom_extensions` 取消分支首版期望恢复轮 `deleted=1`，实际取消轮未 unlink 任何目标，
+   恢复轮正常删除两个候选（`deleted=2`）。按真实行为修正断言，不放宽产品规则。
+
+### 构建与夹具身份
+
+- 源码：`Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER`（Task Base `1db2cb7…`）。
+- Go：固定 SDK `1.27.2`（`bash scripts/go-local version`），`CGO_ENABLED=0`。
+- 二进制：`artifacts/task-5.1/bin/strmgen`（发布）与 `artifacts/task-5.1/bin/strmgen-testhooks`
+  （仅隔离测试缩短定时／故障注入）；sha256 记录于证据目录 `summary.json`。
+- 夹具：`scripts/mock_openlist.py` 动态端口合成服务与自有临时目录；未接触真实 OpenList、
+  Jellyfin、生产挂载或旧隔离服务。
+
+### 已知限制与未运行项
+
+- 真实 OpenList 与容器／Compose 验收未重跑：本次未改动 HTTP 请求／解析／分页／远端缺失语义，
+  也未改动 Dockerfile、Compose、部署装配或构建依赖；触发条件见 Slice 合同。
+- 万文件规模、Jellyfin 扫描／插件八行决定、播放／代理、ARM64 实机与正式发布均未运行（非目标）。
+- 扩展名列表只决定是否生成链接，不保证对应格式可被 Jellyfin 或插件播放。
+- 排除分支不承诺跨文件删除回滚；失败轮不推进计数，重跑收敛（已由代表场景证明）。
+- 独立 B 审查与 A 最终验收未开始；本报告不构成任何 PASS 结论。
+
 ```text
 Planning Source: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
 Planning Result: 正式 Task 5.1 PLANNED；真实合同和任务边界已固定
-Implementation: NOT STARTED
-Product Tests: NOT RUN
+Implementation: DELIVERED（Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER）
+Product Tests: FOCUSED + FULL GO + SYNC/SERVE INTEGRATION RUN AND PASS
 Independent B Review: PENDING
 A Final Review: NOT STARTED
-Next Action: Developer 按已提交 Task 5.1 开始实施
+Next Action: 独立 B 审查 Task Base..Implementation Head 并逐条重评 AC／RO
 ```

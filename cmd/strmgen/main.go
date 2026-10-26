@@ -17,6 +17,7 @@ import (
 
 	"strm-generator-go/internal/config"
 	"strm-generator-go/internal/openlist"
+	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/reconciler"
 	"strm-generator-go/internal/scheduler"
 	"strm-generator-go/internal/storage"
@@ -87,6 +88,10 @@ type roundDeps struct {
 	token    string
 	stdout   io.Writer
 	stderr   io.Writer
+	// media is the extension set resolved once at startup. serve keeps the same
+	// set for every tick, so editing the configuration file never changes a
+	// running process; a restart is required.
+	media *pathmap.MediaSet
 }
 
 // runRound executes exactly one synchronization round through the shared
@@ -146,6 +151,7 @@ func runRound(ctx context.Context, deps roundDeps, first bool) (*reconciler.Repo
 		FS:                   filesystem,
 		CleanupEnabled:       deps.resolved.CleanupEnabled,
 		MissingConfirmations: deps.resolved.MissingConfirmations,
+		MediaExtensions:      deps.media,
 	})
 
 	report, runErr := syncer.Run(ctx, sources)
@@ -195,7 +201,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	report, result := runRound(ctx, roundDeps{resolved: resolved, dryRun: *dryRun, stdout: stdout, stderr: stderr, token: token}, true)
+	report, result := runRound(ctx, roundDeps{resolved: resolved, dryRun: *dryRun, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved)}, true)
 	if report != nil {
 		printReport(stdout, stderr, report, *dryRun)
 	}
@@ -256,7 +262,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	deps := roundDeps{resolved: resolved, dryRun: false, stdout: stdout, stderr: stderr, token: token}
+	deps := roundDeps{resolved: resolved, dryRun: false, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved)}
 	var lastReport *reconciler.Report
 	round := func(roundCtx context.Context, first bool) scheduler.Result {
 		lastReport = nil
@@ -277,6 +283,13 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		return exitRuntime
 	}
 	return exitOK
+}
+
+// mediaSet builds the instance-owned extension set from the validated
+// configuration. sync, sync --dry-run and serve all call it once, immediately
+// after Load, so every entry point filters with the same resolved list.
+func mediaSet(resolved *config.Resolved) *pathmap.MediaSet {
+	return pathmap.NewMediaSet(resolved.MediaExtensions)
 }
 
 // openStore returns nil for a dry-run without a database so the syncer treats

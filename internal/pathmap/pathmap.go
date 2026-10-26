@@ -18,6 +18,51 @@ const (
 	MaxRelativePathBytes = 4096
 )
 
+// defaultExtensions is the media extension list used when sync.media_extensions
+// is omitted. The order is stable so the resolved configuration and its
+// diagnostics are reproducible.
+var defaultExtensions = []string{
+	".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg",
+}
+
+// DefaultExtensions returns a copy of the default media extension list. A caller
+// can never mutate the shared default through the returned slice.
+func DefaultExtensions() []string {
+	return append([]string(nil), defaultExtensions...)
+}
+
+// MediaSet is one instance-owned extension set. Nothing in this package mutates
+// a set after construction, and constructing a set never touches the shared
+// default map, so two sync instances can use different lists in one process.
+// The zero value (nil or empty) means the default set.
+type MediaSet struct {
+	extensions map[string]struct{}
+}
+
+// NewMediaSet builds a set from already-normalised extension strings (a leading
+// dot plus ASCII letters or digits). Matching is case-insensitive on the last
+// file name extension. The input is copied.
+func NewMediaSet(extensions []string) *MediaSet {
+	set := make(map[string]struct{}, len(extensions))
+	for _, ext := range extensions {
+		set[strings.ToLower(ext)] = struct{}{}
+	}
+	return &MediaSet{extensions: set}
+}
+
+// IsMedia reports whether name has an extension in this set. Only the last file
+// name extension is considered, case-insensitively. A nil or empty set falls
+// back to the default set so a zero-value option keeps the historical
+// behaviour.
+func (m *MediaSet) IsMedia(name string) bool {
+	if m == nil || len(m.extensions) == 0 {
+		return IsMedia(name)
+	}
+	ext := strings.ToLower(path.Ext(name))
+	_, ok := m.extensions[ext]
+	return ok
+}
+
 // MediaExtensions is the fixed initial set of media extensions. Comparison is
 // case-insensitive; the file name body keeps its original case.
 var MediaExtensions = map[string]struct{}{
@@ -34,7 +79,7 @@ var MediaExtensions = map[string]struct{}{
 	".mpeg": {},
 }
 
-// IsMedia reports whether name has a supported media extension.
+// IsMedia reports whether name has a default media extension.
 func IsMedia(name string) bool {
 	ext := strings.ToLower(path.Ext(name))
 	_, ok := MediaExtensions[ext]

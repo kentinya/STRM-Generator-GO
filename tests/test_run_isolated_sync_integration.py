@@ -128,6 +128,7 @@ class DriverUnitTests(unittest.TestCase):
     def test_mirror_scenarios_are_registered(self):
         self.assertIn("mirror_cleanup", driver.ALL_SCENARIOS)
         self.assertIn("mirror_recovery", driver.ALL_SCENARIOS)
+        self.assertIn("custom_extensions", driver.ALL_SCENARIOS)
         self.assertIn("mirror_cleanup", driver.SCENARIOS)
         self.assertIn("mirror_recovery", driver.SCENARIOS)
 

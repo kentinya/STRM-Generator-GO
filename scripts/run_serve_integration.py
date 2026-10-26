@@ -44,6 +44,7 @@ ALL_SCENARIOS = [
     "serve_failure_continue",
     "serve_cancel",
     "serve_redaction",
+    "serve_custom_extensions",
 ]
 
 _LIVE_HARNESSES = []
@@ -157,7 +158,7 @@ class Harness:
             self._server = None
 
     def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4,
-               interval_minutes=60):
+               interval_minutes=60, media_extensions=None):
         lines = [
             "openlist:",
             f'  api_url: "{api_url}"',
@@ -171,6 +172,9 @@ class Harness:
         lines.append("sync:")
         lines.append(f"  interval_minutes: {interval_minutes}")
         lines.append(f"  directory_workers: {workers}")
+        if media_extensions is not None:
+            rendered = ", ".join(json.dumps(ext) for ext in media_extensions)
+            lines.append(f"  media_extensions: [{rendered}]")
         lines.append("cleanup:")
         lines.append("  enabled: false")
         lines.append("database:")
@@ -478,6 +482,68 @@ def scenario_serve_redaction(h, results):
     results["serve_redaction"] = {"cancel_exit": code}
 
 
+def scenario_serve_custom_extensions(h, results):
+    """The serve entry uses the resolved extension list for every round.
+
+    The first serve process runs two shortened ticks with one list. Editing the
+    configuration file while it runs must change nothing; only a restart adopts
+    the new list. Both serve runs use the release binary and the testhooks build
+    solely for the shortened interval.
+    """
+    entries = [
+        {"name": "Sample.mkv", "is_dir": False, "size": 10,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Clip.flv", "is_dir": False, "size": 20,
+         "hash_info": {"sha1": "b" * 40}},
+    ]
+    api, dirs = h.server(directories={"/Movies": list(entries)})
+    root = h.workdir / "out"
+    db = h.workdir / "data" / "strmgen.db"
+    cfg = h.config("extensions", api, [("/Movies", root)], db,
+                   media_extensions=[".flv"])
+    stdout_path = h.workdir / "serve.out"
+    stderr_path = h.workdir / "serve.err"
+    proc = h.start_serve(cfg, extra_env={"STRMGEN_TEST_SERVE_INTERVAL_MS": "1200"},
+                         stdout_path=stdout_path, stderr_path=stderr_path)
+    check(wait_for(lambda: count_serve_results(stdout_path, "success") >= 2, 40,
+                   "serve did not complete two rounds"),
+          f"expected two rounds: {read_lines(stdout_path)}")
+    successes = [line for line in read_lines(stdout_path) if "result: success " in line]
+    check("created=1" in successes[0], f"first serve round did not create the custom extension: {successes[0]}")
+    for line in successes[1:]:
+        check("skipped=1" in line and "created=0" in line,
+              f"repeat serve tick did not skip: {line}")
+    check((root / "Clip.strm").exists(), "the custom extension was not generated")
+    check(not (root / "Sample.strm").exists(), "an excluded default extension was generated")
+    before = snapshot(root)
+
+    # Editing the configuration file must not affect the running process.
+    cfg.write_text(cfg.read_text().replace('media_extensions: [".flv"]',
+                                           'media_extensions: [".mkv"]'))
+    check(wait_for(lambda: count_serve_results(stdout_path, "success") >= 3, 20,
+                   "serve did not run another tick after the config edit"),
+          f"no further tick after the edit: {read_lines(stdout_path)}")
+    check(snapshot(root) == before, "a running serve adopted an edited configuration file")
+    code, _, _ = stop_serve(proc)
+    check(code != 0, f"cancelled serve must be non-zero, got {code}")
+    results["serve_custom_extensions"] = {"recipe_rounds": len(successes)}
+
+    # A restart adopts the edited list. Both outputs are now products of
+    # different config generations; only the new list is generated.
+    restarted_out = h.workdir / "serve-restart.out"
+    restarted_err = h.workdir / "serve-restart.err"
+    restart = h.start_serve(cfg, extra_env={"STRMGEN_TEST_SERVE_INTERVAL_MS": "1200"},
+                            stdout_path=restarted_out, stderr_path=restarted_err)
+    check(wait_for(lambda: (root / "Sample.strm").exists(), 30,
+                   "restart did not adopt the edited extension list"),
+          f"restart did not adopt the list: {read_lines(restarted_out)}")
+    check((root / "Clip.strm").exists(), "restart removed an existing output without cleanup")
+    restart_code, _, _ = stop_serve(restart)
+    check(restart_code != 0, f"cancelled serve must be non-zero, got {restart_code}")
+    results["serve_custom_extensions"]["restart_adopted"] = True
+    results["serve_custom_extensions"]["restart_exit"] = restart_code
+
+
 SCENARIOS = {
     "serve_release_first_round": scenario_serve_release_first_round,
     "serve_interval_and_skip": scenario_serve_interval_and_skip,
@@ -485,6 +551,7 @@ SCENARIOS = {
     "serve_failure_continue": scenario_serve_failure_continue,
     "serve_cancel": scenario_serve_cancel,
     "serve_redaction": scenario_serve_redaction,
+    "serve_custom_extensions": scenario_serve_custom_extensions,
 }
 
 

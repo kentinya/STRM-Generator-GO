@@ -26,6 +26,19 @@ sync:
   atomic_write: true
   skip_unchanged: true
   mirror: true
+  # Which source file extensions are generated. Omitting the key keeps the
+  # built-in 11 entries: .mkv .mp4 .m4v .avi .mov .wmv .webm .ts .m2ts .mpg .mpeg
+  # An explicit list fully replaces the defaults (no merging). It must be a
+  # non-empty list of strings; one optional leading dot is accepted, case and
+  # surrounding blanks are normalised and duplicates collapse. An empty list,
+  # null, a non-string element, an empty item, a path, a wildcard, a
+  # multi-segment suffix or .strm exits 2 before output or database creation.
+  # Removing an extension sends its owned STRM into the normal missing-count
+  # path even while the source file still exists; cleanup.enabled and the
+  # complete-round threshold still apply. Adding it back clears the count and
+  # keeps or regenerates the file.
+  # serve reads this file at startup; a change requires a restart.
+  media_extensions: [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg"]
 
 cleanup:
   # Cleanup stays off unless explicitly enabled together with mirror: true.

@@ -25,6 +25,10 @@ type fakeLister struct {
 	listErr  map[string]error
 	getCalls int
 	rootFile bool
+	// getFile names the exact paths whose Get reads as a regular file. Every
+	// other successful Get keeps the historical directory answer, which the
+	// existing type-conflict cases rely on.
+	getFile map[string]bool
 }
 
 func (f *fakeLister) Get(_ context.Context, path string) (*openlist.Entry, error) {
@@ -34,6 +38,9 @@ func (f *fakeLister) Get(_ context.Context, path string) (*openlist.Entry, error
 	}
 	if f.rootFile && path == "/Movies" {
 		return &openlist.Entry{Name: "Movies", IsDir: false}, nil
+	}
+	if f.getFile[path] {
+		return &openlist.Entry{Name: filepath.Base(path), IsDir: false}, nil
 	}
 	return &openlist.Entry{Name: filepath.Base(path), IsDir: true}, nil
 }

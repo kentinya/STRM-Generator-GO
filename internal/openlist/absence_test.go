@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"strm-generator-go/internal/pathmap"
 )
 
 // absenceServer is a programmable OpenList API stub. It records every request
@@ -1032,5 +1034,21 @@ func TestGetRejectsMissingIdentityFields(t *testing.T) {
 				t.Fatal("an object without name and is_dir must fail")
 			}
 		})
+	}
+}
+
+func TestConfirmerIsMediaUsesInstanceSet(t *testing.T) {
+	c := NewConfirmer(staticGetter{})
+	if !c.IsMedia("/Movies/A.mkv") || c.IsMedia("/Movies/A.flv") {
+		t.Fatal("the default confirmer must use the default list")
+	}
+	custom := NewConfirmer(staticGetter{}).WithMediaSet(pathmap.NewMediaSet([]string{".flv"}))
+	if !custom.IsMedia("/Movies/A.flv") || custom.IsMedia("/Movies/A.mkv") {
+		t.Fatal("the custom confirmer did not use the instance list")
+	}
+	// A nil receiver must not panic and keeps the default list.
+	var nilConfirmer *Confirmer
+	if !nilConfirmer.IsMedia("/Movies/A.MKV") {
+		t.Fatal("a nil confirmer must keep the default list")
 	}
 }

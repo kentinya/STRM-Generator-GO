@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"strm-generator-go/internal/openlist"
+	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/storage"
 )
@@ -532,6 +533,8 @@ func TestReappearanceClearsEvidenceBeforeLaterFailure(t *testing.T) {
 // between the two calls in the same round.
 type missingThenPresentConfirmer struct{ calls int }
 
+func (c *missingThenPresentConfirmer) IsMedia(string) bool { return true }
+
 func (c *missingThenPresentConfirmer) Confirm(context.Context, string, string) openlist.AbsenceResult {
 	c.calls++
 	if c.calls == 1 {
@@ -622,5 +625,410 @@ func TestCommittedEvidenceIsNotConsumedByCurrentRound(t *testing.T) {
 	}
 	if got := countFor(t, store, "Sample.strm"); got != 3 {
 		t.Fatalf("third round count = %d, want 3", got)
+	}
+}
+
+// extensionOptions returns cleanup options that generate only the given
+// extensions, so an existing .mkv output becomes a no-longer-wanted output.
+func extensionOptions(extensions ...string) Options {
+	opts := cleanupOptions()
+	opts.MediaExtensions = pathmap.NewMediaSet(extensions)
+	return opts
+}
+
+// excludedTree seeds a .mkv and a .mp4 file, then switches the instance to a
+// list that keeps only .flv. Both existing outputs stay on disk and stay
+// readable on the remote, so only the extension rule can qualify them.
+func excludedTestTree() *fakeLister {
+	return &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {
+				media("Sample.mkv", 10737418240, shaA),
+				media("Other.mp4", 2048, ""),
+				{Name: "notes.txt", Size: int64Ptr(8)},
+			},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+		// Both source files read back as regular files, so neither the source
+		// root gate nor an exact target read reports a missing object.
+		getFile: map[string]bool{
+			"/Movies/Sample.mkv": true,
+			"/Movies/Other.mp4":  true,
+		},
+	}
+}
+
+func TestExcludedExtensionCountsAndDeletesWithSourcePresent(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	seed := runSource(t, lister, store, root, cleanupOptions())
+	if seed.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", seed.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	for round := 1; round <= 3; round++ {
+		report := runSource(t, lister, store, root, opts)
+		if report.Sources[0].Partial || report.Sources[0].Deleted != 0 {
+			t.Fatalf("round %d must only accumulate evidence: %+v", round, report.Sources[0])
+		}
+		if report.Sources[0].ConfirmedMissing != 2 {
+			t.Fatalf("round %d staged %d observations, want 2", round, report.Sources[0].ConfirmedMissing)
+		}
+		if got := countFor(t, store, "Sample.strm"); got != int64(round) {
+			t.Fatalf("round %d count = %d, want %d", round, got, round)
+		}
+		if _, err := os.Stat(filepath.Join(root, "Sample.strm")); err != nil {
+			t.Fatalf("round %d removed the excluded target too early", round)
+		}
+	}
+	// The source file is still listed and still gets successfully; only the
+	// committed threshold and the re-check may remove it.
+	report := runSource(t, lister, store, root, opts)
+	if report.Sources[0].Deleted != 2 || report.Sources[0].Partial {
+		t.Fatalf("qualified delete: %+v", report.Sources[0])
+	}
+	for _, rel := range []string{"Sample.strm", "Other.strm"} {
+		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+			t.Fatalf("%s was not removed", rel)
+		}
+		if _, ok, _ := store.Lookup("/Movies", rel); ok {
+			t.Fatalf("%s kept its ownership row", rel)
+		}
+	}
+	// A later round must not try to maintain the removed output again.
+	after := runSource(t, lister, store, root, opts)
+	if after.Sources[0].Deleted != 0 || after.Sources[0].ConfirmedMissing != 0 || after.Sources[0].Created != 0 {
+		t.Fatalf("post-delete round: %+v", after.Sources[0])
+	}
+}
+
+func TestExcludedExtensionHigherThresholdApplies(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	seedStandard := runSource(t, lister, store, root, cleanupOptions())
+	if seedStandard.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", seedStandard.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	opts.MissingConfirmations = 4
+	for round := 1; round <= 4; round++ {
+		report := runSource(t, lister, store, root, opts)
+		if report.Sources[0].Deleted != 0 {
+			t.Fatalf("round %d deleted below threshold 4: %+v", round, report.Sources[0])
+		}
+		if got := countFor(t, store, "Sample.strm"); got != int64(round) {
+			t.Fatalf("round %d count = %d", round, got)
+		}
+	}
+	if report := runSource(t, lister, store, root, opts); report.Sources[0].Deleted != 2 {
+		t.Fatalf("threshold 4 did not delete on the next successful round: %+v", report.Sources[0])
+	}
+}
+
+func TestExcludedExtensionNeverCountsWhenCleanupDisabled(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	seed := runSource(t, lister, store, root, cleanupOptions())
+	if seed.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", seed.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	opts.CleanupEnabled = false
+	for round := 0; round < 5; round++ {
+		report := runSource(t, lister, store, root, opts)
+		if report.Sources[0].Deleted != 0 || report.Sources[0].ConfirmedMissing != 0 {
+			t.Fatalf("disabled cleanup changed state: %+v", report.Sources[0])
+		}
+	}
+	for _, rel := range []string{"Sample.strm", "Other.strm"} {
+		if got := countFor(t, store, rel); got != 0 {
+			t.Fatalf("%s accumulated counts while cleanup was disabled: %d", rel, got)
+		}
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("disabled cleanup removed %s", rel)
+		}
+	}
+}
+
+func TestExcludedExtensionPreviewChangesNothing(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, opts)
+	}
+	before := statTimes(t, root)
+	dry := opts
+	dry.DryRun = true
+	preview := runSource(t, lister, store, root, dry)
+	if preview.Sources[0].Candidates != 2 || preview.Sources[0].Deleted != 0 {
+		t.Fatalf("excluded preview: %+v", preview.Sources[0])
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 3 {
+		t.Fatalf("preview changed the committed count: %d", got)
+	}
+	after := statTimes(t, root)
+	for name, mod := range before {
+		if !after[name].Equal(mod) {
+			t.Fatalf("preview changed %s", name)
+		}
+	}
+	// Below the threshold the preview must not report a candidate at all.
+	fresh := excludedTestTree()
+	freshRoot := t.TempDir()
+	freshStore := newStore(t)
+	runSource(t, fresh, freshStore, freshRoot, cleanupOptions())
+	freshDry := extensionOptions(".flv")
+	freshDry.DryRun = true
+	early := runSource(t, fresh, freshStore, freshRoot, freshDry)
+	if early.Sources[0].Candidates != 0 {
+		t.Fatalf("below-threshold preview reported candidates: %+v", early.Sources[0])
+	}
+	if got := countFor(t, freshStore, "Sample.strm"); got != 0 {
+		t.Fatalf("dry-run staged durable evidence: %d", got)
+	}
+}
+
+func TestReincludedExtensionClearsCountAndKeepsFile(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	excluded := extensionOptions(".flv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, excluded)
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 3 {
+		t.Fatalf("qualification count = %d", got)
+	}
+	// The same source stays readable; restoring the extension must clear the
+	// evidence and keep the file, even on the round that would have deleted it.
+	report := runSource(t, lister, store, root, cleanupOptions())
+	if report.Sources[0].Deleted != 0 {
+		t.Fatalf("re-included target was deleted: %+v", report.Sources[0])
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 0 {
+		t.Fatalf("re-inclusion did not clear the count: %d", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "Sample.strm")); err != nil {
+		t.Fatal("re-inclusion removed the target")
+	}
+	if o, ok, err := store.Lookup("/Movies", "Sample.strm"); err != nil || !ok || o.RemotePath != "/Movies/Sample.mkv" {
+		t.Fatalf("mapping after re-inclusion: %+v ok=%v err=%v", o, ok, err)
+	}
+}
+
+func TestReincludedButUnreadableTargetKeepsCounting(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	excluded := extensionOptions(".flv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, excluded)
+	}
+	// Re-including the extension does not fabricate a reader: the exact target
+	// Get still fails, so the existing missing rule keeps the count and deletes.
+	removeRemote(lister, "Sample.mkv")
+	report := runSource(t, lister, store, root, cleanupOptions())
+	if report.Sources[0].Deleted != 1 {
+		t.Fatalf("unreadable target must keep the original missing rule: %+v", report.Sources[0])
+	}
+	if _, err := os.Stat(filepath.Join(root, "Sample.strm")); !os.IsNotExist(err) {
+		t.Fatal("qualified unreadable target was not removed")
+	}
+}
+
+func TestStillExcludedSourceReappearanceDoesNotClear(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	runSource(t, lister, store, root, opts)
+	if got := countFor(t, store, "Sample.strm"); got != 1 {
+		t.Fatalf("baseline count = %d", got)
+	}
+	// The source file was never removed; the re-check must still count.
+	report := runSource(t, lister, store, root, opts)
+	if report.Sources[0].Deleted != 0 {
+		t.Fatalf("unexpected delete below threshold: %+v", report.Sources[0])
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 2 {
+		t.Fatalf("still-excluded source reappearance cleared the count: %d", got)
+	}
+}
+
+func TestExcludedThenReincludedRegeneratesAfterCleanup(t *testing.T) {
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	excluded := extensionOptions(".flv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, excluded)
+	}
+	if report := runSource(t, lister, store, root, excluded); report.Sources[0].Deleted != 2 {
+		t.Fatalf("cleanup did not happen: %+v", report.Sources[0])
+	}
+	report := runSource(t, lister, store, root, cleanupOptions())
+	if report.Sources[0].Created != 2 || report.Sources[0].Partial {
+		t.Fatalf("re-inclusion did not regenerate the outputs: %+v", report.Sources[0])
+	}
+	for _, rel := range []string{"Sample.strm", "Other.strm"} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("%s was not regenerated", rel)
+		}
+		if o, ok, err := store.Lookup("/Movies", rel); err != nil || !ok || o.MissingCount != 0 {
+			t.Fatalf("%s ownership after regeneration: %+v ok=%v err=%v", rel, o, ok, err)
+		}
+	}
+}
+
+func TestExcludedRecheckPresentTypeConflictIsRetained(t *testing.T) {
+	// A stored mapping whose exact target now reads as a directory must never
+	// be deleted, even when its extension is excluded.
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, opts)
+	}
+	// Both source files stay readable, but the mapped target of Sample now reads
+	// as a directory while Other still reads as a regular file.
+	delete(lister.getFile, "/Movies/Sample.mkv")
+	report := runSource(t, lister, store, root, opts)
+	if report.Sources[0].Deleted != 1 {
+		t.Fatalf("only the regular target should be deleted: %+v", report.Sources[0])
+	}
+	if _, err := os.Stat(filepath.Join(root, "Sample.strm")); err != nil {
+		t.Fatal("type-conflict target was removed")
+	}
+	if report.Sources[0].Retained == 0 {
+		t.Fatalf("type conflict was not reported as retained: %+v", report.Sources[0])
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 0 {
+		t.Fatalf("type conflict did not clear the old evidence: %d", got)
+	}
+}
+
+func TestExcludedBranchRejectsForeignRemotePath(t *testing.T) {
+	// A stored RemotePath outside this source root, or one that is not a clean
+	// descendant, must not qualify for counting or deletion just because its
+	// extension is excluded.
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store, dbPath := newStoreWithPath(t)
+	if report := runSource(t, lister, store, root, cleanupOptions()); report.Sources[0].Created != 2 {
+		t.Fatalf("seed result: %+v", report.Sources[0])
+	}
+	opts := extensionOptions(".flv")
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, opts)
+	}
+	rawExec(t, dbPath,
+		`UPDATE ownership SET remote_path = '/Elsewhere/Sample.mkv'
+		 WHERE source_key = '/Movies' AND relative_path = 'Sample.strm'`)
+	report := runSource(t, lister, store, root, opts)
+	if report.Sources[0].Deleted != 1 {
+		t.Fatalf("only the valid row may be deleted: %+v", report.Sources[0])
+	}
+	if _, err := os.Stat(filepath.Join(root, "Sample.strm")); err != nil {
+		t.Fatal("a foreign remote path qualified an excluded deletion")
+	}
+	if report.Sources[0].Retained == 0 {
+		t.Fatalf("foreign remote path was not retained: %+v", report.Sources[0])
+	}
+}
+
+func TestExcludedWalkLeavesUnownedTargetAlone(t *testing.T) {
+	// An existing file the store does not own has no ownership row, so the
+	// exclusion branch can never qualify it: it stays byte-identical and is
+	// neither claimed nor deleted.
+	lister := excludedTestTree()
+	root := t.TempDir()
+	store := newStore(t)
+	sentinel := filepath.Join(root, "Sample.strm")
+	if err := os.WriteFile(sentinel, []byte("pre-existing-unowned\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := extensionOptions(".flv")
+	report := runSource(t, lister, store, root, opts)
+	if report.Sources[0].Deleted != 0 || report.Sources[0].ConfirmedMissing != 0 {
+		t.Fatalf("an unowned target was counted or deleted: %+v", report.Sources[0])
+	}
+	raw, readErr := os.ReadFile(sentinel)
+	if readErr != nil || string(raw) != "pre-existing-unowned\n" {
+		t.Fatalf("unowned file was modified: %q %v", raw, readErr)
+	}
+	if _, ok, _ := store.Lookup("/Movies", "Sample.strm"); ok {
+		t.Fatal("an excluded unowned file was claimed")
+	}
+	// The same file stays protected across later rounds.
+	for round := 0; round < 3; round++ {
+		runSource(t, lister, store, root, opts)
+	}
+	if raw, err := os.ReadFile(sentinel); err != nil || string(raw) != "pre-existing-unowned\n" {
+		t.Fatalf("later rounds modified the unowned file: %q %v", raw, err)
+	}
+}
+
+func TestExcludedBranchRequiresBothSelectedCandidatesForConflict(t *testing.T) {
+	// Two selected sources mapping one target still fail; an unselected file
+	// never participates in the conflict check.
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{"/Movies": {
+			media("A.mkv", 10, shaA),
+			media("A.flv", 20, shaB),
+			media("B.mp4", 30, ""),
+		}},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+		getFile: map[string]bool{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	opts := extensionOptions(".flv", ".mkv")
+	report, err := New(lister, store, opts).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil || report.Sources[0].Conflicts != 1 {
+		t.Fatalf("two selected sources for one target must conflict: %+v err=%v", report.Sources[0], err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "A.strm")); !os.IsNotExist(statErr) {
+		t.Fatal("a conflicted target must not be created")
+	}
+	if _, ok, _ := store.Lookup("/Movies", "A.strm"); ok {
+		t.Fatal("a conflicted target must not be owned")
+	}
+	// Only .flv is selected now, so A.flv alone maps A.strm and the filtered
+	// A.mkv no longer participates; the round succeeds and creates one target.
+	lister.dirs["/Movies"] = []openlist.Entry{media("A.mkv", 10, shaA), media("A.flv", 20, shaB)}
+	lister.getFile["/Movies/A.flv"] = true
+	opts = extensionOptions(".flv")
+	report, err = New(lister, store, opts).Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil || report.Sources[0].Created != 1 {
+		t.Fatalf("single selected source must create one target: %+v err=%v", report.Sources[0], err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "A.strm")); statErr != nil {
+		t.Fatal("the single selected source did not create its target")
 	}
 }

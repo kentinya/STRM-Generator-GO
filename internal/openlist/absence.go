@@ -3,8 +3,11 @@ package openlist
 import (
 	"context"
 	"errors"
+	"path"
 	"strings"
 	"unicode/utf8"
+
+	"strm-generator-go/internal/pathmap"
 )
 
 // AbsenceStatus is the outcome class of one remote target read. The zero value
@@ -94,11 +97,30 @@ var errCallerCancelled = errors.New("confirmation context ended")
 // remote facts, so a previous result can never be reused.
 type Confirmer struct {
 	getter Getter
+	media  *pathmap.MediaSet
 }
 
 // NewConfirmer builds a Confirmer over the given remote reader.
 func NewConfirmer(getter Getter) *Confirmer {
 	return &Confirmer{getter: getter}
+}
+
+// WithMediaSet replaces the extension set used by IsMedia. A nil set keeps the
+// default list, so an unconfigured caller behaviour does not change.
+func (c *Confirmer) WithMediaSet(set *pathmap.MediaSet) *Confirmer {
+	c.media = set
+	return c
+}
+
+// IsMedia reports whether the last extension of one remote path is currently
+// generated. It is pure and only looks at the file name suffix, so the cleanup
+// rule can ask the same question the directory walk asks without a remote read.
+// A nil receiver keeps the default list, matching an unconfigured instance.
+func (c *Confirmer) IsMedia(remotePath string) bool {
+	if c == nil {
+		return pathmap.IsMedia(path.Base(remotePath))
+	}
+	return c.media.IsMedia(path.Base(remotePath))
 }
 
 // Confirm reads the current remote facts for one exact target path under a

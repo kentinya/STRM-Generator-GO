@@ -407,3 +407,129 @@ func TestSecondDocumentRejected(t *testing.T) {
 		t.Fatal("multiple YAML documents must be rejected")
 	}
 }
+
+// withExtensions inserts one raw sync block carrying a media_extensions value.
+func withExtensions(raw string) string {
+	return strings.Replace(validBase, "cleanup:\n", "sync:\n"+raw+"\ncleanup:\n", 1)
+}
+
+func TestMediaExtensionsDefaultIsUnchanged(t *testing.T) {
+	r, err := Load(write(t, validBase))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []string{".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg"}
+	if len(r.MediaExtensions) != len(want) {
+		t.Fatalf("default list = %v, want %v", r.MediaExtensions, want)
+	}
+	for i := range want {
+		if r.MediaExtensions[i] != want[i] {
+			t.Fatalf("default list = %v, want %v", r.MediaExtensions, want)
+		}
+	}
+	// A caller must not be able to corrupt the default through the resolved copy.
+	r.MediaExtensions[0] = ".zzz"
+	again, err := Load(write(t, validBase))
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if again.MediaExtensions[0] != ".mkv" {
+		t.Fatalf("default list was mutated through a resolved copy: %v", again.MediaExtensions)
+	}
+}
+
+func TestMediaExtensionsExplicitListReplacesAndNormalises(t *testing.T) {
+	// A YAML flow sequence is the documented spelling; a block sequence and
+	// quoted values are covered by the table below.
+	body := withExtensions("  media_extensions: [\" .MKV \", \"FLV\", \".mp4\", \".mkv\", \"Mkv\", \".MP3\"]")
+	r, err := Load(write(t, body))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []string{".mkv", ".flv", ".mp4", ".mp3"}
+	if len(r.MediaExtensions) != len(want) {
+		t.Fatalf("resolved list = %v, want %v", r.MediaExtensions, want)
+	}
+	for i := range want {
+		if r.MediaExtensions[i] != want[i] {
+			t.Fatalf("resolved list = %v, want %v", r.MediaExtensions, want)
+		}
+	}
+	for _, absent := range []string{".avi", ".mov", ".webm"} {
+		for _, got := range r.MediaExtensions {
+			if got == absent {
+				t.Fatalf("explicit list merged a default extension: %v", r.MediaExtensions)
+			}
+		}
+	}
+}
+
+func TestMediaExtensionsBlockSequenceAccepted(t *testing.T) {
+	body := withExtensions("  media_extensions:\n    - \".flv\"\n    - \"MKV\"\n")
+	r, err := Load(write(t, body))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(r.MediaExtensions) != 2 || r.MediaExtensions[0] != ".flv" || r.MediaExtensions[1] != ".mkv" {
+		t.Fatalf("resolved list = %v", r.MediaExtensions)
+	}
+}
+
+func TestMediaExtensionsRejectInvalidInput(t *testing.T) {
+	cases := map[string]string{
+		"empty flow list":       "  media_extensions: []",
+		"empty block list":      "  media_extensions:\n",
+		"null":                  "  media_extensions: null",
+		"tilde null":            "  media_extensions: ~",
+		"single string":         "  media_extensions: \".mkv\"",
+		"number":                "  media_extensions: 5",
+		"boolean":               "  media_extensions: [true]",
+		"integer element":       "  media_extensions: [5]",
+		"nested sequence":       "  media_extensions: [[\".mkv\"]]",
+		"nested mapping":        "  media_extensions: [{a: b}]",
+		"null element":          "  media_extensions: [null]",
+		"empty item":            "  media_extensions: [\"\"]",
+		"blank item":            "  media_extensions: [\"   \"]",
+		"bare dot":              "  media_extensions: [\".\"]",
+		"double dot":            "  media_extensions: [\"..\"]",
+		"multi-segment suffix":  "  media_extensions: [\".tar.gz\"]",
+		"path":                  "  media_extensions: [\"/etc/passwd\"]",
+		"relative path":         "  media_extensions: [\"media/mkv\"]",
+		"wildcard":              "  media_extensions: [\"*.mkv\"]",
+		"internal whitespace":   "  media_extensions: [\"m kv\"]",
+		"non-ascii letters":     "  media_extensions: [\".m\u00e4kv\"]",
+		"strm output suffix":    "  media_extensions: [\".strm\"]",
+		"upper case strm":       "  media_extensions: [\"STRM\"]",
+		"one valid one invalid": "  media_extensions: [\".mkv\", \"a.b\"]",
+	}
+	for name, raw := range cases {
+		if _, err := Load(write(t, withExtensions(raw))); err == nil {
+			t.Fatalf("%s must be rejected", name)
+		} else if diag := SafeDiagnostic(err); !strings.Contains(diag, "sync.media_extensions") {
+			t.Fatalf("%s diagnostic = %q", name, diag)
+		}
+	}
+}
+
+func TestMediaExtensionsDiagnosticDoesNotEchoInput(t *testing.T) {
+	marker := "PRIVATE_EXTENSION_MARKER_20261026"
+	for _, raw := range []string{
+		"  media_extensions: [\"/private/" + marker + ".mkv\"]",
+		"  media_extensions: [\"" + strings.Repeat(marker, 4) + "\"]",
+	} {
+		_, err := Load(write(t, withExtensions(raw)))
+		if err == nil {
+			t.Fatalf("marker input must be rejected: %s", raw)
+		}
+		if strings.Contains(SafeDiagnostic(err), marker) {
+			t.Fatalf("diagnostic echoed the configured value: %q", SafeDiagnostic(err))
+		}
+	}
+}
+
+func TestMediaExtensionsUnknownFieldStillRejected(t *testing.T) {
+	body := strings.Replace(validBase, "cleanup:\n", "sync:\n  media_extension: [\".mkv\"]\ncleanup:\n", 1)
+	if _, err := Load(write(t, body)); err == nil {
+		t.Fatal("a misspelled extension field must still be rejected")
+	}
+}

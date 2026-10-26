@@ -19,6 +19,15 @@ sync:
   skip_unchanged: true
   # mirror=false 只生成／更新；它不允许同时开启 cleanup。
   mirror: true
+  # 生成哪些源文件扩展名。整段省略时使用内置 11 项：
+  # .mkv .mp4 .m4v .avi .mov .wmv .webm .ts .m2ts .mpg .mpeg
+  # 显式列表完整替换默认项，不合并；必须是非空字符串列表，每项可选一个前导点、
+  # 大小写与首尾空白规范化并去重。空列表、null、非字符串、空项、路径、通配符、
+  # 多段后缀和 .strm 会让命令在创建输出／数据库前以退出码 2 结束。
+  # 移除某个扩展名后，对应的已归属 STRM 按普通缺失计数处理（源文件仍存在也一样），
+  # 仍需 cleanup.enabled 与完整轮阈值；加回后清零并保留或重新生成。
+  # serve 在启动时读取本配置，修改后需重启生效。
+  media_extensions: [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg"]
 
 # 清理默认关闭。只有显式 enabled: true 且 mirror 开启时才按已提交的完整轮
 # 缺失证据删除；阈值最低 3，更大的值只会延后清理。

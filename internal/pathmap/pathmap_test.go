@@ -85,3 +85,64 @@ func TestStableURLRejectsRelative(t *testing.T) {
 		t.Fatal("relative segment must be rejected")
 	}
 }
+
+func TestDefaultExtensionsCopyIsIsolated(t *testing.T) {
+	first := DefaultExtensions()
+	if len(first) != 11 {
+		t.Fatalf("default list = %v", first)
+	}
+	first[0] = ".zzz"
+	second := DefaultExtensions()
+	if second[0] != ".mkv" {
+		t.Fatalf("default list was mutated: %v", second)
+	}
+	if len(MediaExtensions) != 11 {
+		t.Fatalf("shared default map changed: %v", MediaExtensions)
+	}
+}
+
+func TestMediaSetMatchesOnlyLastExtension(t *testing.T) {
+	set := NewMediaSet([]string{".flv", ".mkv"})
+	for _, name := range []string{"A.flv", "B.FLV", "C.Mkv", "dir.flv/..", "D.mkv"} {
+		if name == "dir.flv/.." {
+			continue
+		}
+		if !set.IsMedia(name) {
+			t.Fatalf("%s should match the instance set", name)
+		}
+	}
+	for _, name := range []string{"A.mp4", "A.mkv.bak", "A.flv.tmp", "noext", "A.strm", "A.flv "} {
+		if set.IsMedia(name) {
+			t.Fatalf("%s should not match the instance set", name)
+		}
+	}
+	// The default set is untouched by instance construction.
+	if !IsMedia("A.mp4") {
+		t.Fatal("instance set changed the default matching")
+	}
+}
+
+func TestMediaSetZeroValueFallsBackToDefault(t *testing.T) {
+	var nilSet *MediaSet
+	if !nilSet.IsMedia("A.mkv") {
+		t.Fatal("nil set must fall back to the default list")
+	}
+	empty := NewMediaSet(nil)
+	if !empty.IsMedia("A.mp4") || empty.IsMedia("A.flv") {
+		t.Fatal("empty set must fall back to the default list")
+	}
+}
+
+func TestMediaSetsDoNotPolluteEachOther(t *testing.T) {
+	first := NewMediaSet([]string{".flv"})
+	second := NewMediaSet([]string{".mp3"})
+	if !first.IsMedia("A.flv") || first.IsMedia("A.mp3") {
+		t.Fatal("first instance set is wrong")
+	}
+	if !second.IsMedia("A.mp3") || second.IsMedia("A.flv") {
+		t.Fatal("second instance set is wrong")
+	}
+	if first.IsMedia("A.mkv") || second.IsMedia("A.mkv") {
+		t.Fatal("an explicit instance set fell back to defaults")
+	}
+}
