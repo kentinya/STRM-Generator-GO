@@ -214,7 +214,7 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 | [架构](docs/architecture.md) | 模块职责、数据流、持久化与并发设计 |
 | [开发流程](docs/development-workflow.md) | 环境、测试、任务审查与历史查看 |
 | [路线图](docs/roadmap.md) | 已交付能力与最终验收索引 |
-| [SLICE](SLICE.md) | 最近关闭的能力合同 |
+| [SLICE](SLICE.md) | 当前能力合同与规划状态 |
 | [TASK](TASK.md) | 当前产品实施任务状态 |
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
@@ -222,3 +222,6 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 当前 V4.4 需求已完成，Slice 1–4 **PASS / CLOSED**。已验收固定 10000 文件生成、
 最少同步样本、Jellyfin 原始扫描与插件八行实际决定。探测启动不等于探测成功；
 ARM64 原生实机与正式发布验收未包含在原合同内，具体证据与边界见[路线图](docs/roadmap.md)。
+
+新增 [Slice 5：配置自定义扩展名](SLICE.md) 处于 **ACTIVE**，尚未实现；
+当前版本仍使用固定的 11 种扩展名，暂不接受 `sync.media_extensions` 配置。

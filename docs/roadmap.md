@@ -1,7 +1,9 @@
 # Slice 路线图
 
 当前[需求](requirements.md)版本为 V4.4。Slice 1–3 已 PASS / CLOSED；
-Slice 4 已完成三个 Task 的独立 B 验收、Slice Final 及 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)，PASS / CLOSED。当前 V4.4 开发需求已完成，根 [Task](../TASK.md) 无活动实施任务，没有必须继续的下一 Slice；新增工作须由用户另行授权。
+Slice 4 已完成三个 Task 的独立 B 验收、Slice Final 及 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)，PASS / CLOSED。
+V4.4 已交付范围保持关闭。用户于 2026-10-26 新授权规划 Slice 5 配置自定义扩展名，
+当前 ACTIVE；正式任务及实施状态见根 [Task](../TASK.md)。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
 |---|---|---|---|---|
@@ -9,6 +11,16 @@ Slice 4 已完成三个 Task 的独立 B 验收、Slice Final 及 [A 最终审�
 | 2 | 安全目录镜像与清理恢复 | PASS / CLOSED | Slice 1 | 源根／目标 Get、三完整轮、归属／边界清理、移动／再出现与恢复 |
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
+| 5 | 通过配置自定义媒体扩展名 | ACTIVE | Slice 1–4 已交付基线 | 默认兼容、显式列表替换、三入口筛选、移除后正常清理、T4 与独立审查 |
+
+Slice 5 的配置语义、RO、边界、验证门槛与三角色交接见 [当前合同](../SLICE.md)。
+用户已授权代行 B 规划 Task 5.1，含实现路径、AC 与最终验证命令，并指定 kentinya 提交身份。
+按 A 提交 ACTIVE 合同与路线图 → B 引用真实边界提交正式 Task → Developer 实施的顺序交接。
+当前没有实现 Head 或产品验收结果；不得提前把新配置写成已支持。
+测试以证明功能和回归为目的，复用现有检查／合成夹具，只补必要用例；不建设复杂测试工具，
+不默认重跑无关的真实服务／容器验收，触发条件以 Slice 合同为准。
+
+## Slice 4 已关闭记录
 
 Slice 4 Base：`d1c95ad079a0e3f952d9e57ab50299c6ae93ad63`，不随重规划移动。
 已按 4.4／4.5／4.6 完成：4.4 本地与远端固定均已实施（适配建集工具与只读 probe、

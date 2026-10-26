@@ -7,6 +7,19 @@ Slice 1–4 PASS / CLOSED；当前合同见 [SLICE](../SLICE.md)／[TASK](../TAS
 已接受范围及未运行项见 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)和
 [Closure Packet](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-closure-packet.md)。本页说明现有实现与设计约束，
 任务过程从[开发流程](development-workflow.md#历史记录)列出的 Git 检查点查看。
+Slice 5 自定义扩展名合同为 ACTIVE，尚未实施；现有版本仍使用
+`internal/pathmap.MediaExtensions` 固定列表。
+
+## Slice 5 计划接入（未实施）
+
+拟由 `internal/config` 严格解析并规范化 `sync.media_extensions`，经 CLI 装配传入
+同步实例，`pathmap` 负责最后后缀的纯匹配；各实例不修改共享全局集合。
+未配置使用既有默认列表，显式列表完整替换。三个命令共用入口，`serve` 重启后读取新配置。
+沿用目录遍历、同名映射冲突与既有归属；按用户最新指令，清理资格增加“精确源扩展名已
+被当前列表排除”，源文件仍存在也进入原计数／删除流程。保留清理开关、完整轮阈值与
+删除前源根／当前筛选资格重核；恢复入选后回到精确 Get 判定。按 T4 验证，
+不改变 source identity 或 SQLite schema。
+正式 Task 与接口由 B 基于实际代码规划，完整合同见 [SLICE](../SLICE.md)。
 
 ## 模块与数据流
 
