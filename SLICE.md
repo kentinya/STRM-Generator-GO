@@ -175,12 +175,12 @@ Git 作者与提交者按用户指令统一使用 kentinya，邮箱沿用最近�
 
 ```text
 Planning Date: 2026-10-26
-Contract Checkpoint: NOT SET
-B Task Planning: PENDING COMMIT
+Contract Checkpoint: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
+B Task Planning: PLANNED
 B Product Review: PENDING
 A Final Review: NOT STARTED
 Decision: PENDING
-Next Action: B 引用已提交 ACTIVE 合同，固化真实边界并提交 Task 5.1
+Next Action: Developer 按已提交 Task 5.1 开始实施
 ```
 
 产品实现、新功能测试、真实服务验证及 B／A 验收均未运行。规划稿不代表产品交付。
@@ -189,3 +189,6 @@ Next Action: B 引用已提交 ACTIVE 合同，固化真实边界并提交 Task 
 合同已纳入移除后正常清理和测试服务产品的用户澄清。此前未提交规划稿的治理检查曾因
 `Working Slice contract differs from committed HEAD` 返回 2；按用户身份提交后再运行正式检查，
 结果另行记录，不将此前失败改写为通过。实现及行为验证仍 NOT RUN。
+用户指定 kentinya 后，A 的 ACTIVE 合同已提交；正式治理检查已通过。
+B 已填写真实合同／任务边界，80 个本地链接、任务 AC、Bash 语法与补丁空白检查通过；
+正式 Task 定稿后的治理检查也已通过，仅代表规划与提交边界有效。
