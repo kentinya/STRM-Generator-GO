@@ -3,7 +3,7 @@
 当前[需求](requirements.md)版本为 V4.4。Slice 1–3 已 PASS / CLOSED；
 Slice 4 已完成三个 Task 的独立 B 验收、Slice Final 及 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)，PASS / CLOSED。
 V4.4 已交付范围保持关闭。用户于 2026-10-26 新授权规划 Slice 5 配置自定义扩展名，
-当前 READY FOR A REVIEW；正式任务及独立 B 结果见根 [Task](../TASK.md)。
+已完成独立 B 审查及 A 最终验收，PASS / CLOSED；根 [Task](../TASK.md) 无活动实施任务。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
 |---|---|---|---|---|
@@ -11,13 +11,16 @@ V4.4 已交付范围保持关闭。用户于 2026-10-26 新授权规划 Slice 5 
 | 2 | 安全目录镜像与清理恢复 | PASS / CLOSED | Slice 1 | 源根／目标 Get、三完整轮、归属／边界清理、移动／再出现与恢复 |
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
-| 5 | 通过配置自定义媒体扩展名 | READY FOR A REVIEW | Slice 1–4 已交付基线 | Task 5.1 B PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复已复核，待 A 最终审查 |
+| 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
 
 Slice 5 的配置语义、RO、边界、验证门槛与三角色交接见 [当前合同](../SLICE.md)。
 用户已授权代行 B 规划 Task 5.1，含实现路径、AC 与最终验证命令，并指定 kentinya 提交身份。
 按 A 提交 ACTIVE 合同与路线图 → B 引用真实边界提交正式 Task → Developer 实施的顺序交接。
 实现 Head 为 `27e2f528cb584fd613e0056eb3ec57825b7e0872`，Task 5.1 已由独立 B 判 PASS；
-全部 RO 已重评，审查范围、独立复现与证据复用见 TASK，Slice 尚未关闭，A 最终审查待执行。
+A 已审固定 Base `846d0920feba607c33e935da4fac6f0c4cb68a24` 至 B 交接
+`85a31337bb1a36bba9198fd8ff77959fc8d151cd` 的完整范围，RO-1..5 全部 PASS，无阻塞项。
+最终决定、原始证据／复用与未运行项见 [Closure Packet](../SLICE.md#closure-packet)，
+Task 原件见根 TASK 的固定历史入口。无剩余已授权需求，不自动启动下一 Slice。
 测试以证明功能和回归为目的，复用现有检查／合成夹具，只补必要用例；不建设复杂测试工具，
 不默认重跑无关的真实服务／容器验收，触发条件以 Slice 合同为准。
 
@@ -39,7 +42,7 @@ B独立完成原始扫描／读取与全部8行决定，确认逐场景及最终
 | 4.6 | 最少原始扫描与 D-01..08 实际决策，全部 RO 及 Slice Final | [PASS（B3）](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/task-4.6-b-review-3.md) |
 
 现有隔离环境、媒体原件及生成／启动／停止脚本原地保留，见 [资产清单](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-assets.md)。
-当前 Slice 5 的任务与审查见根 [TASK](../TASK.md)；[4.6正式计划](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/Task/4.6-plugin-decisions-plan.md)及[4.5规划原件](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/Task/4.5-generation-sync-plan.md)保留为已完成任务的历史合同，不作为新任务授权。
+已完成 Slice 5 的历史任务入口见根 [TASK](../TASK.md)；[4.6正式计划](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/Task/4.6-plugin-decisions-plan.md)及[4.5规划原件](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/Task/4.5-generation-sync-plan.md)保留为已完成任务的历史合同，不作为新任务授权。
 无客户端播放、代理、旧暂缓例外或更高规模压测门槛。ARM64 实机及正式发布仍 NOT RUN，属于当前合同之外，不作为必须补做的下一 Slice。
 
 历史关闭记录：Slice 1 见 `930782035615512be811a7b8bcc8416050f0c12f:SLICE.md`；

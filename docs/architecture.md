@@ -7,8 +7,8 @@ Slice 1–4 PASS / CLOSED；当前合同见 [SLICE](../SLICE.md)／[TASK](../TAS
 已接受范围及未运行项见 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)和
 [Closure Packet](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-closure-packet.md)。本页说明现有实现与设计约束，
 任务过程从[开发流程](development-workflow.md#历史记录)列出的 Git 检查点查看。
-Slice 5 自定义扩展名已实现并提交独立 B 审查，最终结论以独立审查记录为准；
-正式合同、验收面与边界见 [SLICE](../SLICE.md)／[TASK](../TASK.md)。
+Slice 5 自定义扩展名已经独立 B 审查和 A 最终验收，PASS / CLOSED；
+合同、逐 RO 结论及未运行项见 [SLICE](../SLICE.md#closure-packet)，历史任务入口见 [TASK](../TASK.md)。
 
 ## 自定义扩展名接入
 

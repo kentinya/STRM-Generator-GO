@@ -256,6 +256,6 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 最少同步样本、Jellyfin 原始扫描与插件八行实际决定。探测启动不等于探测成功；
 ARM64 原生实机与正式发布验收未包含在原合同内，具体证据与边界见[路线图](docs/roadmap.md)。
 
-[Slice 5：配置自定义扩展名](SLICE.md) 的实现已提交给独立 B 审查，当前 Task 状态见
-[TASK](TASK.md)。说明与边界以本文配置章节、[需求](docs/requirements.md)和
-[架构](docs/architecture.md)为准；产品验收结论以独立审查记录为准。
+[Slice 5：配置自定义扩展名](SLICE.md#closure-packet) 已经独立 B 审查和 A 最终验收，
+**PASS / CLOSED**，当前无活动实施任务。配置与边界见本文、[需求](docs/requirements.md)和
+[架构](docs/architecture.md)；历史 Task 入口见 [TASK](TASK.md)。

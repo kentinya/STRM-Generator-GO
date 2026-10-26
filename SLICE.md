@@ -3,7 +3,7 @@
 ```text
 Slice ID: 5
 Owner: A
-Status: READY FOR A REVIEW
+Status: PASS / CLOSED
 Base SHA: 846d0920feba607c33e935da4fac6f0c4cb68a24
 Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872
 ```
@@ -174,37 +174,83 @@ Git 作者与提交者按用户指令统一使用 kentinya，邮箱沿用最近�
 ## Closure Packet
 
 ```text
-Planning Date: 2026-10-26
+Review Date: 2026-10-26
 Contract Checkpoint: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
-B Task Planning: PLANNED
+Reviewed Range: 846d0920feba607c33e935da4fac6f0c4cb68a24..85a31337bb1a36bba9198fd8ff77959fc8d151cd
+Reviewed Implementation: 27e2f528cb584fd613e0056eb3ec57825b7e0872
 B Product Review: PASS
-A Final Review: NOT STARTED
-Decision: PENDING
-Next Action: A 审查完整 Slice Base..B 审查提交并作最终决定
+A Final Review: PASS
+Decision: PASS
+Blockers: NONE
+Remaining Authorized Work: NONE
+Next Action: STOP；无活动实施任务，不自动 push 或启动下一 Slice
 ```
 
-产品实现、新功能测试、真实服务验证及 B／A 验收均未运行。规划稿不代表产品交付。
+### A 最终审查
 
-2026-10-26 已完成文档链接／锚点、Base 可达性、任务 AC、未来命令 Bash 语法及补丁空白检查。
-合同已纳入移除后正常清理和测试服务产品的用户澄清。此前未提交规划稿的治理检查曾因
-`Working Slice contract differs from committed HEAD` 返回 2；按用户身份提交后再运行正式检查，
-结果另行记录，不将此前失败改写为通过。实现及行为验证仍 NOT RUN。
-用户指定 kentinya 后，A 的 ACTIVE 合同已提交；正式治理检查已通过。
-B 已填写真实合同／任务边界，80 个本地链接、任务 AC、Bash 语法与补丁空白检查通过；
-正式 Task 定稿后的治理检查也已通过，仅代表规划与提交边界有效。
+本轮承担独立 A，未参与产品实现，未代签 B，也未启动多代理。按当前
+[开发流程的角色职责](docs/development-workflow.md#任务与审查)完成最终审查；本文件
+Closure Packet 之前的“本轮不实施／NOT STARTED”等叙述保留为已提交规划合同的历史时态，
+当前状态以顶栏与本节为准，不移动 Base 或改写验收含义。
 
-### 2026-10-26 B 交接
+审查固定 Slice Base 到独立 B 交接提交的全部 24 个文件，包含激活合同、Task 规划／澄清、
+产品、测试、驱动、示例、使用文档和完成／审查报告。Base 到 Contract Checkpoint 只有
+文档；实现 Head 之后到交接 Head 只有 SLICE／TASK／路线图文档，无遗漏产品差异。
+本次关闭只维护状态、审查记录及历史入口，不修改产品或增补实施 Task。
+正式计划、Developer 完成报告、首次失败／修复及 B 全部 AC／RO 重评均保留在
+[Task 5.1 历史入口](TASK.md)所指的固定检查点，可离线执行
+`git show 85a31337bb1a36bba9198fd8ff77959fc8d151cd:TASK.md` 查看。
 
-以上 NOT RUN／未实施叙述记录规划时点；当前以本节和 [Task 独立 B 审查](TASK.md#独立-b-审查2026-10-26) 为准。
-Task 5.1 已 PASS，B 审查 Task Base `1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0`
-至 `a44be2b946581f69aee02890c5a579cbb97de97c` 全部变更，产品实现为上方真实 Head；
-本次交接提交仅维护审查／状态文档，无产品修复。RO-1..4 的 B 验收面 PASS，RO-5 的
-实现／证据／独立 B 部分完成，A 最终审查仍待执行，Decision 保持 PENDING。
-无 P0／P1 阻塞、无追加实施 Task，不移动 Base、不改变合同或旧 Slice 1–4 的验收。
+### 全部 RO 最终决定
 
-B 证据位于 `artifacts/validation-evidence/task51-b-review-20261026/`；
-原全量证据按构建身份核对复用，另独立重建、复现关键配置／生成／排除清理／恢复／
-失败重试／发布 serve 首轮并通过完整质量检查，全部 AC／RO 映射与未运行项见 TASK。
-真实 OpenList、容器、万文件、Jellyfin／插件、ARM64 实机及发布未重跑，不声称新 PASS。
-A 应审完整 Slice Base `846d0920feba607c33e935da4fac6f0c4cb68a24` 至本交接提交，
-再决定是否关闭；本节不是 A 验收。
+| RO | A 结论 | 代码与证据依据 |
+|---|---|---|
+| RO-1 | PASS | 真实 YAML Load 区分省略与 null，完整默认 11 项、显式替换、规范化／去重、严格类型与实例隔离；B 非缓存 config／pathmap 回归及 CLI 启动顺序核对覆盖 AC-01／02 |
+| RO-2 | PASS | CLI 在启动时传递同一实例集合；A 重跑既有 custom_extensions／serve_custom_extensions 场景，生成、过滤、最后后缀、零重写、预览及重启生效通过；B 原始多 source／子目录产物补足 AC-03／09 |
+| RO-3 | PASS | 计数、删除与预览共用 currentTarget，继续使用既有源根／路径确认与归属删除；A 实测源仍在的排除清理、重新入选、I/O 失败／取消与重跑；结合 B 归属落库失败、唯一入选候选复用及既有边界回归，满足 AC-04..08 |
+| RO-4 | PASS | README、两份 YAML 示例、需求／架构与合同一致，明确默认／替换、排除后正常清理、清理默认关闭、重启生效及不保证播放；本次同步最终状态 |
+| RO-5 | PASS | 真实固定 Base／实现 Head、完整范围、构建身份、全量原始证据与独立 B PASS 可复核；A 完成全部 RO 重评和关闭，根 TASK 撤为无活动 |
+
+### 证据、复现与复用
+
+A 本轮证据位于 `artifacts/validation-evidence/slice5-a-review-20261026/`：
+`evidence-audit.json`、`raw-artifacts-audit.json`、两个 `*-build-info.txt`、
+`commands.json`、`sync.log`／`serve.log`
+及两个驱动的 `summary.json` 和自有夹具。实际从现有 CLI／集成驱动进入，仅使用
+mock_openlist 动态端口合成服务及新 artifacts 目录，没有构造不可达产品入口或探测生产。
+两个场景均退出 0；故障／取消子场景按预期非零且恢复通过。命令、参数与耗时见 commands。
+
+A 核对原全量证据 `artifacts/validation-evidence/task51-final-rcBL8C/` 的 sync 12 场景、
+serve 7 场景及 B 证据 `artifacts/validation-evidence/task51-b-review-20261026/`，包括
+quality／非缓存聚焦日志、配置、STRM、SQLite 结果、失败／恢复 stdout 和补验脚本。
+复用 B 全量 quality 退出 0（112 个 Python 回归、格式、vet、全 Go test/build），
+未因同一证据已通过而机械重跑全套。
+
+原 Developer 二进制带 `227b37c+dirty`，不追认为在实现 Head 干净构建；接受 B 已记录的
+勘误及补证。A 独立计算原／B 发布版和 testhooks 的 SHA-256，与四份 summary／对比记录
+一致，并逐字节核对两种构建的 `.text` 相同；B 的 `.rodata`／依赖／构建选项对比记录已审。
+B 构建信息确为 `a44be2b946581f69aee02890c5a579cbb97de97c`、`vcs.modified=false`，
+其产品源码与实现 Head 完全相同。本轮复现直接使用该已核验构建，发布版 SHA-256 为
+`06963d828af97df6127c1a309db373ae36b54d379112836be305004f0fa68e10`，testhooks 为
+`5e3dabc2e333b94d6b88c3f555cedb0016e494a4a59e6f63f174e9469e695334`。
+
+A 的 serve 场景同样使用 testhooks 缩短周期，不冒充发布首轮；发布自定义列表首轮由 B
+`supplement.py` 的实际发布 CLI、配置和 `serve-release-fixture/serve.out` 证明。
+B 已澄清报告里不存在的 ValidateDescendant、Options 的真实类型与首轮构建偏差，
+以实际代码／原始产物为准，无须产品修正。
+
+### 不变量、未运行项与收尾
+
+source identity、固定锁、SQLite schema、V1、URL → SHA-1 → Size 顺序和有界枚举未变，
+未新增依赖、全库加载或每文件 goroutine。OpenList 只增加纯扩展名查询，原 Confirm／
+HTTP／分页／远端缺失语义未改；Dockerfile、Compose、部署装配、构建依赖和平台代码未改，
+故未触发真实 OpenList／容器补验。
+
+真实 OpenList、Docker／Compose、万文件规模、Jellyfin 扫描／插件决定、播放／代理、
+ARM64 原生实机及正式发布在 Slice 5 均 NOT RUN，不签新 PASS，不改变 Slice 1–4 的历史
+验收／UNKNOWN／授权。有限合成验证不保证新格式可播放；失败清理不承诺跨文件删除回滚，
+不扩大到任意绕过锁的外部写者。没有延期的必需 RO、P0／P1 或须新增 Task 的 P2。
+
+Slice 5 判 PASS / CLOSED，Task 5.1 保持独立 B PASS，根 TASK 无活动实施任务。
+当前授权范围已完成；不追加小版本 bug 排查、测试平台或下一 Slice，不自动 push。
+关闭后的文档／链接／空白和提交治理检查另存本轮证据目录，治理 PASS 不替代上述产品决定。
