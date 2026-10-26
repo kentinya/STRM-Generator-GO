@@ -4,7 +4,7 @@
 Task ID: 5.1
 Parent Slice: 5
 Owner: B
-Status: READY FOR B REVIEW
+Status: PASS
 Task Base: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
 Contract Checkpoint: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
 Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872
@@ -14,8 +14,8 @@ Test Level: T4
 
 用户于 2026-10-26 授权代行 B 规划首个 Task，并指定 kentinya 身份提交。本计划基于实际
 代码制定，完整覆盖 [Slice 5](SLICE.md) 的 RO-1..5；不拆成“先加配置、以后补清理”的半成品任务。
-Slice 已提交为 ACTIVE。Developer 已按本 Task 完成实现与验证，当前提交独立 B 审查；
-实施者不自签 B／A PASS。
+Developer 已按本 Task 完成实现与验证，独立 B 已完成审查并判 Task PASS；
+Slice 待 A 最终审查，实施者不自签 B／A PASS。
 
 ## 提交边界与交接
 
@@ -227,3 +227,95 @@ Independent B Review: PENDING
 A Final Review: NOT STARTED
 Next Action: 独立 B 审查 Task Base..Implementation Head 并逐条重评 AC／RO
 ```
+
+## 独立 B 审查（2026-10-26）
+
+```text
+Reviewed Range: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0..a44be2b946581f69aee02890c5a579cbb97de97c
+Reviewed Implementation: 27e2f528cb584fd613e0056eb3ec57825b7e0872
+B Decision: PASS
+Blockers: NONE
+A Review State: PENDING
+```
+
+本次执行者承担独立 B，未参与本 Task 的产品实现，未启动多代理。审查上述完整范围
+全部 22 个文件，含正式计划、合同澄清、产品／测试／驱动／使用文档及完成报告后继；
+`27e2f52..a44be2b` 仅修改 TASK 完成报告，未缩小审查范围。Slice Base
+`846d092…` 至 Task Base 只有合同与规划文档，不存在遗漏的产品差异。
+
+### 证据与独立复现
+
+本轮证据：`artifacts/validation-evidence/task51-b-review-20261026/`，
+命令／退出码／耗时见 `commands.json`，固定 Go 1.27.2、Linux amd64、CGO=0。
+从干净的审查 Head 独立构建发布及 testhooks 二进制；其身份见
+`binary-comparison.json` 和两个驱动的 `summary.json`。所有新运行只使用既有
+CLI、两个现有集成驱动及 Harness、动态端口合成 OpenList、自有 artifacts 夹具。
+
+- `focused.log`：五个受影响包以 `-count=1` 重跑通过，包含真实 YAML Load、CLI、
+  路径、源根／取消、清理计数及恢复回归。
+- `quality.log`：完整 `python3 scripts/quality.py` 退出 0，112 个 Python 回归、
+  治理、格式、vet、全 Go test/build 通过；Go 全量显示缓存，受影响包另有上述非缓存结果。
+- `sync/summary.json`：独立重跑 `custom_extensions` PASS，源保持可读，三轮计数、
+  下一成功轮删除、阈值前后 dry-run、回退默认列表、重新入选、删除 I/O 失败／取消及重跑通过。
+- `serve/summary.json`：独立重跑 `serve_custom_extensions` PASS，后续轮继续使用
+  启动列表、运行中修改无效、重启采用新列表；该场景实际首轮也使用 testhooks 构建。
+- `supplement.py`／`supplement.json`：复用现有 BEFORE DELETE SQLite trigger 注入，
+  在三次真实完整轮后使排除分支归属回收失败。失败轮退出 1，首文件已 unlink、后续文件
+  保留，归属／计数／轮次不变；撤销 trigger 后发布版重跑 `reclaimed=1 deleted=1`。
+  同一入口另证达到阈值后唯一入选 A.flv 更新原 A.mkv 的自有目标、精确映射更新且计数
+  清零，不被旧排除记录误删；并用发布二进制显式验证自定义列表的 serve 首轮。
+- `multi-source.json`、`multi-source.stdout` 与 `multi-source-fixture/`：自定义列表
+  同时作用于两个 source，排除的 `.mkv` 目录仍被遍历，其下大写 `.FLV` 正确生成，
+  第二 source 的 `.flv` 正确生成，再次同步字节／mtime 不变。
+
+适用旧回归复用 Developer 的 `artifacts/validation-evidence/task51-final-rcBL8C/`：
+sync 全部 12 场景、serve 全部 7 场景 PASS；核对 summary、配置、STRM／库及故障
+窗口产物，不只采用完成报告标签。原二进制嵌入的是 `227b37c+dirty`，不能称为
+直接在 `27e2f52` 干净提交构建。独立重建后两种二进制的 `.text` 均逐字节相同，
+`.rodata` 除嵌入的 VCS 构建信息及填充外相同，依赖／构建选项一致，比较记录已保留；
+因此复用该全量行为证据，并由本轮干净构建与关键独立运行补齐提交身份。
+
+### 全部 AC／RO 重评
+
+| AC | B 结论与依据 |
+|---|---|
+| AC-01 | PASS：默认完整 11 项、规范化／去重、显式替换及实例隔离，非缓存 config／pathmap 回归通过 |
+| AC-02 | PASS：真实 Load 非法类型／值矩阵、三个 CLI 退出 2 与零输出／库通过；代码确认 Load 在创建 client 和产品操作之前，错误不回显值 |
+| AC-03 | PASS：自定义 CLI 稳定 URL、过滤、最后后缀、重复零重写通过；独立补核子目录与多 source |
+| AC-04 | PASS：源仍可 Get 的排除分支三完整轮累计、下一轮重核删除；更高阈值、关闭清理和回退默认列表均有回归 |
+| AC-05 | PASS：达阈值恢复入选清零、源未读到则沿用旧缺失、仍排除不清零、清理后重新生成；未引入另一种计数 |
+| AC-06 | PASS：当前候选冲突、未归属／未知映射保护及非法源路径保留；独立补核唯一入选候选替换已有映射 |
+| AC-07 | PASS：源根／列表／冲突／取消在清理前设门槛；取消不提交新证据，dry-run 原库／产物零写，排除删除前取消已独立复现 |
+| AC-08 | PASS：排除分支 unlink 后 I/O 失败、取消及归属删除落库失败均已独立复现并重跑收敛；原 mirror_recovery 保留适用全量证据 |
+| AC-09 | PASS：发布版自定义列表首轮独立补证；testhooks 后续轮／配置修改／重启通过，旧定时取消／失败继续／互斥按身份核对复用 |
+| AC-10 | PASS：README、两份示例、需求／架构及证据可对应，必跑检查与本次独立审查完成，交 A 最终验收 |
+
+| RO | B 重评与剩余工作 |
+|---|---|
+| RO-1 | PASS：AC-01／02；旧配置兼容与严格配置规则满足 |
+| RO-2 | PASS：AC-02／03／07／09；三个命令入口及实际文件结果满足 |
+| RO-3 | PASS：AC-04..08；排除清理、重新入选、同目标复用和失败恢复满足 |
+| RO-4 | PASS：使用说明及两份示例覆盖默认／替换／清理／重启／播放边界 |
+| RO-5 | B 交付面 PASS：真实边界、原始证据、独立复现和逐项结论已交接；A 最终审查仍 PENDING，不代签 A PASS |
+
+### 勘误、边界与交接
+
+上方 Developer 报告保留为交接时原记录，现作以下事实勘误，不要求新增产品实现：
+`ValidateDescendant` 并不存在，实际通过原 `Confirmer.Confirm -> splitDescendant`
+复用路径／深度校验；`Options.MediaExtensions` 是实例 `*pathmap.MediaSet`；原
+`serve_custom_extensions` 首轮并非发布构建，现由独立补证覆盖。上述报告偏差已澄清，
+不作为产品修复任务。未发现 P0／P1，未安排额外 P2 润色或扩大工具建设。
+
+不变量复核：source identity、固定锁、schema、V1、URL／SHA-1／Size 比较顺序未变；
+归属按原有有界批次处理，未增加每文件 goroutine 或全库加载。OpenList 改动只新增
+纯扩展名查询，Confirm 的请求／解析／分页／远端缺失规则未改，故未触发真实 OpenList
+补验；容器装配／构建依赖／平台代码未改，未触发 Docker／Compose 补验。
+这些项目及万文件、Jellyfin／插件、播放／代理、ARM64 实机、正式发布均 NOT RUN，
+未转为 PASS。有限合成验证不保证新格式可播放，也不承诺跨文件删除回滚。
+
+本轮从 16:29:51 UTC 开始核对，截至形成审查结论已超过 4 分钟；实测构建、聚焦回归、
+两个关键驱动、补证和完整质量检查合计约 25 秒。连同治理收尾保守计不超过 30 秒，
+低于本轮总耗时的 50%；未为满足比例空等或重复运行测试。
+
+Task 5.1 PASS，无剩余已授权实施任务；Slice 5 交 A 审查完整 Slice Base..审查提交，
+本轮不关闭 Slice，不自动 push。
