@@ -201,8 +201,11 @@ Task Status at Handover: READY FOR B REVIEW
 
 - 源码：`Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872`（Task Base `1db2cb7…`）。
 - Go：固定 SDK `1.27.2`（`bash scripts/go-local version`），`CGO_ENABLED=0`。
-- 二进制：`artifacts/task-5.1/bin/strmgen`（发布）与 `artifacts/task-5.1/bin/strmgen-testhooks`
-  （仅隔离测试缩短定时／故障注入）；sha256 记录于证据目录 `summary.json`。
+- 二进制：`artifacts/task-5.1/bin/strmgen`（发布，sha256 `2e4f403d…7382ca2a`）与
+  `artifacts/task-5.1/bin/strmgen-testhooks`（仅隔离测试缩短定时／故障注入，
+  sha256 `cf119561…50372f8c`）。
+- 证据目录：`artifacts/validation-evidence/task51-final-rcBL8C/`（`sync/`、`serve/`、
+  `quality.log`、`run-metadata.json`）；两个驱动均 `--scenario all` 全部 PASS。
 - 夹具：`scripts/mock_openlist.py` 动态端口合成服务与自有临时目录；未接触真实 OpenList、
   Jellyfin、生产挂载或旧隔离服务。
 
