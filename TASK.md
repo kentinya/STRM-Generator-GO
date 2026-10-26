@@ -7,7 +7,7 @@ Owner: B
 Status: READY FOR B REVIEW
 Task Base: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
 Contract Checkpoint: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
-Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER
+Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872
 Difficulty: Medium
 Test Level: T4
 ```
@@ -149,7 +149,7 @@ Bash 语法及补丁空白通过；真实 Task Base／Contract Checkpoint 与已
 
 ```text
 Parent Task Base: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
-Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER
+Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872
 Task Status at Handover: READY FOR B REVIEW
 ```
 
@@ -199,7 +199,7 @@ Task Status at Handover: READY FOR B REVIEW
 
 ### 构建与夹具身份
 
-- 源码：`Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER`（Task Base `1db2cb7…`）。
+- 源码：`Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872`（Task Base `1db2cb7…`）。
 - Go：固定 SDK `1.27.2`（`bash scripts/go-local version`），`CGO_ENABLED=0`。
 - 二进制：`artifacts/task-5.1/bin/strmgen`（发布）与 `artifacts/task-5.1/bin/strmgen-testhooks`
   （仅隔离测试缩短定时／故障注入）；sha256 记录于证据目录 `summary.json`。
@@ -218,7 +218,7 @@ Task Status at Handover: READY FOR B REVIEW
 ```text
 Planning Source: 1db2cb7b6a7ac360af3fae1ea8e2f90db0ef81e0
 Planning Result: 正式 Task 5.1 PLANNED；真实合同和任务边界已固定
-Implementation: DELIVERED（Implementation Head: IMPLEMENTATION_HEAD_PLACEHOLDER）
+Implementation: DELIVERED（Implementation Head: 27e2f528cb584fd613e0056eb3ec57825b7e0872）
 Product Tests: FOCUSED + FULL GO + SYNC/SERVE INTEGRATION RUN AND PASS
 Independent B Review: PENDING
 A Final Review: NOT STARTED
