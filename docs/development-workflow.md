@@ -73,6 +73,11 @@ python3 scripts/run_openlist_absence_integration.py \
 固定万文件和 Jellyfin／插件八行实际决定属于独立验收，不能用预测模型或合成夹具替代，
 预期矩阵见[需求](requirements.md#插件决策验收矩阵)。
 
+验证用于确认功能、相关回归与失败恢复，优先复用现有测试和驱动，只补必要用例；
+不以工具代码量或报告数量代替产品结果，不另建无关测试平台。
+探测须从现有 CLI、测试或集成驱动入口进入，并对应实际使用中的触发路径；
+不得猜造不存在的入口，或脱离用户操作构造无法触发的问题。
+
 ## 合成夹具
 
 ```bash
@@ -96,7 +101,7 @@ curl --fail http://127.0.0.1:15244/api/fs/list \
 
 | 职责 | 工作 |
 |---|---|
-| A | 定义完整用户结果、RO、边界与 Base；最终审查和关闭 Slice |
+| A | 为大版本功能定义完整用户结果、RO、边界与 Base；最终审查和关闭 Slice；小版本 bug 无需介入 |
 | B | 基于真实代码规划 Task、独立审查完整 Base..Head、重评全部 RO |
 | Developer | 在活动 Task 内实现／修复，提供真实实现 SHA、验证和剩余限制 |
 
@@ -111,7 +116,7 @@ Slice: PLANNED -> ACTIVE -> READY FOR A REVIEW -> PASS / CLOSED
                         -> FIX REQUIRED -> 原 Slice 内修正
 ```
 
-新增产品实施顺序：真实基线提交 → A 提交 ACTIVE 合同及路线图 → B 提交 Task → Developer 实施。
+新增大版本功能的实施顺序：真实基线提交 → A 提交 ACTIVE 合同及路线图 → B 提交 Task → Developer 实施。
 Base 是实施前真实可达完整 SHA，激活后固定；Implementation Head 指向实际实现检查点。
 规划阶段可为 NOT SET，不能伪造。Task 计划在根 TASK 中记录 ID、Parent Slice、Status、Task Base、
 Contract Checkpoint、Goal／Scope、Difficulty、Test Level、验收条件、测试、非目标及完成／审查报告。
@@ -150,16 +155,34 @@ A 记录 Reviewed Range、Decision、Blockers，判 PASS、FIX REQUIRED 或 PART
 没有真实 Git 身份时保留未提交状态。完整克隆用于核对历史 SHA，质量 CI 使用 `fetch-depth: 0`。
 治理检查允许把合同链接改为本仓库固定祖先提交的同内容文件；不允许改变正文、锚点或历史内容。
 
+## 文档维护
+
+仓库持续维护 README 导航列出的 10 份文档。需求维护业务规则，架构维护实现职责，
+SLICE／TASK 维护当前状态与追溯入口，路线图汇总已交付能力；相同过程记录不复制归档。
+关闭后收起过时的规划时态、交接清单和重复报告，原合同、Base／Head、审查决定与限制
+通过固定 Git 检查点保留。文档整理不改变产品验收含义，不重新激活已关闭 Slice。
+
+纯文档维护按 T0 核对状态、路径／锚点、历史提交可达性、内容来源和补丁空白；
+提交后运行治理检查确认已提交的合同／路线图边界。不因文档整理重跑产品、真实服务或
+规模测试，也不将未运行项改为 PASS。
+
 ## 历史记录
 
-旧计划、审查、角色经验和进度不再放在当前目录。原始记录位于清理前固定检查点
-`4d16846722f31aa9615494b90df715cf4b5bb6df`，可离线查看：
+已完成任务的原合同、计划、报告与审查从以下固定祖先提交查看：
+
+| 内容 | 检查点 | 文件／目录 |
+|---|---|---|
+| Slice 1–4 旧计划、角色经验、Slice 4 A 审查与资产清单 | `4d16846722f31aa9615494b90df715cf4b5bb6df` | `docs/`、`Task/` |
+| Task 5.1 正式计划、完成报告、首次失败／修复及独立 B 审查 | `85a31337bb1a36bba9198fd8ff77959fc8d151cd` | `TASK.md` |
+| Slice 5 完整原合同与 A 最终审查 | `4ee49b872dba0964de1c62ec11d63b1717221b7a` | `SLICE.md` |
 
 ```bash
 git ls-tree -r --name-only 4d16846722f31aa9615494b90df715cf4b5bb6df -- docs Task
 git show 4d16846722f31aa9615494b90df715cf4b5bb6df:docs/slice-4-a-final-review.md
+git show 85a31337bb1a36bba9198fd8ff77959fc8d151cd:TASK.md
+git show 4ee49b872dba0964de1c62ec11d63b1717221b7a:SLICE.md
 ```
 
 历史“当前”、授权与 UNKNOWN 仅属原时点，不转成新权限或无泄露证明；Slice 4 临时认证已撤销。
 `artifacts/` 中的媒体、隔离服务数据、原始日志与专用工具不随克隆提供。
-原开发机的固定数据集和三个脚本继续保留，本次清理不删除或重建这些资产。
+原开发机的固定数据集和三个脚本继续保留，文档维护不删除或重建这些资产。

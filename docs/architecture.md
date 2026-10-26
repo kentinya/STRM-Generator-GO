@@ -2,32 +2,28 @@
 
 ## CURRENT
 
-当前实现支持一次性 `sync`、`sync --dry-run` 和定时 `serve`。V4.4 开发需求已完成，
-Slice 1–4 PASS / CLOSED；当前合同见 [SLICE](../SLICE.md)／[TASK](../TASK.md)，
-已接受范围及未运行项见 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)和
-[Closure Packet](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-closure-packet.md)。本页说明现有实现与设计约束，
-任务过程从[开发流程](development-workflow.md#历史记录)列出的 Git 检查点查看。
-Slice 5 自定义扩展名已经独立 B 审查和 A 最终验收，PASS / CLOSED；
-合同、逐 RO 结论及未运行项见 [SLICE](../SLICE.md#closure-packet)，历史任务入口见 [TASK](../TASK.md)。
+当前实现支持 `sync`、`sync --dry-run`、定时 `serve` 和全局自定义媒体扩展名。
+V4.4 与 Slice 5 增量均已交付，Slice 1–5 PASS / CLOSED，无活动实施任务。
+关闭结果见 [SLICE](../SLICE.md)，分层验收及未运行项见[路线图](roadmap.md)，
+完整合同与过程记录从[固定 Git 检查点](development-workflow.md#历史记录)查阅。
+本页维护模块职责与设计约束，业务规则统一见[需求](requirements.md)。
 
 ## 自定义扩展名接入
 
-`internal/config` 以原始 YAML 节点严格解析并规范化 `sync.media_extensions`：
-省略时取内置 11 项，显式列表完整替换且不合并，`null`／非字符串／空项等配置错误在触碰
-远端或输出前退出 `2`。`cmd/strmgen` 在 `config.Load` 后一次构建
-`pathmap.MediaSet` 并放入 `roundDeps`，`sync`、`sync --dry-run` 与 `serve` 的每轮
-装配都用它；运行中的 `serve` 不热加载，重启后读取新配置。
+`internal/config` 以原始 YAML 节点严格解析并规范化 `sync.media_extensions`，
+区分省略与显式 null；输入规则见[需求 R-13](requirements.md#自定义扩展名)。
+`cmd/strmgen` 在 `config.Load` 后一次构建 `pathmap.MediaSet` 并放入 `roundDeps`，
+三个命令入口的每轮装配都用它；运行中的 `serve` 不热加载。
 
-`pathmap.MediaSet` 只按最后后缀做纯匹配，构造时不修改共享的默认集合，因此同一进程内
-不同实例的列表互不污染；零值仍回落到默认项，未设置该字段的既有调用行为不变。
-`reconciler` 用该实例集合筛选目录候选，同名映射冲突仍只在当前入选候选之间判定。
+`pathmap.MediaSet` 按最后后缀做纯匹配，按实例持有且不修改共享默认集合；
+零值回落默认项，保持既有内部调用兼容。`reconciler` 用同一集合筛选目录候选，
+同名映射冲突只在当前入选候选之间判定。
 
-清理资格由 `Syncer.currentTarget` 单点判定，供缺失计数、实际删除与 dry-run 预览共用：
-精确映射的源扩展名不在当前有效列表时，即使源文件仍可 Get 成功也形成一次缺失观察；
-扩展名仍入选时沿用 R-08 原判定；目标 Get 读到目录等类型冲突始终保留。排除分支仍复
-现有源根门槛、完整轮、可靠归属、精确远端映射、源根之下合法子路径与深度边界、输出
-边界与 regular STRM 类型检查；任一不满足即保留且不计数。恢复入选后回到精确 Get 判定，
-源文件可读即清零并取消删除。`sourceIdentity`、锁资源、SQLite schema 与 STRM 协议不变。
+`Syncer.currentTarget` 统一计数、实际删除与 dry-run 预览的资格判定。
+它复用 `Confirmer.Confirm` 的源根／精确目标 Get 与路径／深度校验，再叠加当前扩展名集合，
+不改变远端缺失语义。排除的普通文件即使 Get 成功也进入原计数流程；
+目标 Get 的明确类型冲突仍保留，恢复入选则回到原 Get 规则。
+归属、完整轮、输出边界及删除前 regular STRM 检查继续使用现有机制。
 
 ## 模块与数据流
 

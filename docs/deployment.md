@@ -1,13 +1,11 @@
 # 部署与运行包
 
-本文件说明 STRM Generator 的 Linux amd64／arm64 产品镜像与 Compose 运行方式，区分
-**一次性**与**常驻**运行、状态与恢复边界。命令与路径以仓库根目录为基准。当前
-证据层：本机 amd64 容器实测通过；arm64 只验证 OCI manifest／digest 与二进制
-ELF 架构；ARM64 实机与正式发布验收在原 Slice 中为 NOT RUN。现有发布工作流见下节。
-Slice 1–4 PASS / CLOSED，Slice 4
-已验收固定 10000 文件生成、少量同步、Jellyfin 原始扫描与插件完整决定；所需环境／媒体／固定包
-见 [资产清单](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-assets.md)。4.4／4.5／4.6均独立B PASS，
-[A最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-a-final-review.md)已接受RO-1..6；这些结果来自分层原始证据，不能用容器smoke替代。
+本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
+Slice 1–5 均 PASS / CLOSED，当前无活动实施任务，分层验收入口见[路线图](roadmap.md)。
+
+容器实测来自 Slice 3：本机 amd64 运行通过，arm64 只核对 OCI manifest／digest 与 ELF
+架构；ARM64 原生实机和正式发布验收为 NOT RUN。Slice 5 未改容器装配、未重跑容器验收，
+其合成 CLI 结果不扩展上述历史结论。已有发布工作流见下节。
 
 ## 自动发布工作流
 
@@ -34,13 +32,13 @@ Slice 1–4 PASS / CLOSED，Slice 4
 二进制。
 
 ```bash
-mkdir -p artifacts/task-3.2/oci
+mkdir -p artifacts/build/oci
 # 本机 amd64 镜像（可加载运行）
 docker buildx build --platform linux/amd64 --load --tag strmgen:local .
 
 # arm64 OCI 产物（不加载，供分发与 manifest 核对）
 docker buildx build --platform linux/arm64 \
-  --output type=oci,dest=artifacts/task-3.2/oci/strmgen-arm64.oci.tar .
+  --output type=oci,dest=artifacts/build/oci/strmgen-arm64.oci.tar .
 ```
 
 - 两个架构均显式 `CGO_ENABLED=0`，产物为静态二进制。
@@ -69,7 +67,7 @@ docker compose -f deploy/compose.yaml stop -t 60
 
 | 项 | 合同 |
 |---|---|
-| token | 只通过运行时环境 `OPENLIST_TOKEN` 注入（Compose 透传声明 `OPENLIST_TOKEN:`）；`compose.yaml`、镜像层、仓库 `.env` 示例都不含真实 token。采集脱敏渲染时用 `docker compose config --no-interpolate`，不要把带宿主值的普通 `config` 输出写入日志或证据 |
+| token | 只通过运行时环境 `OPENLIST_TOKEN` 注入，Compose 使用透传声明；配置与镜像不保存真实 token，脱敏渲染规则见下文 |
 | 配置 | `STRMGEN_CONFIG` 以 `:ro` 只读挂载到 `/etc/strmgen/config.yaml` |
 | 输出 | `STRMGEN_OUTPUT` → `/output`，生成器拥有的 STRM 树 |
 | 数据库 | `STRMGEN_STATE` → `/state`，含 SQLite 主库及 `-wal`／`-shm`／`-journal` sidecar 与 dry-run 快照 |
@@ -143,14 +141,13 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
 ## 边界与 NOT RUN
 
 Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启；这些历史验收不代表发布工作流已成功运行。
-Slice 4 的外部服务／固定万文件证据依 [合同](../SLICE.md) 单列，已由B独立验收及A最终接受；Compose
-的 `mem_limit: 512m` 是部署配置，不是 512 MB 性能验收门槛。客户端播放、代理及更高
-规模压力已退出当前 V4.4 验收。
+Slice 4 的外部服务／固定万文件证据见[已关闭记录](roadmap.md#slice-4-已关闭记录)，
+由独立 B 验收及 A 最终接受。Compose 的 `mem_limit: 512m` 是部署配置，
+不是 512 MB 性能验收门槛；客户端播放、代理及更高规模压力不在验收范围。
 
 ARM64 原生实机、正式发布、Kubernetes／systemd 专属控制器、health／metrics、配置热
 重载和自动备份未验收且不属于当前合同。真实服务仅使用 artifacts 下的专用隔离实例，
 不得以交叉构建、环境 smoke 或合成夹具替代实际证据。
-
 
 Slice 4 已有隔离 S3/RustFS、OpenList、Jellyfin 和三个辅助脚本按
 [资产清单](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-assets.md) 记录于原开发机，未随 Git 克隆提供。复核时不要求重新部署环境或为验证而停止

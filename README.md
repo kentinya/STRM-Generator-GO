@@ -150,8 +150,8 @@ sync:
   media_extensions: [".mkv", ".mp4", ".flv", ".mp3", ".flac"]
 ```
 
-- 每项可带一个前导点，大小写和首尾空白会被规范化，重复项合并，例如
-  `MKV`、`.mkv`、` .MKV ` 等价。
+- 每项可带一个前导点，其余只允许 ASCII 字母或数字；大小写和首尾空白会被规范化，
+  重复项合并，例如 `MKV`、`.mkv`、` .MKV ` 等价。
 - 必须是非空字符串列表。空列表、`null`、单个字符串、非字符串元素、空项、路径、
   通配符、多段后缀（如 `.tar.gz`）和 `.strm` 都会被拒绝，命令以退出码 `2` 在访问
   API、创建输出或数据库之前结束。
@@ -243,19 +243,17 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 |---|---|
 | 本 README | 项目介绍、快速开始与日常入口 |
 | [部署](docs/deployment.md) | Docker / Compose、发布、权限、备份与恢复 |
-| [需求](docs/requirements.md) | V4.4 业务规则、STRM 协议与比较矩阵 |
+| [需求](docs/requirements.md) | V4.4 与自定义扩展名规则、STRM 协议及比较矩阵 |
 | [架构](docs/architecture.md) | 模块职责、数据流、持久化与并发设计 |
 | [开发流程](docs/development-workflow.md) | 环境、测试、任务审查与历史查看 |
 | [路线图](docs/roadmap.md) | 已交付能力与最终验收索引 |
-| [SLICE](SLICE.md) | 当前能力合同与规划状态 |
+| [SLICE](SLICE.md) | 最近关闭的能力结果、合同与审查历史入口 |
 | [TASK](TASK.md) | 当前产品实施任务状态 |
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-当前 V4.4 需求已完成，Slice 1–4 **PASS / CLOSED**。已验收固定 10000 文件生成、
-最少同步样本、Jellyfin 原始扫描与插件八行实际决定。探测启动不等于探测成功；
-ARM64 原生实机与正式发布验收未包含在原合同内，具体证据与边界见[路线图](docs/roadmap.md)。
-
-[Slice 5：配置自定义扩展名](SLICE.md#closure-packet) 已经独立 B 审查和 A 最终验收，
-**PASS / CLOSED**，当前无活动实施任务。配置与边界见本文、[需求](docs/requirements.md)和
-[架构](docs/architecture.md)；历史 Task 入口见 [TASK](TASK.md)。
+V4.4 与自定义扩展名增量均已交付，Slice 1–5 **PASS / CLOSED**，当前无活动实施任务。
+最近关闭结果见 [Slice 5](SLICE.md#closure-packet)，历史 Task 入口见 [TASK](TASK.md)。
+固定万文件、Jellyfin 原始扫描与插件八行决定属于 Slice 4 历史验收，
+Slice 5 使用合成 CLI／回归证据，未重跑真实服务、容器或规模验收。
+探测启动不等于探测成功；ARM64 原生实机与正式发布仍 NOT RUN，完整边界见[路线图](docs/roadmap.md)。
