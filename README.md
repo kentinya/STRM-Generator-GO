@@ -177,8 +177,8 @@ Jellyfin 或插件播放。
 启用后，普通 `sync`／`serve` 每轮聚合所有 source 只发送**一条**中文摘要；整个正文
 （含来源明细）共用最多 3500 个 UTF-16 code units 的预算、预览 20 条文件事件，装不下时
 附本轮单个 UTF-8 `.txt` 清单（总大小上限 8 MiB，超限停止追加并标明不完整；来源明细
-溢出也进入同一清单）。临时清单创建或写入失败时摘要仍按策略发送，并明确标注
-“明细不完整、缺失计数进度未知”，不会把未知报告为 0。
+溢出也进入同一清单）。临时清单创建失败时摘要仍按策略发送，标注明细不完整、
+缺失计数进度未知；写入失败时保留已知事件并标注清单不完整，不上传损坏清单。
 
 ```yaml
 notifications:
@@ -292,8 +292,8 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
 V4.4 与自定义扩展名增量均已交付，Slice 1–5 **PASS / CLOSED**。
-[Slice 6](SLICE.md) 的 Telegram 本地实现已提交，独立 B 审查为 **FIX REQUIRED**；
-Task 6.1 在原范围修正，真实 Telegram 文本／附件送达未验收，详见 [TASK](TASK.md)。
+[Slice 6](SLICE.md) 的 Telegram 本地实现已通过 Task 6.1 独立 B 审查；
+真实 Telegram 文本／附件送达与 A 最终验收待完成，详见 [TASK](TASK.md)。
 最近关闭结果见 [Slice 5 历史审查](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)。
 固定万文件、Jellyfin 原始扫描与插件八行决定属于 Slice 4 历史验收，
 Slice 5 使用合成 CLI／回归证据，未重跑真实服务、容器或规模验收。

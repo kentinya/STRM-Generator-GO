@@ -3,7 +3,7 @@
 ```text
 Task ID: 6.1
 Parent Slice: 6
-Status: FIX REQUIRED
+Status: PASS
 Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
@@ -137,15 +137,15 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 ## 完成报告与审查
 
 ```text
-Implementation Status: FIX REQUIRED (B-R1..B-R3 corrected; independent B re-review pending)
-Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..9dbb58c20be182edbdc64637e1c9ee9a79c901d7
+Implementation Status: PASS (local scope; independent B final re-review)
+Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e41d34dc4631f923fa1
 Fix Range: 20e5325fd034b5295d383cd82d2d966d63252a53..9dbb58c20be182edbdc64637e1c9ee9a79c901d7 (B-01..B-08 corrections within Task 6.1)
 B-R Fix Range: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7..7c54baf660150ced9ac87e41d34dc4631f923fa1
-Local Evidence: quality/race/tagged CLI PASS; sync 14/14, serve 8/8, container 6/6 on candidate 7c54baf
+Local Evidence: independent quality/full race/prior failure probes/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
-B Product Review: FIX REQUIRED (2026-11-12 re-review; B-R1..B-R3 below; B-R fix awaiting re-review)
+B Product Review: PASS (2026-11-12 final re-review; local scope, one non-blocking P2)
 A Final Review: PENDING
-Remaining Work: independent B re-review of 1bfac551..7c54baf; separately authorized real Telegram evidence; A closure
+Remaining Work: separately authorized real Telegram evidence; A final Slice review; P2 recorded below
 ```
 
 ### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
@@ -392,6 +392,64 @@ AC-12 本次已更新真实范围、失败证据及交接，不把 Developer 汇
 最终候选按原 T4 计划完成对应回归。不得以孤立 Collector 测试替代真实 adapter 接线验证。
 不扩展过程工具、不新开功能 Slice。真实 Telegram、真实 OpenList／Jellyfin／插件链路、
 ARM64 原生实机及容器内 8 MiB 极端数据集本轮均 NOT RUN；Slice 1–5 保持 PASS / CLOSED。
+
+### 独立 B 最终复审（2026-11-12）
+
+**Decision: PASS（Task 6.1 本地范围）。** B-R1..B-R3 阻塞项已修正；未发现剩余 P0／P1。
+保留一项非阻塞 P2，真实 Telegram 送达仍为 NOT RUN，不能据此关闭 Slice 6。
+本轮仅维护审查／状态文档，没有修改产品代码、启动多代理、push 或发送真实消息。
+
+审查完整固定范围 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e41d34dc4631f923fa1`，
+结合前两轮审查重核配置、CLI 生命周期、事实捕获、storage／文件系统结果接口、通知格式／传输、
+测试与部署增量；本次六个代码／测试文件的修正未改业务删除资格、远端规则或持久表结构。
+另核对 Slice Base `20677f1906837428324d58885e719ed385a07258` 以来合同／规划和截至
+`fe4512e` 的报告增量；报告 Head 与实现 Head 产品代码相同。所有原检查点及失败记录保留。
+
+| 修正项 | 本次独立核对结果 |
+|---|---|
+| B-R1 | 重跑原失败探测：真实 SQLite UPDATE 失败后 missing_count=0、通知事件=0；明细文件写失败叠加回滚时也无未提交预览／change 标记。生产 adapter 现接入 RecordProvisional。新增真实 Store／syncer／adapter 回归覆盖成功提交、暂存后事务失败、正文和附件；原 commit 后 scratch 失败与三个清零窗口回归仍通过。 |
+| B-R2 | 正常 CLI 的 `家`×5000 实例名正文为 **3310 UTF-16 units**（原为 5219）；超长和转义膨胀实例名回归均通过，配置仍允许合法长名字，统计保留。 |
+| B-R3 | 原来源追加失败探测现为 WriteFailed=true、附件为空且正文有不完整标记；新增尾部写入失败用例通过。明细追加／Finalize 在尾注及附件决策前完成，不重复写尾部，大小截断继续明确标为不完整。 |
+
+独立证据位于本机 `artifacts/validation-evidence/task6.1-b-final-20261112/`：
+`metadata.json` 记录输入、命令、二进制摘要、复用与未运行项；`prior-failures.log` 为原三个失败用例
+3/3 PASS，`cli-results.json` 为正常 CLI 探测结果，`quality.log`／`race-all.log`、
+`sync.log`／`sync-notifications.log`／`serve.log` 为原始运行结果。
+从干净报告 Head 新构建 testhooks 二进制，SHA-256 为
+`dbc88967609141d24833b3e59f267bc58c5b7604487d8d5da43b1237fa46468a`。
+
+- 本轮独立执行：`python3 scripts/quality.py`（含 Python 112 项、vet、Go test／build 和 tagged CLI）、
+  全包 `-race -count=1 ./...`、原三个失败探测、正常 CLI 配置／多来源／bidi／TMPDIR／长实例名，均 PASS。
+- 用新二进制执行既有 notifications、notifications_cleanup 两个场景及 serve 全部 8 场景，均 PASS；
+  涵盖策略、附件、缺失 0→1→2→3→删除／恢复、锁外慢发送、不重入、发送中取消与临时清理。
+  第一次 sync 调用重复传 `--scenario`，实际只执行最后的 cleanup；随后单独执行 notifications，
+  两份结果分开保留，没有将首次调用算成两个场景。
+- 查阅并复用 Developer B-R 修正轮完整 sync 14/14、容器 6/6、Compose 安全渲染原始证据，
+  其预提交输入与二进制摘要限制如实记录；不称为本轮独立重跑的全套集成。
+  容器权限、只读根、附件与清理断言沿用已有驱动，无产品部署变化。
+- 测试执行为几十秒，复核及文档整理为数分钟，低于本轮时间 50%；没有新增过程平台。
+
+**非阻塞 P2：** `sendRound` 对 collector 写入／Finalize 失败尚无专用本地警告（代码审查）；
+消息已正确标注不完整并禁用损坏附件，已有同步结果不受影响，网络发送失败仍有脱敏本地警告。
+后续可补固定措辞警告与本地断言；此诊断便利性缺口不延长本地 Task，不记为已修复或用户已接受，
+交 A 连同本记录评估。
+
+**全部 AC／RO 重评：** AC-1..8 本地通过；AC-9 核心隔离／降级／清理通过，保留上述 P2；
+AC-10 由独立 serve 8/8 支持；AC-11 配置／脱敏与容器证据通过；AC-12 范围和证据交接齐全。
+
+| RO | 最终 B 本地结论及剩余项 |
+|---|---|
+| RO-1 | 本地 PASS：缺省关闭、严格校验、凭证／dry-run、三策略和双入口 |
+| RO-2 | 本地 PASS：多来源结果、原统计、失败时实际文件／持久计数事实 |
+| RO-3 | 本地 PASS：有界正文／预览、单个 8 MiB 清单、路径转义及完整性说明 |
+| RO-4 | 本地 PASS：提交后推进、独立清零、阈值重核／删除；回滚不再虚报 |
+| RO-5 | 核心本地 PASS；非阻塞 P2 如上。通知隔离、锁外发送、取消、边界／脱敏均有证据 |
+| RO-6 | 本地文档／部署证据 PASS；真实 Telegram 文本／附件送达 NOT RUN，整体 PENDING |
+| RO-7 | Task B 审查 PASS；Slice A 完整范围最终验收 PENDING |
+
+Task 6.1 本地交付完成。Slice 6 恢复 ACTIVE，等待另行授权的真实 Telegram 取证及 A 最终审查，
+不预签下一 Task、不索取或恢复历史秘密。真实 OpenList／Jellyfin／插件、固定万媒体、
+ARM64 原生实机及容器内 8 MiB 极端数据集本轮未运行；既有 Slice 1–5 结论不变。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从
 [固定 Git 检查点](docs/development-workflow.md#历史记录)中的
