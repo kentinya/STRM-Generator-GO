@@ -3,7 +3,7 @@
 ```text
 Task ID: 6.1
 Parent Slice: 6
-Status: PLANNED
+Status: IN PROGRESS
 Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
@@ -11,7 +11,8 @@ Test Level: T4
 Implementation Head: NOT SET
 ```
 
-2026-11-12 用户授权本会话代替 B 规划首个 Task。本次只提交计划，不开始产品实施，
+2026-11-12 用户授权本会话代替 B 规划首个 Task，正式计划已提交；用户随后授权激活，
+Task 进入 IN PROGRESS。本次只激活任务，产品代码尚未改动；
 不发送真实 Telegram 消息，不签发独立 B／A 产品 PASS，不 push。
 能力边界以 [Slice 6](SLICE.md) 在上述 Contract Checkpoint 的精简合同为准；
 Slice Base 保持 `20677f1906837428324d58885e719ed385a07258`。
@@ -146,8 +147,8 @@ Remaining Work: implementation; local validation; independent B review; real Tel
 
 实施后在本节填入实际实现 Head、变更摘要、AC／RO 证据、首次失败／修复和剩余限制，
 再交独立 B 审查完整 Task Base..Head；实施者不得自签 B PASS。
-本次仅代行 B 规划，不构成独立产品审查。
-规划文档按 T0 核对合同一致性、检查点可达性、链接／锚点、补丁空白和提交后治理；
+原计划由本会话代行 B 制定；规划与本次激活均不构成独立产品审查。
+规划与激活文档按 T0 核对合同一致性、检查点可达性、链接／锚点、补丁空白和提交后治理；
 本节 NOT RUN 指产品实施证据，规划检查不代替产品测试。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从

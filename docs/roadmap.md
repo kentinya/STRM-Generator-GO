@@ -2,7 +2,7 @@
 
 V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 用户于 2026-11-12 授权规划 Slice 6；[当前合同](../SLICE.md) ACTIVE，
-首个正式 [Task 6.1](../TASK.md) 已 PLANNED，尚未实施，Telegram 通知尚未交付。
+首个正式 [Task 6.1](../TASK.md) 已激活（IN PROGRESS），产品尚未实现，Telegram 通知尚未交付。
 业务规则见[需求](requirements.md)，原合同与审查从[固定 Git 检查点](development-workflow.md#历史记录)查看。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
@@ -12,7 +12,7 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 | 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
-| 6 | Telegram 运行结果与文件清理进度通知 | ACTIVE | Slice 1–5 已交付基线 | Task 6.1 PLANNED：运行摘要、变更／删除明细、计数进度、有界单附件与失败隔离的本地完整链路 |
+| 6 | Telegram 运行结果与文件清理进度通知 | ACTIVE | Slice 1–5 已交付基线 | Task 6.1 IN PROGRESS：运行摘要、变更／删除明细、计数进度、有界单附件与失败隔离的本地完整链路 |
 
 ## Slice 6 当前规划
 
@@ -20,7 +20,7 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 配置／触发、逐文件事实、删除计数、资源与凭证边界、RO-1..7 及验收门槛统一见
 [Slice 6 合同](../SLICE.md)。用户已授权本会话代替 B 规划 Task 6.1，
 Task Base／Contract Checkpoint 均为 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749`；
-当前已完成正式 Task 计划，无产品实现或独立 B／A 产品 PASS。
+当前已完成正式 Task 计划并激活，无产品实现或独立 B／A 产品 PASS。
 合同已按用户要求精简：单个本轮文本附件、按发生顺序记录，不增加业务状态或持久通知历史。
 Task 6.1 固定单附件上限 8 MiB；配置／CLI／传输按 T3，提交／清零结果接口改动按 T4
 执行全部现有回归及适用恢复／打包验证。真实 Telegram 文本及附件单独取证；
