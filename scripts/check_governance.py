@@ -42,6 +42,64 @@ def capability(text):
     return re.sub(r"^(Status|Implementation Head):.*$", "", obligations, flags=re.MULTILINE)
 
 
+def standalone_capability(text):
+    """Keep the repair plan fixed while status fields and its report advance."""
+    obligations = text.split("## Task Report")[0]
+    obligations = obligations[obligations.index("Task ID:"):].strip()
+    return re.sub(
+        r"^(Status|Contract Checkpoint|Implementation Head|Independent B Review|Real Telegram Visual Check):.*$",
+        "", obligations, flags=re.MULTILINE)
+
+
+def check_task_metadata(task):
+    status = field(task, "Status")
+    if status not in TASK_STATES:
+        raise ValueError("Invalid Task status")
+    if field(task, "Test Level") not in {"T0", "T1", "T2", "T3", "T4"}:
+        raise ValueError("Invalid Task test level")
+    if field(task, "Difficulty") not in {"Low", "Medium", "High"}:
+        raise ValueError("Invalid Task difficulty")
+    return status
+
+
+def validate_standalone(root, task, contract, inactive):
+    if field(contract, "Status") != "PASS / CLOSED":
+        raise ValueError("Standalone fix requires a closed related Slice")
+    if (field(task, "Parent Slice") != "NONE"
+            or field(task, "Related Slice") != field(contract, "Slice ID")
+            or not re.fullmatch(r"FIX-[A-Z0-9]+(?:-[A-Z0-9]+)*", field(task, "Task ID"))):
+        raise ValueError("Invalid standalone fix identity or parent")
+    status = check_task_metadata(task)
+    if inactive and status not in {"PLANNED", "PASS"}:
+        raise ValueError("Active standalone fix cannot use the no-active marker")
+    base = field(task, "Task Base")
+    check_sha(root, base, "Task Base")
+    git(root, "merge-base", "--is-ancestor", field(contract, "Implementation Head"), base)
+    checkpoint = field(task, "Contract Checkpoint")
+    implementation = field(task, "Implementation Head")
+    if checkpoint == "NOT SET":
+        if not inactive or status != "PLANNED" or implementation != "NOT SET":
+            raise ValueError("Standalone activation requires a committed plan checkpoint")
+        return "PASS: standalone repair planning governance (not implementation authorization)"
+    check_sha(root, checkpoint, "Contract Checkpoint")
+    git(root, "merge-base", "--is-ancestor", base, checkpoint)
+    snapshot = git(root, "show", checkpoint + ":TASK.md")
+    if field(snapshot, "Task Type") != "standalone-fix" or field(snapshot, "Status") != "PLANNED":
+        raise ValueError("Standalone checkpoint must identify a planned repair")
+    if standalone_capability(snapshot) != standalone_capability(task):
+        raise ValueError("Standalone Task differs from its committed plan")
+    if git(root, "show", checkpoint + ":SLICE.md") != contract.strip():
+        raise ValueError("Standalone fix cannot rewrite the closed Slice")
+    if implementation != "NOT SET":
+        check_sha(root, implementation, "Implementation Head")
+        git(root, "merge-base", "--is-ancestor", checkpoint, implementation)
+    if status in {"READY FOR B REVIEW", "PASS"} and implementation == "NOT SET":
+        raise ValueError("Standalone review requires an implementation SHA")
+    if status == "PASS" and field(task, "Independent B Review") != "PASS":
+        raise ValueError("Standalone closure requires independent B PASS")
+    return "PASS: committed standalone repair governance (not product or review acceptance)"
+
+
 def normalize_history_links(root, document, text):
     """Treat a pinned copy of the same committed document as its local link.
 
@@ -113,6 +171,9 @@ def validate(root=ROOT, bootstrap=False):
 
     contract = (root / "SLICE.md").read_text()
     task = (root / "TASK.md").read_text()
+    standalone = bool(re.search(r"^Task Type:", task, re.MULTILINE))
+    if standalone and field(task, "Task Type") != "standalone-fix":
+        raise ValueError("Invalid Task type")
     roadmap = (root / "docs/roadmap.md").read_text()
     slice_id = field(contract, "Slice ID")
     status = field(contract, "Status")
@@ -130,7 +191,7 @@ def validate(root=ROOT, bootstrap=False):
     base = field(contract, "Base SHA")
     implementation = field(contract, "Implementation Head")
     if bootstrap:
-        if status != "PLANNED" or base != "NOT SET" or implementation != "NOT SET" or not inactive:
+        if status != "PLANNED" or base != "NOT SET" or implementation != "NOT SET" or not inactive or standalone:
             raise ValueError("Bootstrap requires PLANNED / NOT SET / no active Task")
         return "PASS: preparation governance (not implementation authorization)"
 
@@ -147,7 +208,7 @@ def validate(root=ROOT, bootstrap=False):
             != normalize_history_links(root, "docs/roadmap.md", roadmap).strip()):
         raise ValueError("Working roadmap differs from committed HEAD")
     if status == "PLANNED":
-        if not inactive or implementation != "NOT SET":
+        if not inactive or implementation != "NOT SET" or standalone:
             raise ValueError("PLANNED Slice cannot carry implementation or active Task")
         if base != "NOT SET":
             check_sha(root, base, "Slice Base")
@@ -159,8 +220,10 @@ def validate(root=ROOT, bootstrap=False):
     if status in {"READY FOR A REVIEW", "PASS / CLOSED"} and implementation == "NOT SET":
         raise ValueError("Review or closure requires an implementation SHA")
     if status == "PASS / CLOSED":
-        if not inactive or field(contract, "Decision") != "PASS":
+        if (not inactive and not standalone) or field(contract, "Decision") != "PASS":
             raise ValueError("Closed Slice requires A PASS and no active Task")
+    if standalone:
+        return validate_standalone(root, task, contract, inactive)
     if not inactive:
         task_status = field(task, "Status")
         if status not in {"ACTIVE", "FIX REQUIRED"} and not (status == "READY FOR A REVIEW" and task_status == "PASS"):
@@ -168,12 +231,7 @@ def validate(root=ROOT, bootstrap=False):
         if (field(task, "Parent Slice") != slice_id
                 or not re.fullmatch(re.escape(slice_id) + r"\.[1-9]\d*", field(task, "Task ID"))):
             raise ValueError("Task parent mismatch")
-        if task_status not in TASK_STATES:
-            raise ValueError("Invalid Task status")
-        if field(task, "Test Level") not in {"T0", "T1", "T2", "T3", "T4"}:
-            raise ValueError("Invalid Task test level")
-        if field(task, "Difficulty") not in {"Low", "Medium", "High"}:
-            raise ValueError("Invalid Task difficulty")
+        check_task_metadata(task)
         task_base = field(task, "Task Base")
         check_sha(root, task_base, "Task Base")
         git(root, "merge-base", "--is-ancestor", base, task_base)

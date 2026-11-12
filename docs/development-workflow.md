@@ -121,6 +121,16 @@ Base 是实施前真实可达完整 SHA，激活后固定；Implementation Head 
 规划阶段可为 NOT SET，不能伪造。Task 计划在根 TASK 中记录 ID、Parent Slice、Status、Task Base、
 Contract Checkpoint、Goal／Scope、Difficulty、Test Level、验收条件、测试、非目标及完成／审查报告。
 
+独立小版本修复使用 `Task Type: standalone-fix`、`FIX-` 前缀 ID、`Parent Slice: NONE`
+及数字 `Related Slice`，仅关联已 PASS / CLOSED 的当前 Slice，不重开历史验收。
+规划提交后以其完整 SHA 作为 Contract Checkpoint，再移除“无活动”标记并进入 IN PROGRESS；
+Task Base 须为计划检查点的真实祖先，且包含关联 Slice 已交付实现。
+治理检查比较 Task ID 起至 `## Task Report` 前的计划正文，仅允许状态、检查点、实现 Head、
+独立审查及真实视觉检查字段推进；验收表的规划时状态保留，执行证据追加在 Task Report。
+范围变更须明确修订并提交新的 PLANNED 计划检查点，不复用旧检查点；关联 Slice 原文不得改写。
+独立修复由独立 B 审查完整 Base..Head 后关闭，不追加 A 验收；该路径不适用于新大版本功能，
+治理通过也不能替代产品测试、人工范围判断或独立审查。
+
 改变 RO、安全不变量或验收含义时先显式修订合同，不把需求变更伪装成纯文档维护。
 修正在原 Task 增加检查点，不重写已审历史。用户另行授权的文档维护可以独立执行，
 不重新激活已关闭的产品 Slice，也不签发新的产品 PASS。
@@ -138,7 +148,7 @@ Contract Checkpoint、Goal／Scope、Difficulty、Test Level、验收条件、�
 证据复用须匹配准确输入和原始产物，不只看报告标签。不能删测试、弱化断言或隐藏首次失败换取通过；
 已有 Task 测试计划由 B 显式调整并说明原因。
 
-所有 Task 通过后汇总 Base／Head、RO、证据、不变量、P2、延期与未运行项，交 A 审查完整范围。
+Slice 内所有 Task 通过后汇总 Base／Head、RO、证据、不变量、P2、延期与未运行项，交 A 审查完整范围。
 A 记录 Reviewed Range、Decision、Blockers，判 PASS、FIX REQUIRED 或 PARTIAL / RESCOPE。
 通过后同步 SLICE／TASK／路线图，根 TASK 撤为无活动；无剩余已授权需求时停止。
 关闭后原范围 P0／P1 回原 Slice 修正，P2 不无限延长交付。

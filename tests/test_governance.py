@@ -84,6 +84,8 @@ class GovernanceTests(unittest.TestCase):
             governance.validate(self.root, True)
 
     def test_no_head_is_not_normal_governance(self):
+        # Fixtures may live under artifacts/; never discover the parent HEAD.
+        self.git("init", "-b", "main")
         with self.assertRaisesRegex(ValueError, "Git boundary"):
             governance.validate(self.root)
 
@@ -198,4 +200,146 @@ class GovernanceTests(unittest.TestCase):
         self.edit("SLICE.md", "A safe result.", "A changed obligation.")
         self.commit()
         with self.assertRaisesRegex(ValueError, "Task checkpoint"):
+            governance.validate(self.root)
+
+    def standalone_fixture(self, activate=True):
+        implementation = self.activate_with_task()
+        self.edit("SLICE.md", "Status: ACTIVE", "Status: PASS / CLOSED")
+        self.edit("SLICE.md", "Implementation Head: NOT SET", "Implementation Head: " + implementation)
+        self.edit("SLICE.md", "NOT STARTED", "Decision: PASS")
+        self.edit("docs/roadmap.md", "| ACTIVE |", "| PASS / CLOSED |")
+        (self.root / "TASK.md").write_text("# NO ACTIVE IMPLEMENTATION TASK\n")
+        base = self.commit()
+        plan = (
+            "# NO ACTIVE IMPLEMENTATION TASK\n\n"
+            "Task ID: FIX-TG-01\nTask Type: standalone-fix\n"
+            "Parent Slice: NONE\nRelated Slice: 1\nStatus: PLANNED\n"
+            f"Task Base: {base}\nContract Checkpoint: NOT SET\n"
+            "Implementation Head: NOT SET\nDifficulty: Medium\nTest Level: T3\n"
+            "Independent B Review: PENDING\nReal Telegram Visual Check: NOT RUN\n"
+            "\n## Goal\nA clearer notification.\n\n## Task Report\nNot started.\n")
+        (self.root / "TASK.md").write_text(plan)
+        checkpoint = self.commit()
+        if activate:
+            self.edit("TASK.md", "# NO ACTIVE IMPLEMENTATION TASK", "# Task FIX-TG-01")
+            self.edit("TASK.md", "Status: PLANNED", "Status: IN PROGRESS")
+            self.edit("TASK.md", "Contract Checkpoint: NOT SET", "Contract Checkpoint: " + checkpoint)
+        return base, checkpoint
+
+    def test_standalone_plan_does_not_authorize_implementation(self):
+        self.standalone_fixture(activate=False)
+        self.assertIn("not implementation authorization", governance.validate(self.root))
+
+    def test_standalone_activation_preserves_closed_slice(self):
+        _, checkpoint = self.standalone_fixture()
+        original = (self.root / "SLICE.md").read_text()
+        self.assertIn("committed standalone repair", governance.validate(self.root))
+        self.commit()
+        self.assertIn("committed standalone repair", governance.validate(self.root))
+        self.assertEqual(original, self.git("show", checkpoint + ":SLICE.md") + "\n")
+
+    def test_standalone_activation_requires_a_committed_plan(self):
+        base, checkpoint = self.standalone_fixture()
+        self.edit("TASK.md", checkpoint, "NOT SET")
+        with self.assertRaisesRegex(ValueError, "committed plan checkpoint"):
+            governance.validate(self.root)
+        self.edit("TASK.md", "Contract Checkpoint: NOT SET", "Contract Checkpoint: " + base)
+        with self.assertRaises(ValueError):
+            governance.validate(self.root)
+
+    def test_standalone_rejects_invalid_or_unrelated_base(self):
+        base, _ = self.standalone_fixture()
+        self.git("switch", "-c", "unmerged")
+        (self.root / "unmerged.txt").write_text("Unmerged fixture\n")
+        unrelated = self.commit()
+        self.git("switch", "main")
+        # Switching restores the committed plan; activate it again.
+        checkpoint = self.git("rev-parse", "HEAD")
+        self.edit("TASK.md", "# NO ACTIVE IMPLEMENTATION TASK", "# Task FIX-TG-01")
+        self.edit("TASK.md", "Status: PLANNED", "Status: IN PROGRESS")
+        self.edit("TASK.md", "Contract Checkpoint: NOT SET", "Contract Checkpoint: " + checkpoint)
+        for invalid in ("NOT SET", "0" * 40, unrelated):
+            with self.subTest(base=invalid):
+                self.edit("TASK.md", "Task Base: " + base, "Task Base: " + invalid)
+                with self.assertRaises(ValueError):
+                    governance.validate(self.root)
+                self.edit("TASK.md", "Task Base: " + invalid, "Task Base: " + base)
+
+    def test_standalone_base_cannot_follow_plan_checkpoint(self):
+        base, _ = self.standalone_fixture()
+        (self.root / "later.txt").write_text("Later fixture\n")
+        later = self.commit()
+        self.edit("TASK.md", "Task Base: " + base, "Task Base: " + later)
+        with self.assertRaisesRegex(ValueError, "Git boundary"):
+            governance.validate(self.root)
+
+    def test_standalone_rejects_changed_scope_before_and_after_commit(self):
+        self.standalone_fixture()
+        self.edit("TASK.md", "A clearer notification.", "A new product feature.")
+        with self.assertRaisesRegex(ValueError, "differs from its committed plan"):
+            governance.validate(self.root)
+        self.commit()
+        with self.assertRaisesRegex(ValueError, "differs from its committed plan"):
+            governance.validate(self.root)
+
+    def test_standalone_reports_can_advance_without_changing_plan(self):
+        _, checkpoint = self.standalone_fixture()
+        self.edit("TASK.md", "Not started.", "Governance activated; product tests NOT RUN.")
+        self.edit("TASK.md", "Implementation Head: NOT SET", "Implementation Head: " + checkpoint)
+        self.edit("TASK.md", "Status: IN PROGRESS", "Status: READY FOR B REVIEW")
+        self.assertIn("committed standalone repair", governance.validate(self.root))
+
+    def test_standalone_cannot_hide_active_status(self):
+        self.standalone_fixture()
+        self.edit("TASK.md", "# Task FIX-TG-01", "# NO ACTIVE IMPLEMENTATION TASK")
+        with self.assertRaisesRegex(ValueError, "no-active marker"):
+            governance.validate(self.root)
+
+    def test_standalone_rejects_mixed_parent_and_unknown_type(self):
+        self.standalone_fixture()
+        changes = (
+            ("Parent Slice: NONE", "Parent Slice: 1"),
+            ("Related Slice: 1", "Related Slice: 2"),
+            ("Task ID: FIX-TG-01", "Task ID: 1.2"),
+            ("Task Type: standalone-fix", "Task Type: new-feature"),
+        )
+        for before, after in changes:
+            with self.subTest(value=after):
+                self.edit("TASK.md", before, after)
+                with self.assertRaises(ValueError):
+                    governance.validate(self.root)
+                self.edit("TASK.md", after, before)
+
+    def test_standalone_requires_closed_related_slice(self):
+        self.standalone_fixture()
+        self.edit("SLICE.md", "Status: PASS / CLOSED", "Status: ACTIVE")
+        self.edit("docs/roadmap.md", "| PASS / CLOSED |", "| ACTIVE |")
+        self.commit()
+        with self.assertRaisesRegex(ValueError, "closed related Slice"):
+            governance.validate(self.root)
+
+    def test_standalone_cannot_rewrite_historical_closure(self):
+        self.standalone_fixture()
+        self.edit("SLICE.md", "Decision: PASS", "Decision: PASS\nChanged historical evidence.")
+        self.commit()
+        with self.assertRaisesRegex(ValueError, "rewrite the closed Slice"):
+            governance.validate(self.root)
+
+    def test_standalone_review_requires_head_and_independent_pass(self):
+        _, checkpoint = self.standalone_fixture()
+        self.edit("TASK.md", "Status: IN PROGRESS", "Status: READY FOR B REVIEW")
+        with self.assertRaisesRegex(ValueError, "implementation SHA"):
+            governance.validate(self.root)
+        self.edit("TASK.md", "Implementation Head: NOT SET", "Implementation Head: " + checkpoint)
+        self.edit("TASK.md", "Status: READY FOR B REVIEW", "Status: PASS")
+        with self.assertRaisesRegex(ValueError, "independent B PASS"):
+            governance.validate(self.root)
+        self.edit("TASK.md", "Independent B Review: PENDING", "Independent B Review: PASS")
+        self.edit("TASK.md", "# Task FIX-TG-01", "# NO ACTIVE IMPLEMENTATION TASK")
+        self.assertIn("committed standalone repair", governance.validate(self.root))
+
+    def test_legacy_child_task_still_rejected_under_closed_slice(self):
+        self.standalone_fixture()
+        (self.root / "TASK.md").write_text("# Task 1.2\nParent Slice: 1\nStatus: PLANNED\n")
+        with self.assertRaisesRegex(ValueError, "Closed Slice requires A PASS"):
             governance.validate(self.root)
