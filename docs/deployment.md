@@ -103,7 +103,9 @@ SIGINT／SIGTERM 取消当前轮并以非零退出，不提交不完整轮、缺
 `sync` 与 `sync --dry-run` 不调度，因此 `sync.interval_minutes: 0` 仍是合法配置；
 `serve` 在任何输出／数据库动作前拒绝零、负数或分钟到 `time.Duration` 溢出的间隔。
 
-`deploy/compose.yaml` 用 Compose 透传声明 `OPENLIST_TOKEN:` 注入 token。注意：
+`deploy/compose.yaml` 用 Compose 透传声明 `OPENLIST_TOKEN:` 注入 token；可选的
+Telegram 通知凭证（`TELEGRAM_BOT_TOKEN:`／`TELEGRAM_CHAT_ID:`）使用同一无值透传模式。
+注意：
 带宿主值的普通 `docker compose config` 会解析并打印该值
 （这是 `environment:` 注入的既有行为），因此**不要**把普通 `config` 输出写进日志或
 证据；需要脱敏渲染时使用 `docker compose config --no-interpolate`，它只输出
@@ -118,7 +120,9 @@ SIGINT／SIGTERM 取消当前轮并以非零退出，不提交不完整轮、缺
 - **sidecar**：`-wal`／`-shm`／`-journal` 由 SQLite 管理，进程仍可能运行时不得手工
   删除。
 - **临时写**：`/tmp` 为容器私有 tmpfs，不承载持久状态；同目录 `.strmgen-*.tmp`
-  与 `.strmgen-ro-*` 残留按既有规则核实，不盲目批量清理。
+  与 `.strmgen-ro-*` 残留按既有规则核实，不盲目批量清理。启用 Telegram 通知时，
+  每轮附件写在系统临时目录的私有子目录（0700／0600）中，轮结束即清理，不进入
+  `/output` 与 `/state`。
 - **正常停止**：SIGTERM 后 `serve` 返回非零 cancelled 并释放 flock；重启或手动
   `sync` 按 Slice 1／2 的恢复与最终一致性收敛。
 - **强制 kill／宿主断电**：沿用现有文件／DB 恢复规则；不承诺跨文件事务，不自动

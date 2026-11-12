@@ -35,6 +35,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
+from telegram_receiver import TelegramReceiver, notify_temp_dirs, telegram_env  # noqa: E402
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
 ALL_SCENARIOS = [
@@ -45,6 +46,7 @@ ALL_SCENARIOS = [
     "serve_cancel",
     "serve_redaction",
     "serve_custom_extensions",
+    "serve_notifications",
 ]
 
 _LIVE_HARNESSES = []
@@ -158,7 +160,7 @@ class Harness:
             self._server = None
 
     def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4,
-               interval_minutes=60, media_extensions=None):
+               interval_minutes=60, media_extensions=None, notifications=None):
         lines = [
             "openlist:",
             f'  api_url: "{api_url}"',
@@ -179,6 +181,14 @@ class Harness:
         lines.append("  enabled: false")
         lines.append("database:")
         lines.append(f'  path: "{db}"')
+        if notifications is not None:
+            lines.append("notifications:")
+            lines.append("  telegram:")
+            lines.append("    enabled: true")
+            if notifications.get("instance_name") is not None:
+                lines.append(f"    instance_name: \"{notifications['instance_name']}\"")
+            if notifications.get("policy") is not None:
+                lines.append(f"    policy: \"{notifications['policy']}\"")
         path = self.workdir / f"{name}.yaml"
         path.write_text("\n".join(lines) + "\n")
         return path
@@ -544,6 +554,109 @@ def scenario_serve_custom_extensions(h, results):
     results["serve_custom_extensions"]["restart_exit"] = restart_code
 
 
+def scenario_serve_notifications(h, results):
+    """Notification lifecycle over the long-running serve entry point.
+
+    Covers: busy-skip silence, one aggregated summary per serve tick, the
+    unchanged tick, the deterministic failure tick and recovery, plus
+    temporary directory cleanup. The next line stays under the product's own
+    scheduling control: the send happens before the wrapper returns, so the
+    interval is measured after the send without re-entry or backlog.
+    """
+    receiver = TelegramReceiver()
+    before_dirs = notify_temp_dirs()
+    try:
+        entered = threading.Event()
+        release = threading.Event()
+        fail = {"on": False}
+
+        def before(endpoint, path, request):
+            if endpoint.endswith("/list") and path == "/Movies" and not entered.is_set():
+                entered.set()
+                release.wait(timeout=30)
+
+        def override(endpoint, path, request, directories):
+            if fail["on"] and endpoint.endswith("/list") and path == "/Movies":
+                return (503, 500, None)
+            return None
+
+        api, dirs = h.server(hooks={"before": before, "override": override})
+        root = h.workdir / "out"
+        db = h.workdir / "data" / "strmgen.db"
+        cfg = h.config("serve-notify", api, [("/Movies", root)], db, interval_minutes=60,
+                       notifications={"instance_name": "家庭媒体", "policy": "all"})
+        env = {**telegram_env(receiver), "STRMGEN_TEST_SERVE_INTERVAL_MS": "1500"}
+
+        # Phase A: a holder sync blocks at the API barrier; the serve tick must
+        # report busy-skip without sending anything.
+        # The holder must use the testhooks binary: only that build honours the
+        # API-base override and can reach the local receiver.
+        holder = subprocess.Popen([str(h.fault_binary or h.binary), "sync", "--config", str(cfg)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                  env={**os.environ, "OPENLIST_TOKEN": TOKEN,
+                                       "STRMGEN_TEST_TELEGRAM_API_BASE": receiver.url,
+                                       "TELEGRAM_BOT_TOKEN": "integration-token",
+                                       "TELEGRAM_CHAT_ID": "-10042"})
+        h.processes.append(holder)
+        check(entered.wait(timeout=20), "holder never reached the API barrier")
+        stdout_path = h.workdir / "serve.out"
+        stderr_path = h.workdir / "serve.err"
+        serve = h.start_serve(cfg, extra_env=env, stdout_path=stdout_path, stderr_path=stderr_path)
+        check(wait_for(lambda: count_serve_results(stdout_path, "busy-skip") >= 1, 20,
+                       "no busy-skip summary"), f"busy-skip missing: {read_lines(stdout_path)}")
+        check(receiver.count() == 0, "a busy-skip tick must not send anything")
+
+        # Phase B: release the holder; the holder sync sends its own summary.
+        release.set()
+        holder_out, holder_err = holder.communicate(timeout=60)
+        check(holder.returncode == 0, f"holder sync failed: {holder.returncode} {holder_err}")
+        check(wait_for(lambda: receiver.count() == 1, 30, "holder summary missing"),
+              f"holder messages: {receiver.count()}")
+        first = receiver.messages()[0]
+        check("运行方式：sync" in first["text"], f"holder body:\n{first['text']}")
+        check("新增 4" in first["text"], f"holder counts:\n{first['text']}")
+
+        # Phase C: the next serve tick succeeds unchanged and sends exactly one
+        # serve summary without change events.
+        check(wait_for(lambda: receiver.count() == 2, 30, "serve round message missing"),
+              f"serve messages: {receiver.count()}")
+        second = receiver.messages()[1]
+        check("运行方式：serve" in second["text"], f"serve body:\n{second['text']}")
+        check("本轮无新增、更新、删除或归属回收事件" in second["text"],
+              f"unchanged serve tick:\n{second['text']}")
+        check(count_serve_results(stdout_path, "success") >= 1, "serve result line missing")
+        check(any("next=" in line for line in read_lines(stdout_path)),
+              "the next scheduled line must stay intact")
+
+        # Phase D: a deterministic failure tick sends exactly one failure
+        # summary and the scheduler keeps running.
+        fail["on"] = True
+        check(wait_for(lambda: count_serve_results(stdout_path, "failure") >= 1, 30,
+                       "no failure round"), f"failure tick missing: {read_lines(stdout_path)}")
+        check(wait_for(lambda: receiver.count() == 3, 30, "failure message missing"),
+              f"failure messages: {receiver.count()}")
+        third = receiver.messages()[2]
+        check("未完成" in third["text"], f"failure body:\n{third['text']}")
+        fail["on"] = False
+
+        # Phase E: the next tick recovers and sends again; SIGTERM then stops
+        # serve without extra notifications beyond the recovered round.
+        check(wait_for(lambda: receiver.count() == 4, 30, "post-failure message missing"),
+              f"post-failure messages: {receiver.count()}")
+        code, _, _ = stop_serve(serve)
+        check(code != 0, f"cancelled serve must be non-zero, got {code}")
+        check(notify_temp_dirs() - before_dirs == set(), "serve left temporary files")
+    finally:
+        receiver.close()
+    results["serve_notifications"] = {
+        "busy_skip_silent": True,
+        "serve_summaries": True,
+        "failure_summary": True,
+        "recovery_summary": True,
+        "temp_cleanup_verified": True,
+    }
+
+
 SCENARIOS = {
     "serve_release_first_round": scenario_serve_release_first_round,
     "serve_interval_and_skip": scenario_serve_interval_and_skip,
@@ -552,6 +665,7 @@ SCENARIOS = {
     "serve_cancel": scenario_serve_cancel,
     "serve_redaction": scenario_serve_redaction,
     "serve_custom_extensions": scenario_serve_custom_extensions,
+    "serve_notifications": scenario_serve_notifications,
 }
 
 

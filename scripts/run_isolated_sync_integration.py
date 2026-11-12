@@ -31,6 +31,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
+from telegram_receiver import TelegramReceiver, notify_temp_dirs, telegram_env  # noqa: E402
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
 # A valid version-1 STRM that is not owned by the generator. Used to prove that
@@ -51,6 +52,8 @@ ALL_SCENARIOS = [
     "mirror_cleanup",
     "mirror_recovery",
     "custom_extensions",
+    "notifications",
+    "notifications_cleanup",
 ]
 
 # Every Harness registers here so a failing scenario cannot leak a locked or
@@ -117,7 +120,7 @@ class Harness:
             self._server = None
 
     def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4, cleanup=False,
-               mirror=None, missing_confirmations=None, media_extensions=None):
+               mirror=None, missing_confirmations=None, media_extensions=None, notifications=None):
         lines = [
             "openlist:",
             f'  api_url: "{api_url}"',
@@ -143,6 +146,14 @@ class Harness:
             lines.append(f"  missing_confirmations: {missing_confirmations}")
         lines.append("database:")
         lines.append(f'  path: "{db}"')
+        if notifications is not None:
+            lines.append("notifications:")
+            lines.append("  telegram:")
+            lines.append(f"    enabled: {'true' if notifications.get('enabled', True) else 'false'}")
+            if notifications.get("instance_name") is not None:
+                lines.append(f"    instance_name: \"{notifications['instance_name']}\"")
+            if notifications.get("policy") is not None:
+                lines.append(f"    policy: \"{notifications['policy']}\"")
         path = self.workdir / f"{name}.yaml"
         path.write_text("\n".join(lines) + "\n")
         return path
@@ -2761,6 +2772,267 @@ def scenario_custom_extensions(h, results):
     results["custom_extensions"] = observed
 
 
+
+def scenario_notifications(h, results):
+    """Notification side-channel contract from the real sync entry point.
+
+    Covers: off-by-default compatibility, one summary per round, unchanged
+    rounds, dry-run silence, missing credentials, the three policies, the
+    attachment beyond the preview limit, credential redaction, temporary
+    directory cleanup and the STRM/SQLite equivalence with a notification-off
+    baseline run.
+
+    The transport endpoint override lives only in the strmgen_testhooks build,
+    so every notification run must use the fault binary.
+    """
+    check(h.fault_binary is not None,
+          "notification scenarios require --fault-binary (testhooks build)")
+    receiver = TelegramReceiver()
+    before_dirs = notify_temp_dirs()
+    try:
+        # Baseline without notifications: the reference STRM/DB/exit facts.
+        api, dirs = h.server()
+        base_root = h.workdir / "out-base"
+        base_db = h.workdir / "data-base" / "strmgen.db"
+        base_cfg = h.config("notify-base", api, [("/Movies", base_root)], base_db)
+        check(h.run(base_cfg, binary=h.fault_binary).returncode == 0, "baseline sync failed")
+        baseline_files = snapshot(base_root)
+        baseline_state = read_db(base_db)
+
+        # Enabled run (policy all): exactly one summary, no attachment, and the
+        # same STRM/SQLite/exit facts as the baseline.
+        root = h.workdir / "out"
+        db = h.workdir / "data" / "strmgen.db"
+        cfg = h.config("notify", api, [("/Movies", root)], db,
+                       notifications={"instance_name": "家庭媒体", "policy": "all"})
+        first = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(first.returncode == 0, f"notification sync exit {first.returncode}: {first.stderr}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"messages = {len(messages)}, want exactly one per round")
+        body = messages[0]["text"]
+        check("家庭媒体 STRM 同步报告" in body, f"instance header missing:\n{body}")
+        check("运行方式：sync" in body, f"run mode missing:\n{body}")
+        check("新增 4" in body, f"created count missing:\n{body}")
+        check("结果：成功" in body, f"result missing:\n{body}")
+        check("来源总数：1（完成 1 / 未完成 0）" in body, f"source line:\n{body}")
+        check(receiver.documents() == [], "a fitting round must not upload an attachment")
+        # Two separate runs naturally carry different wall-clock mtimes; the
+        # equivalence contract compares the actual bytes.
+        content = {rel: sha for rel, (sha, _) in snapshot(root).items()}
+        baseline_content = {rel: sha for rel, (sha, _) in baseline_files.items()}
+        check(content == baseline_content, "notifications changed STRM bytes")
+        state = read_db(db)
+        # Absolute paths and source identity legitimately differ between the
+        # two roots; the equivalence contract compares relative paths, missing
+        # counts and round epochs.
+        check([(row[1], row[3]) for row in state["ownership"]] ==
+              [(row[1], row[3]) for row in baseline_state["ownership"]],
+              "notifications changed ownership rows")
+        check([row[1] for row in state["rounds"]] == [row[1] for row in baseline_state["rounds"]],
+              "notifications changed rounds")
+        # Redaction: no token, chat id, API URL or OpenList fixture token.
+        for secret in ("integration-token", "-10042", api, TOKEN):
+            check(secret not in body, f"summary leaks {secret!r}")
+
+        # An unchanged second round still sends under policy all, without an
+        # attachment and without change events.
+        receiver.requests.clear()
+        second = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(second.returncode == 0, f"second sync exit {second.returncode}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"second round messages = {len(messages)}")
+        check("本轮无新增、更新、删除或归属回收事件" in messages[0]["text"],
+              f"second round body:\n{messages[0]['text']}")
+        check(receiver.documents() == [], "an unchanged round must not upload an attachment")
+
+        # dry-run validates the configuration but never sends or reads
+        # credentials (no TELEGRAM_* variables are set here).
+        receiver.requests.clear()
+        dry = h.run(cfg, dry_run=True, binary=h.fault_binary)
+        check(dry.returncode == 0, f"dry-run exit {dry.returncode}: {dry.stderr}")
+        check(receiver.count() == 0, "dry-run must not send anything")
+
+        # Missing credentials: redacted warning, sync proceeds, exit code 0,
+        # no request and no temporary notification directory left behind.
+        receiver.requests.clear()
+        env = {"TELEGRAM_BOT_TOKEN": "integration-token", "STRMGEN_TEST_TELEGRAM_API_BASE": receiver.url}
+        nochat = h.run(cfg, extra_env=env, binary=h.fault_binary)
+        check(nochat.returncode == 0, f"missing chat id must not fail the sync: {nochat.stderr}")
+        check("notifications are disabled for this process" in nochat.stderr,
+              f"warning missing: {nochat.stderr}")
+        check("integration-token" not in nochat.stderr, "warning echoes a credential")
+        check(receiver.count() == 0, "a credential-missing process must not send")
+        check(notify_temp_dirs() - before_dirs == set(), "a disabled process left temporary files")
+
+        # Policy error: a successful round never sends; a failed round does.
+        receiver.requests.clear()
+        error_cfg = h.config("notify-error", api, [("/Movies", root)], db,
+                             notifications={"policy": "error"})
+        check(h.run(error_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary).returncode == 0,
+              "error-policy sync failed")
+        check(receiver.count() == 0, "a successful round must not send under the error policy")
+        h.stop_server()
+        failed = h.run(error_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(failed.returncode == 1, f"failed sync exit {failed.returncode}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"failure messages = {len(messages)}")
+        check("未完成" in messages[0]["text"], f"failure body:\n{messages[0]['text']}")
+        check("统计：不可用" not in messages[0]["text"],
+              "a source failure has a report; counts must not be unavailable")
+        check(api not in messages[0]["text"], "failure summary leaks the API URL")
+
+        # Policy change_or_error on a fresh source identity: the seeding round
+        # carries a change and sends; an unchanged round stays silent; a hash
+        # change triggers exactly one send.
+        api2, dirs2 = h.server()
+        change_root = h.workdir / "out-change"
+        change_db = h.workdir / "data-change" / "strmgen.db"
+        change_cfg = h.config("notify-change", api2, [("/Movies", change_root)], change_db,
+                              notifications={"policy": "change_or_error"})
+        receiver.requests.clear()
+        seed = h.run(change_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(seed.returncode == 0, f"change_or_error seed round failed: {seed.stderr}")
+        check(receiver.count() == 1, f"the change seed round must send (requests={receiver.count()})")
+        receiver.requests.clear()
+        quiet = h.run(change_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(quiet.returncode == 0, f"change_or_error quiet round failed: {quiet.stderr}")
+        check(receiver.count() == 0, "an unchanged round must not send under change_or_error")
+        sample = next(entry for entry in dirs2["/Movies"] if entry["name"] == "Sample.mkv")
+        sample["hash_info"] = {"sha1": "cccccccccccccccccccccccccccccccccccccccc"}
+        changed = h.run(change_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(changed.returncode == 0, f"change round failed: {changed.stderr}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"change messages = {len(messages)}")
+        check("更新 1" in messages[0]["text"], f"change body:\n{messages[0]['text']}")
+
+        # Attachment: 30 files overflow the 20-event preview; the round sends
+        # one summary plus one bounded document carrying every event.
+        receiver.requests.clear()
+        big_dirs = {"/Movies": [
+            {"name": f"F{i:02d}.mkv", "is_dir": False, "size": 10,
+             "hash_info": {"sha1": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} for i in range(30)]}
+        big_api, _ = h.server(directories=big_dirs)
+        big_root = h.workdir / "out-big"
+        big_db = h.workdir / "data-big" / "strmgen.db"
+        big_cfg = h.config("notify-big", big_api, [("/Movies", big_root)], big_db,
+                           notifications={"instance_name": "家庭媒体", "policy": "all"})
+        big = h.run(big_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(big.returncode == 0, f"big sync exit {big.returncode}: {big.stderr}")
+        check(len(receiver.messages()) == 1, "the big round sends exactly one summary")
+        docs = receiver.documents()
+        check(len(docs) == 1, f"documents = {len(docs)}, want exactly one listing")
+        listing = docs[0]["document"]
+        check(docs[0]["chat_id"] == "-10042", f"document chat = {docs[0]['chat_id']!r}")
+        check("事件总数: 30" in listing, f"listing trailer missing:\n{listing[:400]}")
+        check("STRM 同步事件清单" in listing, "listing header missing")
+        for i in range(30):
+            check(f"来源 0 新增 F{i:02d}.strm" in listing, f"listing misses F{i:02d}.strm")
+        check("清单不完整" not in listing, "a 30-event round must fit the size cap")
+
+        # Temporary artifacts are cleaned up on every normal path.
+        check(notify_temp_dirs() - before_dirs == set(), "a completed round left temporary files")
+    finally:
+        receiver.close()
+    results["notifications"] = {
+        "baseline_files": len(baseline_files),
+        "messages_observed": True,
+        "attachment_verified": True,
+        "policy_error_verified": True,
+        "policy_change_or_error_verified": True,
+        "dry_run_silent": True,
+        "temp_cleanup_verified": True,
+    }
+
+
+def scenario_notifications_cleanup(h, results):
+    """Committed missing-count progress and deletion facts from the real CLI.
+
+    Covers: 0->1->2->3 advances with committed counts and thresholds, the
+    deletion at threshold with the pre-deletion count, and the restore-clear
+    (N -> 0) window, all against the live SQLite state.
+    """
+    receiver = TelegramReceiver()
+    before_dirs = notify_temp_dirs()
+    try:
+        dirs = {"/Movies": [
+            {"name": "A.mkv", "is_dir": False, "size": 10,
+             "hash_info": {"sha1": "dddddddddddddddddddddddddddddddddddddddd"}},
+            {"name": "B.mkv", "is_dir": False, "size": 10,
+             "hash_info": {"sha1": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}},
+        ]}
+        api, _ = h.server(directories=dirs)
+        root = h.workdir / "out"
+        db = h.workdir / "data" / "strmgen.db"
+        cfg = h.config("notify-cleanup", api, [("/Movies", root)], db, cleanup=True,
+                       missing_confirmations=3,
+                       notifications={"instance_name": "家庭媒体", "policy": "all"})
+        seed = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(seed.returncode == 0, f"seed exit {seed.returncode}: {seed.stderr}")
+        check(receiver.count() == 1, f"seed messages = {receiver.count()}")
+
+        # Both remote files become unobservable: full successful rounds advance
+        # the committed count once per round, never more.
+        dirs["/Movies"] = []
+        for round_index in range(1, 4):
+            receiver.requests.clear()
+            run = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+            check(run.returncode == 0, f"round {round_index} exit {run.returncode}: {run.stderr}")
+            body = receiver.messages()[0]["text"]
+            check(f"A.strm（计数 {round_index - 1}→{round_index}/阈值 3）" in body,
+                  f"round {round_index} A advance missing:\n{body}")
+            check(f"B.strm（计数 {round_index - 1}→{round_index}/阈值 3）" in body,
+                  f"round {round_index} B advance missing:\n{body}")
+            check("实际删除 1" not in body, "round three must not delete yet")
+            details = ownership_details(db)
+            # missing_round stores the committing epoch (the seed round was
+            # epoch 1), so only the count is compared per round index.
+            check(details["A.strm"][0] == round_index,
+                  f"round {round_index} A count: {details['A.strm']}")
+            check(details["B.strm"][0] == round_index,
+                  f"round {round_index} B count: {details['B.strm']}")
+
+        # The third round reached the threshold but must not delete; a fourth
+        # round re-checks, deletes A and clears the restored B (3 -> 0) in the
+        # deletion re-check window.
+        receiver.requests.clear()
+        dirs["/Movies"] = [
+            {"name": "B.mkv", "is_dir": False, "size": 10,
+             "hash_info": {"sha1": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}]
+        fourth = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(fourth.returncode == 0, f"fourth round exit {fourth.returncode}: {fourth.stderr}")
+        body = receiver.messages()[0]["text"]
+        check("实际删除 来源 0 A.strm（删除前计数 3/阈值 3）" in body,
+              f"deletion event missing:\n{body}")
+        check("取消待删除 来源 0 B.strm（计数 3→0/阈值 3）" in body,
+              f"restore clear missing:\n{body}")
+        check("实际删除 1" in body, f"deletion summary:\n{body}")
+        check(not (root / "A.strm").exists(), "A.strm was not deleted")
+        check((root / "B.strm").exists(), "B.strm must be kept after the restore")
+        details = ownership_details(db)
+        check("A.strm" not in details, "A.strm ownership row was not removed")
+        check(details["B.strm"][0] == 0, f"restore count: {details['B.strm']}")
+        check(notify_temp_dirs() - before_dirs == set(), "a completed round left temporary files")
+    finally:
+        receiver.close()
+    results["notifications_cleanup"] = {
+        "advance_rounds": 3,
+        "deletion_verified": True,
+        "restore_clear_verified": True,
+    }
+
+
+def validate_output_dir(output_dir):
+    resolved = output_dir.resolve()
+    evidence = (ROOT / "artifacts" / "validation-evidence").resolve()
+    if resolved.is_relative_to(ROOT) and not resolved.is_relative_to(evidence):
+        raise SystemExit(f"refusing to write outside {evidence}: {resolved}")
+    if resolved.exists() and any(resolved.iterdir()):
+        raise SystemExit(f"refusing to reuse a non-empty output directory: {resolved}")
+    resolved.mkdir(parents=True, exist_ok=True)
+    return resolved
+
+
+
 SCENARIOS = {
     "first_generation": scenario_first_generation,
     "repeat_and_compare": scenario_repeat_and_compare,
@@ -2774,18 +3046,10 @@ SCENARIOS = {
     "mirror_cleanup": scenario_mirror_cleanup,
     "mirror_recovery": scenario_mirror_recovery,
     "custom_extensions": scenario_custom_extensions,
+    "notifications": scenario_notifications,
+    "notifications_cleanup": scenario_notifications_cleanup,
 }
 
-
-def validate_output_dir(output_dir):
-    resolved = output_dir.resolve()
-    evidence = (ROOT / "artifacts" / "validation-evidence").resolve()
-    if resolved.is_relative_to(ROOT) and not resolved.is_relative_to(evidence):
-        raise SystemExit(f"refusing to write outside {evidence}: {resolved}")
-    if resolved.exists() and any(resolved.iterdir()):
-        raise SystemExit(f"refusing to reuse a non-empty output directory: {resolved}")
-    resolved.mkdir(parents=True, exist_ok=True)
-    return resolved
 
 
 def main():

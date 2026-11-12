@@ -9,6 +9,22 @@ import (
 	"time"
 )
 
+// stageMissing stages one pending missing observation for a test round.
+func stageMissing(t *testing.T, ctx context.Context, s *Store, sourceKey, rel string) {
+	t.Helper()
+	if err := s.AddPendingMissing(ctx, sourceKey, []PendingMissingEntry{{RelativePath: rel, Reason: MissingReasonSourceTarget}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// commitRound commits one test round and fails the test on an error.
+func commitRound(t *testing.T, ctx context.Context, s *Store, sourceKey string, epoch int64, at time.Time) {
+	t.Helper()
+	if _, err := s.CommitRound(ctx, sourceKey, epoch, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const legacySchema = `
 CREATE TABLE ownership (
 	source_key     TEXT    NOT NULL,
@@ -177,41 +193,25 @@ func TestMissingCountsCommitAtMostOncePerEpoch(t *testing.T) {
 	if err := s.ResetRound(ctx, "source"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddPendingMissing(ctx, "source", []string{"A.strm"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0)); err != nil {
-		t.Fatal(err)
-	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	commitRound(t, ctx, s, "source", 1, time.Unix(0, 0))
 	if got := count(); got != 1 {
 		t.Fatalf("count after first epoch = %d, want 1", got)
 	}
 	// A repeated commit of the same epoch must not count twice.
-	if err := s.AddPendingMissing(ctx, "source", []string{"A.strm"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CommitRound(ctx, "source", 1, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	commitRound(t, ctx, s, "source", 1, time.Unix(1, 0))
 	if got := count(); got != 1 {
 		t.Fatalf("duplicate epoch counted again: %d", got)
 	}
 	// A stale commit can never overwrite the newer round or count again.
-	if err := s.AddPendingMissing(ctx, "source", []string{"A.strm"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CommitRound(ctx, "source", 2, time.Unix(2, 0)); err != nil {
-		t.Fatal(err)
-	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	commitRound(t, ctx, s, "source", 2, time.Unix(2, 0))
 	if got := count(); got != 2 {
 		t.Fatalf("second epoch count = %d, want 2", got)
 	}
-	if err := s.AddPendingMissing(ctx, "source", []string{"A.strm"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CommitRound(ctx, "source", 1, time.Unix(3, 0)); err != nil {
-		t.Fatal(err)
-	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	commitRound(t, ctx, s, "source", 1, time.Unix(3, 0))
 	if got := count(); got != 2 {
 		t.Fatalf("stale epoch changed the count: %d", got)
 	}
@@ -233,12 +233,8 @@ func TestMissingCountOverflowNeverWraps(t *testing.T) {
 		 VALUES ('source', 'A.strm', '/out/A.strm', '/remote/A.mkv', 1, ?, 0)`, maxInt64); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddPendingMissing(ctx, "source", []string{"A.strm"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0)); err != nil {
-		t.Fatal(err)
-	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	commitRound(t, ctx, s, "source", 1, time.Unix(0, 0))
 	o, _, err := s.Lookup("source", "A.strm")
 	if err != nil {
 		t.Fatal(err)
@@ -308,10 +304,10 @@ func TestReadOnlyLegacyDatabaseCannotUseCleanup(t *testing.T) {
 	if err != nil || len(eligible) != 0 {
 		t.Fatalf("legacy read-only candidate: %v %v", eligible, err)
 	}
-	if err := ro.ClearMissing(context.Background(), "source", "A.strm"); err == nil {
+	if _, err := ro.ClearMissing(context.Background(), "source", "A.strm"); err == nil {
 		t.Fatal("read-only store must refuse a count change")
 	}
-	if err := ro.CommitRound(context.Background(), "source", 4, time.Now()); err == nil {
+	if _, err := ro.CommitRound(context.Background(), "source", 4, time.Now()); err == nil {
 		t.Fatal("read-only store must refuse a round commit")
 	}
 }
@@ -336,5 +332,135 @@ func TestReadOnlyRejectsUnknownColumns(t *testing.T) {
 	db.Close()
 	if _, err := OpenReadOnly(path); err == nil {
 		t.Fatal("a newer schema must be rejected")
+	}
+}
+
+func TestCommitRoundReportsCommittedAdvances(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "A.strm", AbsolutePath: "/out/A.strm", RemotePath: "/remote/A.mkv",
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "B.strm", AbsolutePath: "/out/B.strm", RemotePath: "/remote/B.mkv",
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	if err := s.AddPendingMissing(ctx, "source", []PendingMissingEntry{
+		{RelativePath: "B.strm", Reason: MissingReasonExcludedExtension},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Committed {
+		t.Fatal("committed round must report the commit fact")
+	}
+	if len(result.Advances) != 2 {
+		t.Fatalf("advances: %+v", result.Advances)
+	}
+	want := map[string]MissingAdvance{
+		"A.strm": {RelativePath: "A.strm", PriorCount: 0, NewCount: 1, Reason: MissingReasonSourceTarget},
+		"B.strm": {RelativePath: "B.strm", PriorCount: 0, NewCount: 1, Reason: MissingReasonExcludedExtension},
+	}
+	for _, got := range result.Advances {
+		if want[got.RelativePath] != got {
+			t.Fatalf("advance mismatch: got %+v want %+v", got, want[got.RelativePath])
+		}
+	}
+	// A repeated commit of the same epoch reports no new advances.
+	stageMissing(t, ctx, s, "source", "A.strm")
+	result, err = s.CommitRound(ctx, "source", 1, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Committed || len(result.Advances) != 0 {
+		t.Fatalf("duplicate epoch: committed=%v advances=%+v", result.Committed, result.Advances)
+	}
+}
+
+func TestCommitRoundReportsCommitWhenScratchCleanupFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "A.strm", AbsolutePath: "/out/A.strm", RemotePath: "/remote/A.mkv",
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	// Make the private workspace read-only after the pending rows are staged:
+	// the staged-batch read still works, the main transaction commits, and
+	// only the post-commit scratch cleanup fails.
+	if _, err := s.scratch.Exec(`PRAGMA query_only = true`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0))
+	if err == nil {
+		t.Fatal("scratch cleanup failure must be reported")
+	}
+	if !result.Committed {
+		t.Fatal("a failed scratch cleanup must not hide the committed round")
+	}
+	if len(result.Advances) != 1 || result.Advances[0].NewCount != 1 {
+		t.Fatalf("advances: %+v", result.Advances)
+	}
+	o, ok, err := s.Lookup("source", "A.strm")
+	if err != nil || !ok || o.MissingCount != 1 {
+		t.Fatalf("durable count: %+v ok=%v err=%v", o, ok, err)
+	}
+}
+
+func TestClearMissingReportsPriorCommittedCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "A.strm", AbsolutePath: "/out/A.strm", RemotePath: "/remote/A.mkv",
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// A row without committed evidence reports the row with a zero count.
+	cleared, err := s.ClearMissing(ctx, "source", "A.strm")
+	if err != nil || !cleared.RowFound || cleared.PriorMissing != 0 {
+		t.Fatalf("clear result: %+v err=%v", cleared, err)
+	}
+	if _, err := s.db.Exec(
+		`UPDATE ownership SET missing_count = 2, missing_round = 1 WHERE source_key = 'source' AND relative_path = 'A.strm'`); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err = s.ClearMissing(ctx, "source", "A.strm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cleared.RowFound || cleared.PriorMissing != 2 {
+		t.Fatalf("clear result: %+v", cleared)
+	}
+	o, ok, err := s.Lookup("source", "A.strm")
+	if err != nil || !ok || o.MissingCount != 0 || o.MissingRound != 0 {
+		t.Fatalf("row after clear: %+v ok=%v err=%v", o, ok, err)
+	}
+	// A missing row reports not-found.
+	cleared, err = s.ClearMissing(ctx, "source", "C.strm")
+	if err != nil || cleared.RowFound || cleared.PriorMissing != 0 {
+		t.Fatalf("clear result for absent row: %+v err=%v", cleared, err)
 	}
 }

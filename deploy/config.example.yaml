@@ -49,3 +49,16 @@ database:
   # Must stay on the persistent /state mount so ownership and rounds survive a
   # container restart. Never place it inside /output.
   path: "/state/strmgen.db"
+
+# Optional Telegram round notifications, disabled by default. An omitted block
+# keeps historical behavior. Credentials come only from the host environment
+# (passed through with value-less entries in compose.yaml); the config file
+# never stores a token. Round summaries and attachments never contain the
+# token, the chat id, media URLs or private absolute paths.
+notifications:
+  telegram:
+    enabled: false
+    instance_name: "STRM Generator"
+    bot_token_env: "TELEGRAM_BOT_TOKEN"
+    chat_id_env: "TELEGRAM_CHAT_ID"
+    policy: "all"

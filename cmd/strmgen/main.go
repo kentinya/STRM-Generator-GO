@@ -16,12 +16,51 @@ import (
 	"time"
 
 	"strm-generator-go/internal/config"
+	"strm-generator-go/internal/notify"
 	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/reconciler"
 	"strm-generator-go/internal/scheduler"
 	"strm-generator-go/internal/storage"
 )
+
+// factSinkAdapter forwards reconciler facts to the notify collector without
+// coupling the reconciler or the collector to each other.
+type factSinkAdapter struct {
+	collector *notify.Collector
+}
+
+func (a factSinkAdapter) Record(fact reconciler.Fact) {
+	a.collector.Record(notify.Event{
+		SourceIndex:  fact.SourceIndex,
+		Kind:         notifyEventKind(fact.Kind),
+		RelativePath: fact.RelativePath,
+		PriorCount:   fact.PriorCount,
+		NewCount:     fact.NewCount,
+		Reason:       fact.Reason,
+	})
+}
+
+// notifyEventKind maps the reconciler fact vocabulary onto the notify event
+// vocabulary. The two packages stay independent by design.
+func notifyEventKind(kind reconciler.FactKind) notify.Kind {
+	switch kind {
+	case reconciler.FactCreated:
+		return notify.KindCreated
+	case reconciler.FactUpdated:
+		return notify.KindUpdated
+	case reconciler.FactDeleted:
+		return notify.KindDeleted
+	case reconciler.FactReclaimed:
+		return notify.KindReclaimed
+	case reconciler.FactMissingCleared:
+		return notify.KindMissingCleared
+	case reconciler.FactMissingAdvanced:
+		return notify.KindMissingAdvanced
+	default:
+		return ""
+	}
+}
 
 // Exit codes are part of the CLI contract.
 const (
@@ -92,6 +131,9 @@ type roundDeps struct {
 	// set for every tick, so editing the configuration file never changes a
 	// running process; a restart is required.
 	media *pathmap.MediaSet
+	// facts is the optional per-round notification fact sink. A nil value
+	// collects nothing and changes no behavior.
+	facts reconciler.FactSink
 }
 
 // runRound executes exactly one synchronization round through the shared
@@ -152,6 +194,7 @@ func runRound(ctx context.Context, deps roundDeps, first bool) (*reconciler.Repo
 		CleanupEnabled:       deps.resolved.CleanupEnabled,
 		MissingConfirmations: deps.resolved.MissingConfirmations,
 		MediaExtensions:      deps.media,
+		Facts:                deps.facts,
 	})
 
 	report, runErr := syncer.Run(ctx, sources)
@@ -197,11 +240,28 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "configuration error: configured token environment variable is not set")
 		return exitUsage
 	}
+	// dry-run validates the notification configuration structure but never
+	// reads the notification credentials, never creates a temporary listing
+	// and never sends anything.
+	notifications := setupNotifications(resolved, *dryRun, stderr)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	report, result := runRound(ctx, roundDeps{resolved: resolved, dryRun: *dryRun, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved)}, true)
+	started := time.Now()
+	var collector *notify.Collector
+	if notifications.enabled {
+		collector = notifications.newCollector("sync")
+	}
+	deps := roundDeps{resolved: resolved, dryRun: *dryRun, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved)}
+	if collector != nil {
+		deps.facts = factSinkAdapter{collector}
+	}
+	report, result := runRound(ctx, deps, true)
+	syncDuration := time.Since(started)
+	// The round wrapper released the lock, output roots and database before
+	// returning; the network send runs strictly outside those resources.
+	notifications.sendRound(ctx, "sync", started, syncDuration, report, result, collector)
 	if report != nil {
 		printReport(stdout, stderr, report, *dryRun)
 	}
@@ -258,6 +318,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "configuration error: configured token environment variable is not set")
 		return exitUsage
 	}
+	notifications := setupNotifications(resolved, false, stderr)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -266,8 +327,21 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var lastReport *reconciler.Report
 	round := func(roundCtx context.Context, first bool) scheduler.Result {
 		lastReport = nil
+		// The detail listing is created per round and cleaned up before the
+		// wrapper returns. The notification is sent here, before the scheduler
+		// computes the next wait, so a slow send delays the next tick instead
+		// of re-entering or queueing. The sync duration itself is measured
+		// before the send and never includes it.
+		started := time.Now()
+		collector := notifications.newCollector("serve")
+		if collector != nil {
+			deps.facts = factSinkAdapter{collector}
+		}
 		report, result := runRound(roundCtx, deps, first)
 		lastReport = report
+		syncDuration := time.Since(started)
+		notifications.sendRound(roundCtx, "serve", started, syncDuration, report, result, collector)
+		deps.facts = nil
 		return result
 	}
 	interval := serveIntervalOverride(resolved.Interval)

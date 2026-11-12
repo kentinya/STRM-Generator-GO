@@ -33,9 +33,7 @@ func TestRecordLookupAndRound(t *testing.T) {
 	if err != nil || !ok || o.AbsolutePath != "/out/A.strm" {
 		t.Fatalf("lookup: %+v %v %v", o, ok, err)
 	}
-	if err := s.CommitRound(ctx, "/Movies", epoch, time.Unix(0, 0)); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
+	commitRound(t, ctx, s, "/Movies", epoch, time.Unix(0, 0))
 	next, err := s.NextEpoch("/Movies")
 	if err != nil || next != 2 {
 		t.Fatalf("next epoch = %d, %v", next, err)
@@ -173,7 +171,7 @@ func TestReadOnlyRejectsWrites(t *testing.T) {
 	if err := ro.RecordOwnership(context.Background(), Ownership{SourceKey: "/Movies", RelativePath: "A.strm", AbsolutePath: "/out/A.strm"}, 1); err == nil {
 		t.Fatal("read-only store must refuse writes")
 	}
-	if err := ro.CommitRound(context.Background(), "/Movies", 1, time.Now()); err == nil {
+	if _, err := ro.CommitRound(context.Background(), "/Movies", 1, time.Now()); err == nil {
 		t.Fatal("read-only store must refuse round commits")
 	}
 }

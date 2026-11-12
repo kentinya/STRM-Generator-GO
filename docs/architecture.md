@@ -2,9 +2,9 @@
 
 ## CURRENT
 
-当前实现支持 `sync`、`sync --dry-run`、定时 `serve` 和全局自定义媒体扩展名。
-V4.4 与 Slice 5 增量均已交付，Slice 1–5 PASS / CLOSED。
-Slice 6 的 Telegram 通知合同 ACTIVE，Task 6.1 已激活（IN PROGRESS），产品尚未实现；本页描述已交付架构。
+当前实现支持 `sync`、`sync --dry-run`、定时 `serve`、全局自定义媒体扩展名和可选的
+Telegram 运行通知（Task 6.1 本地实现，真实送达另行取证）。
+V4.4 与 Slice 5 增量均已交付，Slice 1–5 PASS / CLOSED；Slice 6 本地范围待独立审查。
 当前合同见 [SLICE](../SLICE.md)，已关闭结果、分层验收及未运行项见[路线图](roadmap.md)，
 完整合同与过程记录从[固定 Git 检查点](development-workflow.md#历史记录)查阅。
 本页维护模块职责与设计约束，业务规则统一见[需求](requirements.md)。
@@ -49,6 +49,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 | `internal/strm` | V1 解析、序列化与 URL → SHA-1 → Size 比较，保持纯函数 |
 | `internal/storage` | SQLite 最小归属、精确路径、成功轮次与缺失计数；不保存媒体指纹 |
 | `internal/reconciler` | 有界目录对账、归属／冲突、完整轮提交、清理资格，以及 LocalFS 发布／恢复／删除 |
+| `internal/notify` | 可选通知旁路：事实格式化、单个临时清单与官方 Bot API 传输；不依赖 reconciler／storage |
 | `internal/securepath` | Linux 目录句柄与相对操作，限制输出及数据库路径边界 |
 | `internal/scheduler` | 首轮立即执行、单 timer、busy-skip、失败后继续与取消；复用同一同步入口 |
 
@@ -73,6 +74,17 @@ STRM 是 URL／SHA-1／Size 的比较来源；SQLite 只保存归属和对账事
 或整轮取消不提交成功轮与新增缺失证据；出现观察可保守清零旧计数。
 删除只消费已提交阈值，并重核当前 Get、可靠归属、精确映射、输出边界与 regular STRM 类型。
 准确业务边界见[需求](requirements.md#完整轮与缺失确认)。
+
+## 通知旁路
+
+`internal/notify` 是可选旁路：`cmd/strmgen` 在启动时装配配置与凭证，把实现
+`reconciler.FactSink` 的适配器传入每轮同步；`reconciler`／`storage` 只提供结构化
+操作与提交事实（实际发布／更新／删除／归属回收、已提交缺失计数前后值及清零窗口），
+不依赖 Telegram。`internal/notify` 按发生顺序流式追加单个 0700 目录／0600 文件的
+临时清单，渲染中文摘要并经官方 HTTPS Bot API 在锁与本地资源释放后串行发送；
+一轮共享 30 秒预算、无重试、响应有界、拒绝重定向。收集或发送失败只降级通知，
+不改变文件操作、归属、计数、退出码与调度；临时产物在轮结束、失败与取消时尽力清理，
+不新增任何持久通知状态。
 
 ## 文件写入与恢复
 

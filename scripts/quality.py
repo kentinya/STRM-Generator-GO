@@ -41,6 +41,9 @@ def main():
                 raise ValueError("Go files need gofmt")
             run(["bash", "scripts/go-local", "vet", "./..."])
             run(["bash", "scripts/go-local", "test", "./..."])
+            # The notification CLI contract is only compiled with the
+            # strmgen_testhooks tag; the release build keeps the inert hook.
+            run(["bash", "scripts/go-local", "test", "-tags", "strmgen_testhooks", "./cmd/strmgen"])
             run(["bash", "scripts/go-local", "build", "./..."])
         else:
             print("NOT RUN: product Go build/test/vet (no product packages yet)")

@@ -19,6 +19,8 @@
 - **预览变更**：`--dry-run` 预览同步，不修改 STRM、原数据库、轮次或缺失计数。
 - **Mirror 清理**：默认关闭；启用后至少经过三次完整成功轮的缺失确认，并在删除前重新核对。
 - **文件保护与恢复**：只维护可靠归属的文件，支持原子写入、正常中断后重试和跨进程互斥。
+- **Telegram 通知**（可选，默认关闭）：每轮同步后发送一条中文摘要与可选事件清单附件；
+  失败只降级通知，不影响同步、退出码与调度。
 
 ## 🏗️ 工作原理
 
@@ -133,6 +135,7 @@ export OPENLIST_TOKEN='替换为你的 OpenList token'
 | `sync.media_extensions` | 生成哪些源文件扩展名；显式列表完整替换默认项 | 省略时用内置 11 项，见下节 |
 | `cleanup.enabled` | 是否清理已确认缺失的自有 STRM | `false` |
 | `cleanup.missing_confirmations` | 清理前所需的完整成功轮缺失次数 | `3`，最低 `3` |
+| `notifications.telegram.enabled` | 是否启用 Telegram 运行通知 | `false`；整段省略时行为与旧配置一致 |
 
 相对输出与数据库路径均按**进程启动工作目录**解析。`sync.atomic_write` 和
 `sync.skip_unchanged` 在示例中均为 `true`，当前实现要求保持开启。
@@ -167,6 +170,39 @@ sync:
 并经过删除前重核才会删除。把扩展名加回列表且源文件可读时，计数清零并保留文件；
 若已按阈值删除，后续同步会重新生成。清单只表示允许生成链接，不承诺对应格式能被
 Jellyfin 或插件播放。
+
+### Telegram 通知（可选）
+
+`notifications.telegram` 默认关闭；整段省略或 `enabled` 省略时行为与旧配置完全一致。
+启用后，普通 `sync`／`serve` 每轮聚合所有 source 只发送**一条**中文摘要；正文最多
+3500 个 UTF-16 code units、预览 20 条文件事件，装不下时附本轮单个 UTF-8 `.txt`
+清单（总大小上限 8 MiB，超限停止追加并标明不完整）。
+
+```yaml
+notifications:
+  telegram:
+    enabled: true
+    instance_name: "家庭媒体"          # 省略为 "STRM Generator"
+    bot_token_env: "TELEGRAM_BOT_TOKEN" # 省略为默认名
+    chat_id_env: "TELEGRAM_CHAT_ID"
+    policy: "all"                       # all / change_or_error / error
+```
+
+- 凭证只来自环境变量，配置文件不保存 Token。启动时读取；Bot Token 或目标缺失／为空
+  只记录脱敏警告并跳过本进程的通知，同步照常运行，退出码不变。
+- `dry-run` 校验配置结构但不要求通知环境值、不创建临时清单、不发送。
+- 策略：`all` 每轮发送；`error` 仅同步失败与同步初始化失败；`change_or_error` 失败之外，
+  有新增／更新／实际删除／归属回收或已提交缺失计数增加／清零时发送。仅 skipped／filtered
+  或保留统计不触发 `change_or_error`。
+- 摘要区分成功、部分／全部来源未完成及初始化失败（此时计数标为不可用）；冲突即使
+  `Errors == 0` 也不会标为成功。锁忙 busy-skip 与取消不发送。
+- 摘要包含每条事件：新增／更新／实际删除／归属回收按 `source N + 输出根内相对路径`
+  展示；缺失进度展示已提交计数前后值、阈值和原因（源目标未读到 / 扩展名排除），
+  暂存观察不冒充提交。消息不包含 Token、Chat ID、媒体 URL、数据库位置或私有绝对路径。
+- 发送在输出／数据库资源和跨进程锁释放后串行执行，一轮共享 30 秒预算；无重试
+  （包括 429），不承诺恰好一次送达；发送失败只写本地脱敏警告，不影响同步结果。
+- `serve` 在启动时读取凭证，重启生效；发送中收到 SIGINT／SIGTERM 立即停止发送并
+  正常清理。
 
 ## 💻 常用命令
 

@@ -533,3 +533,112 @@ func TestMediaExtensionsUnknownFieldStillRejected(t *testing.T) {
 		t.Fatal("a misspelled extension field must still be rejected")
 	}
 }
+
+func TestNotificationsDisabledByDefaultAndOmittedBlock(t *testing.T) {
+	path := write(t, validBase)
+	r, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Notifications.Enabled {
+		t.Fatal("an omitted notifications block must keep notifications off")
+	}
+
+	path = write(t, validBase+"notifications:\n  telegram:\n    enabled: false\n")
+	r, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Notifications.Enabled {
+		t.Fatal("an explicit enabled: false must keep notifications off")
+	}
+}
+
+func TestNotificationsDefaultsAndValidation(t *testing.T) {
+	path := write(t, validBase+`
+notifications:
+  telegram:
+    enabled: true
+`)
+	r, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg := r.Notifications.Telegram
+	if tg.InstanceName != DefaultTelegramInstanceName || tg.BotTokenEnv != DefaultTelegramBotTokenEnv ||
+		tg.ChatIDEnv != DefaultTelegramChatIDEnv || tg.Policy != PolicyAll {
+		t.Fatalf("defaults: %+v", tg)
+	}
+
+	path = write(t, validBase+`
+notifications:
+  telegram:
+    enabled: true
+    instance_name: "家庭媒体"
+    bot_token_env: "MY_BOT_TOKEN"
+    chat_id_env: "MY_CHAT"
+    policy: "error"
+`)
+	r, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg = r.Notifications.Telegram
+	if tg.InstanceName != "家庭媒体" || tg.BotTokenEnv != "MY_BOT_TOKEN" || tg.ChatIDEnv != "MY_CHAT" || tg.Policy != "error" {
+		t.Fatalf("resolved: %+v", tg)
+	}
+}
+
+func TestNotificationsInvalidFieldsAreRejected(t *testing.T) {
+	cases := map[string]string{
+		"unknown field":    "notifications:\n  telegram:\n    enabled: true\n    unknown: 1\n",
+		"bad policy":       "notifications:\n  telegram:\n    enabled: true\n    policy: \"sometimes\"\n",
+		"policy type":      "notifications:\n  telegram:\n    enabled: true\n    policy: 3\n",
+		"bool type":        "notifications:\n  telegram:\n    enabled: 17\n",
+		"empty name":       "notifications:\n  telegram:\n    enabled: true\n    instance_name: \"\"\n",
+		"multiline name":   "notifications:\n  telegram:\n    enabled: true\n    instance_name: \"a\\nb\"\n",
+		"bad token env":    "notifications:\n  telegram:\n    enabled: true\n    bot_token_env: \"1BAD\"\n",
+		"bad chat env":     "notifications:\n  telegram:\n    enabled: true\n    chat_id_env: \"WITH SPACE\"\n",
+		"telegram not map": "notifications:\n  telegram: 3\n",
+	}
+	for name, extra := range cases {
+		path := write(t, validBase+extra)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("%s must be rejected", name)
+		} else {
+			if diag := SafeDiagnostic(err); strings.Contains(diag, "\n") {
+				t.Fatalf("%s diagnostic must be single-line: %q", name, diag)
+			}
+		}
+	}
+}
+
+func TestNotificationsExplicitNullEnabledBehavesAsOmitted(t *testing.T) {
+	path := write(t, validBase+"notifications:\n  telegram:\n    enabled: null\n")
+	r, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Notifications.Enabled {
+		t.Fatal("an explicit null enabled must keep notifications off")
+	}
+}
+
+func TestNotificationsFieldDiagnosticsUseKnownNames(t *testing.T) {
+	cases := map[string]string{
+		"notifications.telegram.instance_name": "notifications:\n  telegram:\n    enabled: true\n    instance_name: \"\"\n",
+		"notifications.telegram.bot_token_env": "notifications:\n  telegram:\n    enabled: true\n    bot_token_env: \"bad-name\"\n",
+		"notifications.telegram.chat_id_env":   "notifications:\n  telegram:\n    enabled: true\n    chat_id_env: \"bad name\"\n",
+		"notifications.telegram.policy":        "notifications:\n  telegram:\n    enabled: true\n    policy: \"sometimes\"\n",
+	}
+	for field, extra := range cases {
+		path := write(t, validBase+extra)
+		_, err := Load(path)
+		if err == nil {
+			t.Fatalf("%s must be rejected", field)
+		}
+		if diag := SafeDiagnostic(err); diag != "invalid "+field {
+			t.Fatalf("diagnostic = %q, want %q", diag, "invalid "+field)
+		}
+	}
+}

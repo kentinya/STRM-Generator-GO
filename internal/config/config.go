@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/securepath"
@@ -96,13 +97,64 @@ type Database struct {
 	Path string `yaml:"path"`
 }
 
+// Telegram is the notifications.telegram block. Every field is optional:
+// an omitted block or an omitted enabled keeps notifications off, and the
+// remaining fields fall back to the documented defaults.
+type Telegram struct {
+	Enabled *bool `yaml:"enabled"`
+	// InstanceName distinguishes omitted (nil) from an explicit empty string,
+	// which is rejected instead of silently defaulted.
+	InstanceName *string `yaml:"instance_name"`
+	// BotTokenEnv and ChatIDEnv name the environment variables read at
+	// startup. They never carry the credential value itself.
+	BotTokenEnv *string `yaml:"bot_token_env"`
+	ChatIDEnv   *string `yaml:"chat_id_env"`
+	Policy      *string `yaml:"policy"`
+}
+
+// Notifications is the optional notifications block.
+type Notifications struct {
+	Telegram *Telegram `yaml:"telegram"`
+}
+
+// Notification policies. The value is validated against this fixed set.
+const (
+	PolicyAll           = "all"
+	PolicyChangeOrError = "change_or_error"
+	PolicyError         = "error"
+)
+
+// Default notification field values used when the corresponding field is
+// omitted.
+const (
+	DefaultTelegramInstanceName = "STRM Generator"
+	DefaultTelegramBotTokenEnv  = "TELEGRAM_BOT_TOKEN"
+	DefaultTelegramChatIDEnv    = "TELEGRAM_CHAT_ID"
+)
+
+// TelegramNotification is the validated Telegram notification settings.
+type TelegramNotification struct {
+	InstanceName string
+	BotTokenEnv  string
+	ChatIDEnv    string
+	Policy       string
+}
+
+// NotificationConfig is the resolved notification state. A zero value means
+// notifications are disabled and no notification environment variable is read.
+type NotificationConfig struct {
+	Enabled  bool
+	Telegram TelegramNotification
+}
+
 // Config is the raw parsed document.
 type Config struct {
-	OpenList OpenList `yaml:"openlist"`
-	Sources  []Source `yaml:"sources"`
-	Sync     Sync     `yaml:"sync"`
-	Cleanup  Cleanup  `yaml:"cleanup"`
-	Database Database `yaml:"database"`
+	OpenList OpenList      `yaml:"openlist"`
+	Sources  []Source      `yaml:"sources"`
+	Sync     Sync          `yaml:"sync"`
+	Cleanup  Cleanup       `yaml:"cleanup"`
+	Database Database      `yaml:"database"`
+	Notif    Notifications `yaml:"notifications"`
 }
 
 // ResolvedSource is a validated source with an absolute output root.
@@ -135,8 +187,11 @@ type Resolved struct {
 	// process. It is either the 11-item default or the operator's explicit
 	// replacement list; the two are never merged.
 	MediaExtensions []string
-	Sources         []ResolvedSource
-	baseDir         string
+	// Notifications is the resolved notification configuration. Disabled is the
+	// zero value; enabled notifications still require the runtime credentials.
+	Notifications NotificationConfig
+	Sources       []ResolvedSource
+	baseDir       string
 }
 
 // Load reads, strictly decodes and validates a YAML file.
@@ -205,6 +260,9 @@ func safeFieldFromError(message string) string {
 		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged", "sync.mirror",
 		"sync.media_extensions",
 		"cleanup.enabled", "cleanup.missing_confirmations", "database.path",
+		"notifications.telegram.enabled", "notifications.telegram.instance_name",
+		"notifications.telegram.bot_token_env", "notifications.telegram.chat_id_env",
+		"notifications.telegram.policy",
 	} {
 		if strings.HasPrefix(message, field+":") || strings.HasPrefix(message, field+" ") {
 			return field
@@ -309,6 +367,10 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
+	notifications, err := resolveNotifications(cfg.Notif)
+	if err != nil {
+		return nil, err
+	}
 
 	resolved := &Resolved{
 		APIURL:               apiURL,
@@ -321,6 +383,7 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 		IntervalMinutes:      intervalMinutes,
 		Interval:             interval,
 		MediaExtensions:      mediaExtensions,
+		Notifications:        notifications,
 		baseDir:              baseDir,
 	}
 
@@ -464,6 +527,59 @@ func validateBaseURL(raw, field string) (string, error) {
 	prefix := u.Scheme + "://" + u.Host
 	escaped := strings.TrimRight(u.EscapedPath(), "/")
 	return prefix + escaped, nil
+}
+
+// resolveNotifications applies the notification defaults and validation. An
+// omitted notifications or notifications.telegram block keeps notifications
+// disabled, matching historical configurations byte for byte.
+func resolveNotifications(block Notifications) (NotificationConfig, error) {
+	if block.Telegram == nil {
+		return NotificationConfig{}, nil
+	}
+	tg := block.Telegram
+	if tg.Enabled == nil || !*tg.Enabled {
+		return NotificationConfig{}, nil
+	}
+	resolved := TelegramNotification{
+		InstanceName: DefaultTelegramInstanceName,
+		BotTokenEnv:  DefaultTelegramBotTokenEnv,
+		ChatIDEnv:    DefaultTelegramChatIDEnv,
+		Policy:       PolicyAll,
+	}
+	if tg.InstanceName != nil {
+		name := *tg.InstanceName
+		if name == "" {
+			return NotificationConfig{}, errors.New("notifications.telegram.instance_name must not be empty")
+		}
+		if strings.ContainsAny(name, "\n\r\x00") || strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+			return NotificationConfig{}, errors.New("notifications.telegram.instance_name must be a single-line string")
+		}
+		if utf8.RuneCountInString(name) > 64 {
+			return NotificationConfig{}, errors.New("notifications.telegram.instance_name is too long")
+		}
+		resolved.InstanceName = name
+	}
+	if tg.BotTokenEnv != nil {
+		if !validEnvName(*tg.BotTokenEnv) {
+			return NotificationConfig{}, errors.New("notifications.telegram.bot_token_env must be a valid environment variable name")
+		}
+		resolved.BotTokenEnv = *tg.BotTokenEnv
+	}
+	if tg.ChatIDEnv != nil {
+		if !validEnvName(*tg.ChatIDEnv) {
+			return NotificationConfig{}, errors.New("notifications.telegram.chat_id_env must be a valid environment variable name")
+		}
+		resolved.ChatIDEnv = *tg.ChatIDEnv
+	}
+	if tg.Policy != nil {
+		switch *tg.Policy {
+		case PolicyAll, PolicyChangeOrError, PolicyError:
+			resolved.Policy = *tg.Policy
+		default:
+			return NotificationConfig{}, errors.New("notifications.telegram.policy must be one of all, change_or_error or error")
+		}
+	}
+	return NotificationConfig{Enabled: true, Telegram: resolved}, nil
 }
 
 // validateRemote enforces a clean absolute remote path without normalization

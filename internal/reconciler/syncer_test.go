@@ -948,8 +948,8 @@ func (f *failingOwnershipStore) RecordOwnership(context.Context, storage.Ownersh
 
 type failingRoundCommitStore struct{ *storage.Store }
 
-func (f *failingRoundCommitStore) CommitRound(context.Context, string, int64, time.Time) error {
-	return errors.New("injected round commit failure")
+func (f *failingRoundCommitStore) CommitRound(context.Context, string, int64, time.Time) (storage.CommitResult, error) {
+	return storage.CommitResult{}, errors.New("injected round commit failure")
 }
 
 func collectFiles(t *testing.T, root string) []string {

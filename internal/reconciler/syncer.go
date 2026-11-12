@@ -40,7 +40,7 @@ type Confirmer interface {
 type OwnershipStore interface {
 	Lookup(sourceKey, relativePath string) (storage.Ownership, bool, error)
 	RecordOwnership(ctx context.Context, o storage.Ownership, epoch int64) error
-	ClearMissing(ctx context.Context, sourceKey, relativePath string) error
+	ClearMissing(ctx context.Context, sourceKey, relativePath string) (storage.ClearResult, error)
 	RemoveOwnership(ctx context.Context, sourceKey, relativePath string) error
 	ListOwnershipAfter(ctx context.Context, sourceKey, after string, limit int) ([]storage.Ownership, error)
 	ListEligibleAfter(ctx context.Context, sourceKey, after string, threshold, limit int) ([]storage.Ownership, error)
@@ -49,9 +49,65 @@ type OwnershipStore interface {
 	ResetRound(ctx context.Context, sourceKey string) error
 	MarkObserved(ctx context.Context, sourceKey, relativePath string) error
 	IsObserved(ctx context.Context, sourceKey, relativePath string) (bool, error)
-	AddPendingMissing(ctx context.Context, sourceKey string, relativePaths []string) error
+	AddPendingMissing(ctx context.Context, sourceKey string, entries []storage.PendingMissingEntry) error
 	NextEpoch(sourceKey string) (int64, error)
-	CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time) error
+	CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time) (storage.CommitResult, error)
+}
+
+// FactKind classifies one structured operation fact captured inside the
+// original processing window. Facts are pure observations of what actually
+// happened; they never change file, ownership or counting behavior.
+type FactKind int
+
+const (
+	// FactCreated reports a STRM file actually published in this round.
+	FactCreated FactKind = iota
+	// FactUpdated reports an owned STRM file actually replaced in this round.
+	FactUpdated
+	// FactDeleted reports an owned target actually unlinked by cleanup. The
+	// fact stands even when a later directory or ownership step failed.
+	FactDeleted
+	// FactReclaimed reports an ownership row dropped for a local target that
+	// was already absent before this round.
+	FactReclaimed
+	// FactMissingCleared reports a committed missing count durably reset to
+	// zero because the target was observed again (count N -> 0).
+	FactMissingCleared
+	// FactMissingAdvanced reports a missing count increment applied by a
+	// committed round (count prior -> new).
+	FactMissingAdvanced
+)
+
+// Fixed fact reasons. They reuse the existing qualification vocabulary; no
+// new classification system is introduced.
+const (
+	// FactReasonSourceTarget: the exact target was not read under R-08.
+	FactReasonSourceTarget = storage.MissingReasonSourceTarget
+	// FactReasonExcludedExtension: the exact target still reads successfully
+	// but its extension is no longer generated (R-13).
+	FactReasonExcludedExtension = storage.MissingReasonExcludedExtension
+)
+
+// Fact is one structured operation fact for an optional notification detail
+// collector. RelativePath is the STRM path relative to the output root.
+type Fact struct {
+	SourceIndex  int
+	Kind         FactKind
+	RelativePath string
+	// PriorCount/NewCount carry the committed missing counts for
+	// FactMissingCleared (NewCount is 0) and FactMissingAdvanced.
+	PriorCount int64
+	NewCount   int64
+	// Reason is one of the FactReason* values for deletion, reclaim and
+	// advance facts; empty otherwise.
+	Reason string
+}
+
+// FactSink receives facts in the order they occurred. It is called from the
+// single-goroutine round coordination path, must not block and must never
+// alter the round outcome.
+type FactSink interface {
+	Record(fact Fact)
 }
 
 // Source is one resolved source to synchronize.
@@ -81,6 +137,9 @@ type Options struct {
 	MediaExtensions *pathmap.MediaSet
 	// Confirmer overrides the default openlist.Confirmer built over the lister.
 	Confirmer Confirmer
+	// Facts is an optional sink for structured operation facts. A nil sink
+	// collects nothing and changes no behavior.
+	Facts FactSink
 }
 
 // SourceResult summarizes one source round.
@@ -304,15 +363,43 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		}
 	}
 	if s.store != nil {
-		if err := s.store.CommitRound(ctx, src.Key, epoch, s.opts.Now()); err != nil {
+		cr, err := s.store.CommitRound(ctx, src.Key, epoch, s.opts.Now())
+		if err != nil {
 			res.Err = err
 			res.Partial = true
 			res.Errors++
-			res.addDiagnostic("round commit failed; source round not committed")
-			return res
+			if cr.Committed {
+				// The round and its counts are durable; the failure came from a
+				// later workspace cleanup step. The diagnostic must never claim
+				// the round was not committed.
+				res.addDiagnostic("round committed; the round workspace could not be cleared")
+			} else {
+				res.addDiagnostic("round commit failed; source round not committed")
+			}
+		}
+		if cr.Committed {
+			for _, advance := range cr.Advances {
+				s.emitFact(Fact{
+					SourceIndex:  src.Index,
+					Kind:         FactMissingAdvanced,
+					RelativePath: advance.RelativePath,
+					PriorCount:   advance.PriorCount,
+					NewCount:     advance.NewCount,
+					Reason:       advance.Reason,
+				})
+			}
 		}
 	}
 	return res
+}
+
+// emitFact forwards one fact to the configured sink, if any. It never fails
+// and never changes the round outcome.
+func (s *Syncer) emitFact(fact Fact) {
+	if s.opts.Facts == nil {
+		return
+	}
+	s.opts.Facts.Record(fact)
 }
 
 // noteObserved records one observed target. Marking the private observation is
@@ -328,7 +415,21 @@ func (s *Syncer) noteObserved(ctx context.Context, src Source, rel string) error
 	if s.opts.DryRun {
 		return nil
 	}
-	return s.store.ClearMissing(ctx, src.Key, rel)
+	cleared, err := s.store.ClearMissing(ctx, src.Key, rel)
+	if err != nil {
+		return err
+	}
+	if cleared.RowFound && cleared.PriorMissing > 0 {
+		// A committed count was independently reset to zero here, before and
+		// regardless of whether the rest of this round succeeds.
+		s.emitFact(Fact{
+			SourceIndex:  src.Index,
+			Kind:         FactMissingCleared,
+			RelativePath: rel,
+			PriorCount:   cleared.PriorMissing,
+		})
+	}
+	return nil
 }
 
 // handleDirectory filters, detects same-target conflicts within one directory,
@@ -507,6 +608,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 				return nil
 			}
 			res.Updated++
+			s.emitFact(Fact{SourceIndex: src.Index, Kind: FactUpdated, RelativePath: rel})
 			if err := refreshOwnership(); err != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
@@ -532,6 +634,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		return nil
 	}
 	res.Created++
+	s.emitFact(Fact{SourceIndex: src.Index, Kind: FactCreated, RelativePath: rel})
 	if s.store != nil {
 		if err := refreshOwnership(); err != nil {
 			// The file stays on disk but is not owned; a later run must treat
@@ -640,7 +743,7 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 	if s.confirmer == nil {
 		return errors.New("no remote confirmer is configured")
 	}
-	var pending []string
+	var pending []storage.PendingMissingEntry
 	flush := func() error {
 		if len(pending) == 0 {
 			return nil
@@ -686,18 +789,30 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 			current := s.currentTarget(ctx, src, row.RemotePath)
 			switch current.result.Status {
 			case openlist.AbsencePresent:
-				if err := s.store.ClearMissing(ctx, src.Key, row.RelativePath); err != nil {
+				cleared, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath)
+				if err != nil {
 					return err
 				}
 				if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
 					return err
+				}
+				if cleared.RowFound && cleared.PriorMissing > 0 {
+					s.emitFact(Fact{
+						SourceIndex:  src.Index,
+						Kind:         FactMissingCleared,
+						RelativePath: row.RelativePath,
+						PriorCount:   cleared.PriorMissing,
+					})
 				}
 				if current.result.Reason == openlist.ReasonTargetTypeConflict {
 					res.Retained++
 					res.addDiagnostic(fmt.Sprintf("target type conflict preserved: %s", row.RelativePath))
 				}
 			case openlist.AbsenceMissing:
-				pending = append(pending, row.RelativePath)
+				pending = append(pending, storage.PendingMissingEntry{
+					RelativePath: row.RelativePath,
+					Reason:       missingReason(current.excluded),
+				})
 				res.ConfirmedMissing++
 				if len(pending) >= pendingBatchSize {
 					if err := flush(); err != nil {
@@ -721,6 +836,15 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 		}
 	}
 	return flush()
+}
+
+// missingReason maps the extension exclusion qualification to the fixed
+// staged-reason vocabulary.
+func missingReason(excluded bool) string {
+	if excluded {
+		return storage.MissingReasonExcludedExtension
+	}
+	return storage.MissingReasonSourceTarget
 }
 
 // cleanupCandidates consumes the already-committed evidence. Before every
@@ -768,11 +892,20 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	current := s.currentTarget(ctx, src, row.RemotePath)
 	switch current.result.Status {
 	case openlist.AbsencePresent:
-		if err := s.store.ClearMissing(ctx, src.Key, row.RelativePath); err != nil {
+		cleared, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath)
+		if err != nil {
 			return err
 		}
 		if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
 			return err
+		}
+		if cleared.RowFound && cleared.PriorMissing > 0 {
+			s.emitFact(Fact{
+				SourceIndex:  src.Index,
+				Kind:         FactMissingCleared,
+				RelativePath: row.RelativePath,
+				PriorCount:   cleared.PriorMissing,
+			})
 		}
 		if current.result.Reason == openlist.ReasonTargetTypeConflict {
 			res.Retained++
@@ -806,6 +939,14 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	outcome, err := s.opts.FS.DeleteOwned(ctx, src.Output, row.RelativePath)
 	if outcome.Removed {
 		res.Deleted++
+		// The unlink is a fact that stands even when a later step fails.
+		s.emitFact(Fact{
+			SourceIndex:  src.Index,
+			Kind:         FactDeleted,
+			RelativePath: row.RelativePath,
+			PriorCount:   row.MissingCount,
+			Reason:       missingReason(current.excluded),
+		})
 	}
 	if err != nil {
 		return err
@@ -815,6 +956,12 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	}
 	if outcome.AlreadyAbsent {
 		res.Reclaimed++
+		s.emitFact(Fact{
+			SourceIndex:  src.Index,
+			Kind:         FactReclaimed,
+			RelativePath: row.RelativePath,
+			Reason:       missingReason(current.excluded),
+		})
 	} else if current.excluded {
 		// The exact source file may still exist and read successfully; the
 		// deletion happened because its extension is no longer generated.

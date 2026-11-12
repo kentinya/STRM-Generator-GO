@@ -40,6 +40,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
+from telegram_receiver import TelegramReceiver  # noqa: E402
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
 # A distinctive synthetic value. It must never appear in the image, a Compose
@@ -58,6 +59,7 @@ ALL_SCENARIOS = [
     "serve_lifecycle",
     "cross_container_busy",
     "compose_lifecycle",
+    "notifications",
 ]
 _LIVE_HARNESSES = []
 
@@ -665,13 +667,83 @@ def scenario_arm64_oci(h, results, arm64_oci):
     }
 
 
+def scenario_container_notifications(h, results, image, hooks_binary=None):
+    """Notification summary, attachment and temp cleanup inside the product
+    container boundary (read-only root, private /tmp tmpfs, unprivileged
+    account). The testhooks binary is bind-mounted over the entrypoint; the
+    image itself never contains test hooks.
+    """
+    check(hooks_binary is not None and Path(hooks_binary).exists(),
+          "--hooks-binary must point at the strmgen_testhooks build")
+    receiver = TelegramReceiver(host="0.0.0.0")
+    try:
+        dirs = {"/Movies": [
+            {"name": f"F{i:02d}.mkv", "is_dir": False, "size": 10,
+             "hash_info": {"sha1": "ffffffffffffffffffffffffffffffffffffffff"}}
+            for i in range(30)]}
+        api = h.server(directories=dirs)
+        cfg = h.cfg_dir / "notify.yaml"
+        cfg.write_text(config_document(api) + """
+notifications:
+  telegram:
+    enabled: true
+    instance_name: "家庭媒体"
+    policy: "all"
+""", encoding="utf-8")
+        os.chmod(cfg, 0o444)
+        script = ("strmgen sync --config /etc/strmgen/config.yaml && "
+                  "strmgen sync --config /etc/strmgen/config.yaml && "
+                  "ls -a /tmp")
+        args = h.common_run_args(cfg, f"notify-{h.run_id}")
+        args += ["-e", "OPENLIST_TOKEN", "-e", "TELEGRAM_BOT_TOKEN", "-e", "TELEGRAM_CHAT_ID",
+                 "-e", "STRMGEN_TEST_TELEGRAM_API_BASE",
+                 "-v", f"{Path(hooks_binary).resolve()}:/usr/local/bin/strmgen:ro",
+                 "--entrypoint", "/bin/sh", image, "-c", script]
+        env = h._env()
+        env.update({"TELEGRAM_BOT_TOKEN": "container-token", "TELEGRAM_CHAT_ID": "-10042",
+                    # The receiver listens on the host; the container reaches it
+                    # through the host-gateway alias, never through loopback.
+                    "STRMGEN_TEST_TELEGRAM_API_BASE":
+                        receiver.url.replace("http://127.0.0.1", "http://host.docker.internal")})
+        run = docker(args, timeout=180, env=env)
+        check(run.returncode == 0, f"container notification run failed: {run.stderr}")
+        messages = receiver.messages()
+        check(len(messages) == 2, f"messages = {len(messages)}, want one per sync round")
+        first = messages[0]["text"]
+        check("家庭媒体 STRM 同步报告" in first, f"header missing:\n{first}")
+        check("新增 30" in first, f"created count missing:\n{first}")
+        check("运行方式：sync" in first, f"run mode missing:\n{first}")
+        check(SECRET_MARKER not in first and "container-token" not in first and "-10042" not in first,
+              "container summary leaks a credential")
+        check(api not in first, "container summary leaks the API URL")
+        docs = receiver.documents()
+        check(len(docs) == 1, f"documents = {len(docs)}, want exactly one listing")
+        listing = docs[0]["document"]
+        check("事件总数: 30" in listing, f"listing trailer missing:\n{listing[:300]}")
+        for i in range(30):
+            check(f"来源 0 新增 F{i:02d}.strm" in listing, f"listing misses F{i:02d}.strm")
+        # The private /tmp tmpfs is shared by both rounds in the same container:
+        # the final ls must not show any notification directory.
+        check("strmgen-notify-" not in run.stdout, f"temporary notification files remained: {run.stdout}")
+    finally:
+        receiver.close()
+    results["notifications"] = {
+        "container_summaries": True,
+        "attachment_verified": True,
+        "tmp_cleanup_verified": True,
+        "redaction_verified": True,
+    }
+
+
 SCENARIOS = {
     "image_static": scenario_image_static,
     "minimal_run": scenario_minimal_run,
     "serve_lifecycle": scenario_serve_lifecycle,
     "cross_container_busy": scenario_cross_container_busy,
     "compose_lifecycle": scenario_compose_lifecycle,
+    "notifications": scenario_container_notifications,
 }
+
 
 
 def validate_output_dir(output_dir):
@@ -690,6 +762,9 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--image", required=True, help="loaded product image tag")
     parser.add_argument("--arm64-oci", help="arm64 OCI archive produced by buildx")
+    parser.add_argument("--hooks-binary",
+                        help="strmgen_testhooks binary bind-mounted over the entrypoint "
+                             "for the notifications scenario; the image is never modified")
     parser.add_argument("--scenario", default="all",
                         help="'all' or a comma-separated subset: " + ", ".join(ALL_SCENARIOS))
     parser.add_argument("--output-dir", required=True)
@@ -733,7 +808,12 @@ def main():
             if name == "arm64_oci":
                 scenario_arm64_oci(harness, results, Path(args.arm64_oci) if args.arm64_oci else None)
             else:
-                SCENARIOS[name](harness, results, image)
+                scenario = SCENARIOS[name]
+                if name == "notifications":
+                    scenario(harness, results, image,
+                             hooks_binary=Path(args.hooks_binary) if args.hooks_binary else None)
+                else:
+                    scenario(harness, results, image)
             status = "PASS"
             print(f"PASS {name} ({time.time() - started:.1f}s)", flush=True)
         except (Failure, AssertionError) as error:

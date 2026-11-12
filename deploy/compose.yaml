@@ -25,6 +25,13 @@ services:
     # redacted render for evidence or logs.
     environment:
       OPENLIST_TOKEN:
+      # Optional Telegram notification credentials use the same value-less
+      # pass-through pattern: the container reads the host values named by
+      # notifications.telegram.bot_token_env / chat_id_env. An unset host
+      # variable means the container records a redacted warning and disables
+      # notifications for that process.
+      TELEGRAM_BOT_TOKEN:
+      TELEGRAM_CHAT_ID:
     # Run as the host owner of the bind mounts. Defaults to the unprivileged
     # image account; override with STRMGEN_UID/STRMGEN_GID to match the host.
     user: "${STRMGEN_UID:-10001}:${STRMGEN_GID:-10001}"
