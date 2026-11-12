@@ -1,8 +1,8 @@
 # Slice 路线图
 
 V4.4、自定义扩展名与 Telegram 通知增量均已交付，Slice 1–6 PASS / CLOSED。
-当前独立修复 FIX-TG-01 的 B 结论为 FIX REQUIRED：本地验收通过，待补新版真实客户端证据。
-计划、审查与开发指导见 [TASK](../TASK.md)；历史 Slice 结论不变。
+独立修复 FIX-TG-01 已 B PASS / CLOSED：本地审查及回归通过，完整真实消息预览
+已发送并获用户满意确认，当前无活动实施任务。验收见 [TASK](../TASK.md)。
 业务规则见[需求](requirements.md)，最终结果见
 [当前 Slice](../SLICE.md#closure-packet)，计划与审查历史见
 [固定 Git 检查点](development-workflow.md#历史记录)。
@@ -19,6 +19,16 @@ v1.0.0 为基础功能发布，v1.1.0 增加自定义扩展名，v1.2.0 对应�
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 | 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
 | 6 | Telegram 运行结果与文件清理进度通知 | PASS / CLOSED | Slice 1–5 已交付基线 | B 本地审查及 A 完整范围／真实回执续审通过，RO-1..7 全部 PASS |
+
+## 独立修复 FIX-TG-01 已关闭记录
+
+Task Base 为 `959451530efbfe8a646f80ce325b4f789f85e770`，计划检查点为
+`e1f7bb5de5c61953bda42c58721530842f982a94`，实现 Head 为
+`57d1436456189576e740b4f112a43bd0b8cd94b7`；B 完整审查至
+`1afb5aa36fc541cd04e1c31451979253a49767b6`，最终判定 PASS。
+交付 HTML 粗体标题、固定图标、分行统计与五／六条折叠边界，保留原事件、清理和
+单附件语义。15 条真实摘要与一个附件获 API 接受，用户明确“我很满意，可以关闭了”，
+唯一补证项 B-TG-01 关闭。独立修复不重开 Slice 6，完整证据与未采集项见 TASK。
 
 ## Slice 6 已关闭记录
 
