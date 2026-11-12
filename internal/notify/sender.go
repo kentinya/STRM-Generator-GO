@@ -37,6 +37,9 @@ const (
 	attachmentFileName = "strm-events.txt"
 	// attachmentContentType is the declared media type of the UTF-8 listing.
 	attachmentContentType = "text/plain; charset=utf-8"
+	// parseModeHTML is the fixed Telegram parse mode for the summary. Only
+	// the controlled <b>, <code> and <blockquote expandable> tags are emitted.
+	parseModeHTML = "HTML"
 )
 
 // TelegramAPIBase is the official Bot API origin. Tests can point a Sender at
@@ -88,8 +91,8 @@ var (
 	errAttachmentFailed = errors.New("attachment upload failed")
 )
 
-// Send posts the plain-text summary and, when attachmentPath is non-empty,
-// uploads the single UTF-8 listing. Both share the fixed budget. Sending
+// Send posts the HTML summary and, when attachmentPath is non-empty, uploads
+// the single UTF-8 listing. Both share the fixed budget. Sending
 // stops immediately when ctx is cancelled. The returned error is always a
 // redacted, fixed-vocabulary error.
 func (s *Sender) Send(ctx context.Context, text string, attachmentPath string) error {
@@ -159,6 +162,7 @@ func (s *Sender) call(ctx context.Context, method string, contentType string, bo
 func (s *Sender) sendMessage(ctx context.Context, text string) error {
 	form := url.Values{}
 	form.Set("chat_id", s.chatID)
+	form.Set("parse_mode", parseModeHTML)
 	form.Set("text", text)
 	return s.call(ctx, "sendMessage", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 }

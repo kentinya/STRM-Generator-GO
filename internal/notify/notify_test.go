@@ -2,10 +2,45 @@ package notify
 
 import (
 	"fmt"
+	"html"
 	"strings"
 	"testing"
 	"time"
 )
+
+// visible strips the controlled formatting tags emitted by the renderer and
+// decodes its three HTML entities. It is a test reader for assertions on the
+// user-visible text, not a Telegram renderer.
+func visible(text string) string {
+	replacer := strings.NewReplacer(
+		"<b>", "", "</b>", "",
+		"<code>", "", "</code>", "",
+		"<blockquote expandable>", "", "</blockquote>", "",
+	)
+	return html.UnescapeString(replacer.Replace(text))
+}
+
+// assertEntitiesIntact checks that every ampersand in the rendered HTML belongs
+// to one of the three complete entities the renderer emits. A split entity at
+// a truncation boundary would fail this check.
+func assertEntitiesIntact(t *testing.T, text string) {
+	t.Helper()
+	for i := 0; i < len(text); i++ {
+		if text[i] != '&' {
+			continue
+		}
+		end := strings.IndexByte(text[i:], ';')
+		if end < 0 {
+			t.Fatalf("unterminated HTML entity at byte %d:\n%s", i, text)
+		}
+		entity := text[i : i+end+1]
+		switch entity {
+		case "&amp;", "&lt;", "&gt;":
+		default:
+			t.Fatalf("unexpected HTML entity %q at byte %d:\n%s", entity, i, text)
+		}
+	}
+}
 
 func TestEscapeTextLeavesOrdinaryNamesUntouched(t *testing.T) {
 	cases := []string{
@@ -109,22 +144,29 @@ func TestBuildMessageSuccessWithoutEvents(t *testing.T) {
 	if attachment != "" {
 		t.Fatalf("no events must not require an attachment: %q", attachment)
 	}
+	if !strings.Contains(text, "<b>✅ STRM 同步完成</b>") {
+		t.Fatalf("bold success title missing:\n%s", text)
+	}
+	body := visible(text)
 	for _, want := range []string{
-		"家庭媒体 STRM 同步报告",
-		"运行方式：serve",
-		"结果：成功",
-		"同步耗时：10.0 秒",
-		"来源总数：2（完成 2 / 未完成 0）",
+		"🏷️ 家庭媒体 · serve",
+		"➕ 新增 0 · ✏️ 更新 0",
+		"🗑️ 实际删除 0 · ♻️ 归属回收 0",
+		"⏭️ 未变化跳过 4 · 🔎 扩展名过滤 1",
+		"🛡️ 安全保留 0 · ⚠️ 冲突 0 · ❌ 处理错误 0",
+		"📂 来源 2 · 完成 2 / 未完成 0",
+		"⏱️ 同步耗时 10.0 秒",
 		"本轮无新增、更新、删除或归属回收事件",
 	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("body missing %q:\n%s", want, text)
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
 		}
 	}
 	// Times carry an explicit timezone.
-	if !strings.Contains(text, "+") && !strings.Contains(text, "Z") {
-		t.Fatalf("timestamps lack an explicit timezone: %s", text)
+	if !strings.Contains(body, "+") && !strings.Contains(body, "Z") {
+		t.Fatalf("timestamps lack an explicit timezone: %s", body)
 	}
+	assertEntitiesIntact(t, text)
 }
 
 func TestBuildMessageCountsUnavailableOnInitFailure(t *testing.T) {
@@ -133,11 +175,14 @@ func TestBuildMessageCountsUnavailableOnInitFailure(t *testing.T) {
 	if attachment != "" {
 		t.Fatalf("init failure must not attach a listing")
 	}
+	if !strings.Contains(text, "<b>❌ STRM 同步初始化失败</b>") {
+		t.Fatalf("init-failure title missing:\n%s", text)
+	}
 	if !strings.Contains(text, "统计：不可用") {
 		t.Fatalf("counts must be unavailable, not zero:\n%s", text)
 	}
-	if !strings.Contains(text, "同步初始化失败") {
-		t.Fatalf("body:\n%s", text)
+	if strings.Contains(text, "➕ 新增 0") {
+		t.Fatalf("init failure must not render the nine counters as zero:\n%s", text)
 	}
 }
 
@@ -154,10 +199,10 @@ func TestBuildMessageConflictNeverReadsAsSuccess(t *testing.T) {
 		Sources:           []SourceStatus{{Index: 0, Notes: []string{"existing file not owned by this source: A.strm"}}},
 	}
 	text, _ := BuildMessage(info, nil)
-	if !strings.Contains(text, "部分来源未完成") {
+	if !strings.Contains(text, "<b>⚠️ STRM 部分来源未完成</b>") {
 		t.Fatalf("conflict round must not be a success:\n%s", text)
 	}
-	if !strings.Contains(text, "existing file not owned by this source: A.strm") {
+	if !strings.Contains(visible(text), "existing file not owned by this source: A.strm") {
 		t.Fatalf("safe diagnostic missing:\n%s", text)
 	}
 }
@@ -182,10 +227,17 @@ func TestBuildMessagePreviewAndAttachmentDecision(t *testing.T) {
 	if attachment == "" {
 		t.Fatal("an attachment is required when the body cannot carry every event")
 	}
-	if !strings.Contains(text, "另有 5 条未在正文展示") {
-		t.Fatalf("omission note missing:\n%s", text)
+	body := visible(text)
+	if !strings.Contains(body, "正文预览 20 条，另有 5 条未展示。") {
+		t.Fatalf("omission note missing:\n%s", body)
 	}
-	shown := strings.Count(text, "新增 来源 1 Movies/file.strm")
+	if !strings.Contains(body, "📎 完整清单 25 条，随附上传。") {
+		t.Fatalf("attachment note missing:\n%s", body)
+	}
+	if !strings.Contains(text, "<blockquote expandable>") || !strings.Contains(text, "</blockquote>") {
+		t.Fatalf("20 preview events must share one expandable block:\n%s", text)
+	}
+	shown := strings.Count(text, `<code>Movies/file.strm</code>`)
 	if shown != PreviewMaxEvents {
 		t.Fatalf("preview events = %d, want %d", shown, PreviewMaxEvents)
 	}
@@ -203,7 +255,7 @@ func TestBuildMessageEscapesEventPaths(t *testing.T) {
 	if !strings.Contains(text, `evil\u000Afake\u202Eevent.strm`) {
 		t.Fatalf("path not escaped:\n%s", text)
 	}
-	if strings.Count(text, "新增 来源") != 1 {
+	if strings.Count(text, "➕ 新增 · 来源 2") != 1 {
 		t.Fatalf("an escaped line break must not create a second event line:\n%s", text)
 	}
 	if attachment != "" {
@@ -328,7 +380,7 @@ func TestPreviewLinesCarryReasonAndStage(t *testing.T) {
 	}{
 		{
 			Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "A.strm", PriorCount: 0, NewCount: 1, Reason: ReasonSourceTarget},
-			"缺失计数 来源 1 A.strm（计数 0→1/阈值 3，原因 源目标未读到，首次进入待删除，文件仍保留）",
+			"⏳ 待删除计数 · 来源 1 · A.strm（计数 0→1/阈值 3，原因 源目标未读到，首次进入待删除，文件仍保留）",
 		},
 		{
 			Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "A.strm", PriorCount: 1, NewCount: 2, Reason: ReasonExcludedExtension},
@@ -340,19 +392,23 @@ func TestPreviewLinesCarryReasonAndStage(t *testing.T) {
 		},
 		{
 			Event{SourceIndex: 1, Kind: KindMissingCleared, RelativePath: "A.strm", PriorCount: 2},
-			"取消待删除 来源 1 A.strm（计数 2→0/阈值 3，已确认恢复条件，文件保留）",
+			"↩️ 恢复保留 · 来源 1 · A.strm（计数 2→0/阈值 3，已确认恢复条件，文件保留）",
 		},
 		{
 			Event{SourceIndex: 1, Kind: KindDeleted, RelativePath: "A.strm", PriorCount: 3, Reason: ReasonExcludedExtension},
-			"实际删除 来源 1 A.strm（删除前计数 3/阈值 3，已实际删除，原因 扩展名排除）",
+			"🗑️ 实际删除 · 来源 1 · A.strm（删除前计数 3/阈值 3，已实际删除，原因 扩展名排除）",
 		},
 		{
 			Event{SourceIndex: 1, Kind: KindReclaimed, RelativePath: "A.strm"},
-			"归属回收 来源 1 A.strm（本地目标此前已不存在，归属已移除）",
+			"♻️ 归属回收 · 来源 1 · A.strm（本地目标此前已不存在，归属已移除）",
 		},
 	}
 	for _, tc := range cases {
-		if got := previewLine(tc.event, 3); !strings.Contains(got, tc.want) {
+		got := previewLine(tc.event, 3)
+		if !strings.Contains(got, "<code>A.strm</code>") {
+			t.Fatalf("preview path must stay complete in code markup: %q", got)
+		}
+		if !strings.Contains(visible(got), tc.want) {
 			t.Fatalf("preview line = %q, want %q", got, tc.want)
 		}
 	}
@@ -487,7 +543,7 @@ func TestBuildMessageInitFailureKeepsConfiguredSourceCount(t *testing.T) {
 		SourceCount: 5, SyncDuration: time.Second,
 	}
 	text, _ := BuildMessage(info, nil)
-	if !strings.Contains(text, "来源总数：5（完成/未完成计数不可用）") {
+	if !strings.Contains(text, "📂 来源 5 · 完成/未完成计数不可用") {
 		t.Fatalf("configured source count lost:\n%s", text)
 	}
 	if !strings.Contains(text, "统计：不可用") {
@@ -651,9 +707,10 @@ func TestBuildMessageLongInstanceNameStaysBounded(t *testing.T) {
 	if !strings.Contains(text, "…") {
 		t.Fatalf("the truncated instance name must carry an omission marker:\n%s", text)
 	}
-	if !strings.Contains(text, "来源总数：1（完成 1 / 未完成 0）") {
+	if !strings.Contains(text, "📂 来源 1 · 完成 1 / 未完成 0") {
 		t.Fatalf("statistics lost to the long instance name:\n%s", text)
 	}
+	assertEntitiesIntact(t, text)
 	if strings.Contains(text, strings.Repeat("家", 4000)) {
 		t.Fatal("the full instance name must not survive in the body")
 	}
@@ -750,4 +807,328 @@ func TestBuildMessageTrailerWriteFailureMarksBodyIncomplete(t *testing.T) {
 	if strings.Contains(text, "完整内容见附件清单") {
 		t.Fatalf("no complete-listing promise may survive:\n%s", text)
 	}
+}
+
+// FIX-TG-01: the four result headings keep their fixed icons and wording; an
+// initialization failure never renders the nine counters as zero.
+func TestBuildMessageOutcomeTitles(t *testing.T) {
+	cases := []struct {
+		name string
+		info RunInfo
+		want string
+	}{
+		{
+			name: "success",
+			info: RunInfo{InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+				SourceCount: 1, CompletedSources: 1, StatsAvailable: true},
+			want: "<b>✅ STRM 同步完成</b>",
+		},
+		{
+			name: "partial",
+			info: RunInfo{InstanceName: "S", Mode: "sync", Outcome: OutcomeSourceFailure,
+				SourceCount: 2, CompletedSources: 1, IncompleteSources: 1, StatsAvailable: true,
+				Stats: Stats{Errors: 1}},
+			want: "<b>⚠️ STRM 部分来源未完成</b>",
+		},
+		{
+			name: "all incomplete",
+			info: RunInfo{InstanceName: "S", Mode: "serve", Outcome: OutcomeSourceFailure,
+				SourceCount: 2, IncompleteSources: 2, StatsAvailable: true},
+			want: "<b>❌ STRM 同步失败（全部来源未完成）</b>",
+		},
+		{
+			name: "initialization failure",
+			info: RunInfo{InstanceName: "S", Mode: "sync", Outcome: OutcomeInitFailure,
+				SourceCount: 3, SyncDuration: time.Second},
+			want: "<b>❌ STRM 同步初始化失败</b>",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, attachment := BuildMessage(tc.info, nil)
+			if attachment != "" {
+				t.Fatalf("this case must not attach a listing")
+			}
+			if !strings.Contains(text, tc.want) {
+				t.Fatalf("title missing %q:\n%s", tc.want, text)
+			}
+			assertOnlyAllowedTags(t, text)
+			assertEntitiesIntact(t, text)
+		})
+	}
+}
+
+// FIX-TG-01: five preview events stay directly visible; six or more share one
+// expandable block while the heading stays outside. An all-fitting round does
+// not require an attachment merely to show the block.
+func TestBuildMessageEventCollapseBoundary(t *testing.T) {
+	build := func(count int) (string, string) {
+		c, err := NewCollector("sync boundary", 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(c.Close)
+		for i := 0; i < count; i++ {
+			c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: fmt.Sprintf("F%02d.strm", i)})
+		}
+		info := RunInfo{InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+			SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+			Stats: Stats{Created: count}, Threshold: 3}
+		return BuildMessage(info, c)
+	}
+
+	five, attachment := build(5)
+	if attachment != "" {
+		t.Fatalf("five fitting events must not require an attachment")
+	}
+	if strings.Contains(five, "<blockquote expandable>") {
+		t.Fatalf("five events must stay directly visible:\n%s", five)
+	}
+	if strings.Count(five, "<code>F") != 5 {
+		t.Fatalf("five event paths missing:\n%s", five)
+	}
+
+	six, attachment := build(6)
+	if attachment != "" {
+		t.Fatalf("six fitting events must not force an attachment")
+	}
+	if strings.Count(six, "<blockquote expandable>") != 1 || strings.Count(six, "</blockquote>") != 1 {
+		t.Fatalf("six events must share one expandable block:\n%s", six)
+	}
+	title := strings.Index(six, "<b>📋 文件事件</b>")
+	open := strings.Index(six, "<blockquote expandable>")
+	close := strings.Index(six, "</blockquote>")
+	if title < 0 || open < 0 || close < 0 || !(title < open && open < close) {
+		t.Fatalf("event heading must stay outside the block:\n%s", six)
+	}
+	if strings.Count(six, "<code>F") != 6 {
+		t.Fatalf("six event paths missing:\n%s", six)
+	}
+	assertOnlyAllowedTags(t, six)
+}
+
+// FIX-TG-01: dynamic instance names, paths and diagnostics are escaped before
+// HTML escaping. A literal entity in a file name stays literal and a crafted
+// tag never becomes markup.
+func TestBuildMessageDynamicValuesCannotInjectHTML(t *testing.T) {
+	c, err := NewCollector("sync html", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: "&lt;b&gt;.strm"})
+	info := RunInfo{
+		InstanceName: "库 & <b>", Mode: "sync", Outcome: OutcomeSourceFailure,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Created: 1}, Threshold: 3,
+		Sources: []SourceStatus{{
+			Index:     0,
+			Completed: true,
+			Notes:     []string{"bad <script>&\"quote\""},
+		}},
+	}
+	text, _ := BuildMessage(info, c)
+	assertOnlyAllowedTags(t, text)
+	assertEntitiesIntact(t, text)
+	for _, raw := range []string{
+		`🏷️ 库 &amp; &lt;b&gt; · sync`,
+		`<code>&amp;lt;b&amp;gt;.strm</code>`,
+		`bad &lt;script&gt;&amp;"quote"`,
+	} {
+		if !strings.Contains(text, raw) {
+			t.Fatalf("escaped value %q missing:\n%s", raw, text)
+		}
+	}
+	body := visible(text)
+	if !strings.Contains(body, "库 & <b> · sync") || !strings.Contains(body, "&lt;b&gt;.strm") {
+		t.Fatalf("literal values lost after parsing:\n%s", body)
+	}
+	if strings.Contains(text, "<script>") || strings.Contains(text, "<b> &") {
+		t.Fatalf("crafted markup leaked into the body:\n%s", text)
+	}
+}
+
+// FIX-TG-01: a path too long for the body moves wholly to the attachment and
+// is never shown as a shortened identity.
+func TestBuildMessageLongPathMovesWholeToAttachment(t *testing.T) {
+	c, err := NewCollector("sync long path", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	longPath := strings.Repeat("目录/文件", 800) + ".strm"
+	c.Record(Event{SourceIndex: 2, Kind: KindCreated, RelativePath: longPath})
+	info := RunInfo{InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Created: 1}, Threshold: 3}
+	text, attachment := BuildMessage(info, c)
+	if UTF16Len(text) > BodyMaxUTF16Units {
+		t.Fatalf("body = %d UTF-16 units, over the limit", UTF16Len(text))
+	}
+	if attachment == "" {
+		t.Fatal("the overflow event must use the attachment")
+	}
+	if strings.Contains(text, longPath[:30]) {
+		t.Fatalf("a shortened path leaked into the body:\n%s", text)
+	}
+	if !strings.Contains(visible(text), "正文预览 0 条，另有 1 条未展示。") {
+		t.Fatalf("preview omission note missing:\n%s", visible(text))
+	}
+	data, err := readFile(t, attachment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), longPath) {
+		t.Fatal("the complete path is missing from the attachment")
+	}
+}
+
+// FIX-TG-01: source diagnostics stay before the event preview and outside the
+// expandable block; a degradation warning is also outside the block.
+func TestBuildMessageDiagnosticsAndWarningsStayOutsideBlock(t *testing.T) {
+	c, err := NewCollector("sync outside", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for i := 0; i < 6; i++ {
+		c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: fmt.Sprintf("F%d.strm", i)})
+	}
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSourceFailure,
+		SourceCount: 1, IncompleteSources: 1, StatsAvailable: true,
+		Stats: Stats{Errors: 1}, Threshold: 3,
+		Sources: []SourceStatus{{
+			Index: 0,
+			Notes: []string{"source root /private/path is not readable as a directory"},
+		}},
+	}
+	text, _ := BuildMessage(info, c)
+	note := strings.Index(text, "source root")
+	title := strings.Index(text, "<b>📋 文件事件</b>")
+	open := strings.Index(text, "<blockquote expandable>")
+	close := strings.Index(text, "</blockquote>")
+	if note < 0 || title < 0 || open < 0 || close < 0 || !(note < title && title < open && open < close) {
+		t.Fatalf("diagnostics must precede the event block:\n%s", text)
+	}
+
+	// A local write failure leaves the six preview events visible but the
+	// listing unusable; the warning must stay outside the block. A fresh
+	// collector is failed before the first BuildMessage so Finalize observes
+	// the broken state.
+	broken, err := NewCollector("sync outside broken", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broken.Close()
+	for i := 0; i < 6; i++ {
+		broken.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: fmt.Sprintf("F%d.strm", i)})
+	}
+	if err := broken.file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	text, attachment := BuildMessage(info, broken)
+	if attachment != "" {
+		t.Fatal("a broken listing must not be attached")
+	}
+	open = strings.Index(text, "<blockquote expandable>")
+	close = strings.Index(text, "</blockquote>")
+	warning := strings.Index(text, "明细不完整")
+	if warning < 0 || open < 0 || close < 0 || warning < close {
+		t.Fatalf("degradation warning must stay outside the block:\n%s", text)
+	}
+}
+
+// FIX-TG-01: a legal instance name made of escape-expanding characters is
+// shortened by whole entities, never by cutting an entity or a Unicode
+// character, and the complete HTML body stays within the budget.
+func TestBuildMessageEntityHeavyInstanceStaysWithinBudget(t *testing.T) {
+	info := RunInfo{
+		InstanceName: strings.Repeat("&<>🎬", 1200), Mode: "serve", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Created: 1}, Threshold: 3,
+	}
+	text, _ := BuildMessage(info, nil)
+	if n := UTF16Len(text); n > BodyMaxUTF16Units {
+		t.Fatalf("body = %d UTF-16 units, over the limit", n)
+	}
+	if !strings.Contains(text, "…") {
+		t.Fatal("the shortened instance name must carry an omission marker")
+	}
+	if !strings.Contains(text, "➕ 新增 1") || !strings.Contains(text, "📂 来源 1 · 完成 1 / 未完成 0") {
+		t.Fatalf("statistics lost:\n%s", text)
+	}
+	assertOnlyAllowedTags(t, text)
+	assertEntitiesIntact(t, text)
+}
+
+// assertOnlyAllowedTags rejects any raw markup other than the fixed tags the
+// renderer is allowed to emit.
+func assertOnlyAllowedTags(t *testing.T, text string) {
+	t.Helper()
+	allowed := []string{
+		"<b>", "</b>", "<code>", "</code>",
+		"<blockquote expandable>", "</blockquote>",
+	}
+	for i := 0; i < len(text); i++ {
+		if text[i] != '<' {
+			continue
+		}
+		matched := false
+		for _, tag := range allowed {
+			if strings.HasPrefix(text[i:], tag) {
+				matched = true
+				i += len(tag) - 1
+				break
+			}
+		}
+		if !matched {
+			t.Fatalf("unexpected raw markup at byte %d:\n%s", i, text)
+		}
+	}
+}
+
+// FIX-TG-01: one synthetic 25-event round is logged as the checkable raw HTML
+// and visible-text sample for review. It also re-checks the 20-event preview,
+// single expandable block and truthful omission/attachment notes.
+func TestBuildMessageSyntheticSample(t *testing.T) {
+	c, err := NewCollector("sync 2026-11-12T13:33:44Z", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for i := 1; i <= 25; i++ {
+		c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: fmt.Sprintf("样例 %02d.strm", i)})
+	}
+	info := RunInfo{
+		InstanceName: "Telegram 隔离验证 attachment", Mode: "sync", Outcome: OutcomeSuccess,
+		StartedAt:    time.Date(2026, 11, 12, 13, 33, 44, 0, time.UTC),
+		FinishedAt:   time.Date(2026, 11, 12, 13, 33, 45, 0, time.UTC),
+		SyncDuration: 403 * time.Millisecond, SourceCount: 1, CompletedSources: 1,
+		StatsAvailable: true, Stats: Stats{Created: 25}, Threshold: 3,
+	}
+	text, attachment := BuildMessage(info, c)
+	if attachment == "" {
+		t.Fatal("the 25-event sample requires the single attachment")
+	}
+	body := visible(text)
+	for _, want := range []string{
+		"✅ STRM 同步完成",
+		"🏷️ Telegram 隔离验证 attachment · sync",
+		"➕ 新增 25 · ✏️ 更新 0",
+		"📂 来源 1 · 完成 1 / 未完成 0",
+		"⏱️ 同步耗时 403 毫秒",
+		"正文预览 20 条，另有 5 条未展示。",
+		"📎 完整清单 25 条，随附上传。",
+		"🕒 开始 2026-11-12T13:33:44Z",
+		"🕒 完成 2026-11-12T13:33:45Z",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sample body missing %q:\n%s", want, body)
+		}
+	}
+	assertOnlyAllowedTags(t, text)
+	assertEntitiesIntact(t, text)
+	t.Logf("RAW HTML:\n%s", text)
+	t.Logf("VISIBLE TEXT:\n%s", body)
 }

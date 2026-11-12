@@ -43,7 +43,7 @@ type Event struct {
 }
 
 // bidiChars are the Unicode bidirectional control characters that can spoof
-// the rendering order of a plain-text message. They are escaped like control
+// the rendering order of a message. They are escaped like control
 // characters so a crafted file name can never restructure the report.
 var bidiChars = map[rune]bool{
 	0x061C: true, // Arabic letter mark

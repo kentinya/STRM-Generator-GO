@@ -6,7 +6,9 @@ process sends to the notification transport so the driver can assert on the
 exact endpoint, chat id and message bodies. It never contacts the real
 Telegram network and never handles real credentials.
 """
+import html
 import json
+import re
 import threading
 import urllib.parse
 from email.parser import BytesParser
@@ -66,6 +68,7 @@ class TelegramReceiver:
                     values = urllib.parse.parse_qs(body.decode("utf-8", "replace"))
                     record["chat_id"] = values.get("chat_id", [""])[0]
                     record["text"] = values.get("text", [""])[0]
+                    record["parse_mode"] = values.get("parse_mode", [""])[0]
                 with outer._lock:
                     outer.requests.append(record)
                     hold = outer._hold_next
@@ -145,3 +148,15 @@ def notify_temp_dirs():
     from pathlib import Path
     root = Path(tempfile.gettempdir())
     return {path.name for path in root.glob("strmgen-notify-*")}
+
+
+_CONTROLLED_TAGS = re.compile(r"</?(?:b|code|blockquote(?:\s+expandable)?)>")
+
+
+def visible_text(text: str) -> str:
+    """Read the controlled HTML summary as user-visible text.
+
+    This is a test reader for assertions, not a Telegram renderer. It strips
+    only the tags the product is allowed to emit and decodes their entities.
+    """
+    return html.unescape(_CONTROLLED_TAGS.sub("", text))

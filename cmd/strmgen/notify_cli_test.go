@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -35,6 +36,18 @@ type capturedRequest struct {
 	content   string
 	multipart bool
 	chatID    string
+	parseMode string
+}
+
+// visibleText reads the controlled HTML summary as user-visible text. It is a
+// test reader, not a Telegram renderer.
+func visibleText(text string) string {
+	replacer := strings.NewReplacer(
+		"<b>", "", "</b>", "",
+		"<code>", "", "</code>", "",
+		"<blockquote expandable>", "", "</blockquote>", "",
+	)
+	return html.UnescapeString(replacer.Replace(text))
 }
 
 func newTelegramReceiver(t *testing.T) *telegramReceiver {
@@ -73,6 +86,9 @@ func newTelegramReceiver(t *testing.T) *telegramReceiver {
 			}
 			if v := values["text"]; len(v) > 0 {
 				captured.content = v[0]
+			}
+			if v := values["parse_mode"]; len(v) > 0 {
+				captured.parseMode = v[0]
 			}
 		}
 		r.mu.Lock()
@@ -215,8 +231,11 @@ func TestSyncNotificationLongInstanceNameStaysBounded(t *testing.T) {
 			if n := notify.UTF16Len(text); n > notify.BodyMaxUTF16Units {
 				t.Fatalf("summary = %d UTF-16 units, over the limit:\n%s", n, text)
 			}
-			if !strings.Contains(text, "新增 1") {
+			if !strings.Contains(text, "➕ 新增 1") {
 				t.Fatalf("statistics lost to the instance name:\n%s", text)
+			}
+			if messages[0].parseMode != "HTML" {
+				t.Fatalf("parse_mode = %q", messages[0].parseMode)
 			}
 			if !strings.Contains(text, "…") {
 				t.Fatalf("the truncated instance name must carry an omission marker:\n%s", text)
@@ -282,18 +301,25 @@ func TestSyncNotificationSendsOneSummaryPerRun(t *testing.T) {
 	if first.chatID != "-10042" {
 		t.Fatalf("chat = %q", first.chatID)
 	}
-	if !strings.Contains(first.content, "家庭媒体 STRM 同步报告") {
-		t.Fatalf("body header missing:\n%s", first.content)
+	body := visibleText(first.content)
+	if !strings.Contains(first.content, "<b>✅ STRM 同步完成</b>") {
+		t.Fatalf("body title missing:\n%s", first.content)
 	}
-	if !strings.Contains(first.content, "新增 3") {
-		t.Fatalf("first run must report the created files:\n%s", first.content)
+	if !strings.Contains(body, "🏷️ 家庭媒体 · sync") {
+		t.Fatalf("body header missing:\n%s", body)
 	}
-	if !strings.Contains(first.content, "结果：成功") {
-		t.Fatalf("first run result:\n%s", first.content)
+	if !strings.Contains(body, "➕ 新增 3") {
+		t.Fatalf("first run must report the created files:\n%s", body)
+	}
+	if first.parseMode != "HTML" {
+		t.Fatalf("parse_mode = %q", first.parseMode)
 	}
 	second := messages[1]
-	if !strings.Contains(second.content, "本轮无新增、更新、删除或归属回收事件") {
+	if !strings.Contains(visibleText(second.content), "本轮无新增、更新、删除或归属回收事件") {
 		t.Fatalf("second run body:\n%s", second.content)
+	}
+	if second.parseMode != "HTML" {
+		t.Fatalf("second parse_mode = %q", second.parseMode)
 	}
 	if receiver.sentDocuments() != nil {
 		t.Fatal("a fitting round must not upload an attachment")
@@ -411,8 +437,12 @@ func TestSyncNotificationPolicyErrorOnlySendsFailures(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("messages = %d, want exactly the failure summary", len(messages))
 	}
-	if !strings.Contains(messages[0].content, "未完成") {
-		t.Fatalf("failure body:\n%s", messages[0].content)
+	failureBody := visibleText(messages[0].content)
+	if !strings.Contains(failureBody, "❌ STRM 同步失败（全部来源未完成）") || !strings.Contains(failureBody, "未完成") {
+		t.Fatalf("failure body:\n%s", failureBody)
+	}
+	if messages[0].parseMode != "HTML" {
+		t.Fatalf("failure parse_mode = %q", messages[0].parseMode)
 	}
 	if strings.Contains(messages[0].content, "统计：不可用") {
 		t.Fatalf("a source failure has a report; counts must not be unavailable:\n%s", messages[0].content)
@@ -521,10 +551,13 @@ func TestSyncNotificationReportsMissingProgressAndDeletion(t *testing.T) {
 	if len(messages) != 5 {
 		t.Fatalf("messages = %d", len(messages))
 	}
-	if !strings.Contains(messages[1].content, "缺失计数 来源 0 Gone.strm（计数 0→1/阈值 3，原因 源目标未读到，首次进入待删除，文件仍保留）") {
+	if !strings.Contains(visibleText(messages[1].content), "⏳ 待删除计数 · 来源 0 · Gone.strm（计数 0→1/阈值 3，原因 源目标未读到，首次进入待删除，文件仍保留）") {
 		t.Fatalf("first advance:\n%s", messages[1].content)
 	}
-	if !strings.Contains(messages[2].content, "计数 1→2/阈值 3，原因 源目标未读到，待删除计数推进，文件仍保留") {
+	if !strings.Contains(messages[1].content, "<code>Gone.strm</code>") {
+		t.Fatalf("first advance path markup missing:\n%s", messages[1].content)
+	}
+	if !strings.Contains(visibleText(messages[2].content), "计数 1→2/阈值 3，原因 源目标未读到，待删除计数推进，文件仍保留") {
 		t.Fatalf("second advance:\n%s", messages[2].content)
 	}
 	third := messages[3]
@@ -538,7 +571,7 @@ func TestSyncNotificationReportsMissingProgressAndDeletion(t *testing.T) {
 	if !strings.Contains(last.content, "实际删除 1") {
 		t.Fatalf("deletion summary:\n%s", last.content)
 	}
-	if !strings.Contains(last.content, "实际删除 来源 0 Gone.strm（删除前计数 3/阈值 3，已实际删除，原因 源目标未读到）") {
+	if !strings.Contains(visibleText(last.content), "🗑️ 实际删除 · 来源 0 · Gone.strm（删除前计数 3/阈值 3，已实际删除，原因 源目标未读到）") {
 		t.Fatalf("deleted event missing:\n%s", last.content)
 	}
 	if _, err := os.Stat(filepath.Join(root, "Gone.strm")); !os.IsNotExist(err) {
@@ -577,14 +610,15 @@ func TestSyncNotificationDegradedWhenCollectionFails(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("messages = %d, want exactly one degraded summary", len(messages))
 	}
-	if !strings.Contains(messages[0].content, "明细不完整：本轮明细收集不可用") {
-		t.Fatalf("summary must mark the unknown detail:\n%s", messages[0].content)
+	degradedBody := visibleText(messages[0].content)
+	if !strings.Contains(degradedBody, "明细不完整：本轮明细收集不可用") {
+		t.Fatalf("summary must mark the unknown detail:\n%s", degradedBody)
 	}
-	if strings.Contains(messages[0].content, "本轮无新增、更新、删除或归属回收事件") {
-		t.Fatalf("unknown detail must never read as zero events:\n%s", messages[0].content)
+	if strings.Contains(degradedBody, "本轮无新增、更新、删除或归属回收事件") {
+		t.Fatalf("unknown detail must never read as zero events:\n%s", degradedBody)
 	}
-	if !strings.Contains(messages[0].content, "新增 2") {
-		t.Fatalf("report counters must still be summarized:\n%s", messages[0].content)
+	if !strings.Contains(degradedBody, "➕ 新增 2") {
+		t.Fatalf("report counters must still be summarized:\n%s", degradedBody)
 	}
 	for _, name := range []string{"F00.strm", "F01.strm"} {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {

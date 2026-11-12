@@ -40,7 +40,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
-from telegram_receiver import TelegramReceiver  # noqa: E402
+from telegram_receiver import TelegramReceiver, visible_text  # noqa: E402
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
 # A distinctive synthetic value. It must never appear in the image, a Compose
@@ -726,13 +726,16 @@ notifications:
         check(run.returncode == 0, f"container notification run failed: {run.stderr}")
         messages = receiver.messages()
         check(len(messages) == 2, f"messages = {len(messages)}, want one per sync round")
-        first = messages[0]["text"]
-        check("家庭媒体 STRM 同步报告" in first, f"header missing:\n{first}")
-        check("新增 30" in first, f"created count missing:\n{first}")
-        check("运行方式：sync" in first, f"run mode missing:\n{first}")
-        check(SECRET_MARKER not in first and "container-token" not in first and "-10042" not in first,
+        first_raw = messages[0]["text"]
+        first = visible_text(first_raw)
+        check(messages[0].get("parse_mode") == "HTML", "container summary must request HTML parse mode")
+        check("<b>✅ STRM 同步完成</b>" in first_raw, f"result title missing:\n{first_raw}")
+        check("🏷️ 家庭媒体 · sync" in first, f"header missing:\n{first}")
+        check("➕ 新增 30" in first, f"created count missing:\n{first}")
+        check("<blockquote expandable>" in first_raw, f"30-event preview must be folded:\n{first_raw}")
+        check(SECRET_MARKER not in first_raw and "container-token" not in first_raw and "-10042" not in first_raw,
               "container summary leaks a credential")
-        check(api not in first, "container summary leaks the API URL")
+        check(api not in first_raw, "container summary leaks the API URL")
         docs = receiver.documents()
         check(len(docs) == 1, f"documents = {len(docs)}, want exactly one listing")
         listing = docs[0]["document"]

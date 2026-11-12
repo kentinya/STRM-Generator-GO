@@ -31,7 +31,9 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
-from telegram_receiver import TelegramReceiver, notify_temp_dirs, telegram_env  # noqa: E402
+from telegram_receiver import (  # noqa: E402
+    TelegramReceiver, notify_temp_dirs, telegram_env, visible_text,
+)
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
 # A valid version-1 STRM that is not owned by the generator. Used to prove that
@@ -2809,12 +2811,13 @@ def scenario_notifications(h, results):
         check(first.returncode == 0, f"notification sync exit {first.returncode}: {first.stderr}")
         messages = receiver.messages()
         check(len(messages) == 1, f"messages = {len(messages)}, want exactly one per round")
-        body = messages[0]["text"]
-        check("家庭媒体 STRM 同步报告" in body, f"instance header missing:\n{body}")
-        check("运行方式：sync" in body, f"run mode missing:\n{body}")
-        check("新增 4" in body, f"created count missing:\n{body}")
-        check("结果：成功" in body, f"result missing:\n{body}")
-        check("来源总数：1（完成 1 / 未完成 0）" in body, f"source line:\n{body}")
+        raw_body = messages[0]["text"]
+        body = visible_text(raw_body)
+        check(messages[0].get("parse_mode") == "HTML", "summary must request HTML parse mode")
+        check("<b>✅ STRM 同步完成</b>" in raw_body, f"result title missing:\n{raw_body}")
+        check("🏷️ 家庭媒体 · sync" in body, f"instance header missing:\n{body}")
+        check("➕ 新增 4" in body, f"created count missing:\n{body}")
+        check("📂 来源 1 · 完成 1 / 未完成 0" in body, f"source line:\n{body}")
         check(receiver.documents() == [], "a fitting round must not upload an attachment")
         # Two separate runs naturally carry different wall-clock mtimes; the
         # equivalence contract compares the actual bytes.
@@ -2841,7 +2844,7 @@ def scenario_notifications(h, results):
         check(second.returncode == 0, f"second sync exit {second.returncode}")
         messages = receiver.messages()
         check(len(messages) == 1, f"second round messages = {len(messages)}")
-        check("本轮无新增、更新、删除或归属回收事件" in messages[0]["text"],
+        check("本轮无新增、更新、删除或归属回收事件" in visible_text(messages[0]["text"]),
               f"second round body:\n{messages[0]['text']}")
         check(receiver.documents() == [], "an unchanged round must not upload an attachment")
 
@@ -2876,8 +2879,10 @@ def scenario_notifications(h, results):
         check(failed.returncode == 1, f"failed sync exit {failed.returncode}")
         messages = receiver.messages()
         check(len(messages) == 1, f"failure messages = {len(messages)}")
-        check("未完成" in messages[0]["text"], f"failure body:\n{messages[0]['text']}")
-        check("统计：不可用" not in messages[0]["text"],
+        failure_body = visible_text(messages[0]["text"])
+        check("未完成" in failure_body, f"failure body:\n{failure_body}")
+        check(messages[0].get("parse_mode") == "HTML", "failure summary must request HTML parse mode")
+        check("统计：不可用" not in failure_body,
               "a source failure has a report; counts must not be unavailable")
         check(api not in messages[0]["text"], "failure summary leaks the API URL")
 
@@ -2903,7 +2908,7 @@ def scenario_notifications(h, results):
         check(changed.returncode == 0, f"change round failed: {changed.stderr}")
         messages = receiver.messages()
         check(len(messages) == 1, f"change messages = {len(messages)}")
-        check("更新 1" in messages[0]["text"], f"change body:\n{messages[0]['text']}")
+        check("✏️ 更新 1" in visible_text(messages[0]["text"]), f"change body:\n{messages[0]['text']}")
 
         # Attachment: 30 files overflow the 20-event preview; the round sends
         # one summary plus one bounded document carrying every event.
@@ -2919,6 +2924,15 @@ def scenario_notifications(h, results):
         big = h.run(big_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
         check(big.returncode == 0, f"big sync exit {big.returncode}: {big.stderr}")
         check(len(receiver.messages()) == 1, "the big round sends exactly one summary")
+        big_summary = receiver.messages()[0]
+        check(big_summary.get("parse_mode") == "HTML", "big summary must request HTML parse mode")
+        big_body = visible_text(big_summary["text"])
+        check("<blockquote expandable>" in big_summary["text"],
+              f"30-event preview must be folded:\n{big_summary['text']}")
+        check("正文预览 20 条，另有 10 条未展示。" in big_body,
+              f"preview omission note missing:\n{big_body}")
+        check("📎 完整清单 30 条，随附上传。" in big_body,
+              f"attachment note missing:\n{big_body}")
         docs = receiver.documents()
         check(len(docs) == 1, f"documents = {len(docs)}, want exactly one listing")
         listing = docs[0]["document"]
@@ -2977,7 +2991,7 @@ def scenario_notifications_cleanup(h, results):
             receiver.requests.clear()
             run = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
             check(run.returncode == 0, f"round {round_index} exit {run.returncode}: {run.stderr}")
-            body = receiver.messages()[0]["text"]
+            body = visible_text(receiver.messages()[0]["text"])
             check(f"A.strm（计数 {round_index - 1}→{round_index}/阈值 3，原因 源目标未读到，"
                   + ("达到阈值，等待后续清理重核，不等于已删除" if round_index == 3
                      else ("首次进入待删除，文件仍保留" if round_index == 1
@@ -3006,10 +3020,14 @@ def scenario_notifications_cleanup(h, results):
              "hash_info": {"sha1": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}}]
         fourth = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
         check(fourth.returncode == 0, f"fourth round exit {fourth.returncode}: {fourth.stderr}")
-        body = receiver.messages()[0]["text"]
-        check("实际删除 来源 0 A.strm（删除前计数 3/阈值 3，已实际删除，原因 源目标未读到）" in body,
+        raw_body = receiver.messages()[0]["text"]
+        body = visible_text(raw_body)
+        check(receiver.messages()[0].get("parse_mode") == "HTML",
+              "cleanup summary must request HTML parse mode")
+        check("🗑️ 实际删除 · 来源 0 · A.strm（删除前计数 3/阈值 3，已实际删除，原因 源目标未读到）" in body,
               f"deletion event missing:\n{body}")
-        check("取消待删除 来源 0 B.strm（计数 3→0/阈值 3，已确认恢复条件，文件保留）" in body,
+        check("<code>A.strm</code>" in raw_body, f"deletion path markup missing:\n{raw_body}")
+        check("↩️ 恢复保留 · 来源 0 · B.strm（计数 3→0/阈值 3，已确认恢复条件，文件保留）" in body,
               f"restore clear missing:\n{body}")
         check("实际删除 1" in body, f"deletion summary:\n{body}")
         check(not (root / "A.strm").exists(), "A.strm was not deleted")

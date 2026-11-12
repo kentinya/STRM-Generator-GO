@@ -1,7 +1,7 @@
 # Slice 路线图
 
 V4.4、自定义扩展名与 Telegram 通知增量均已交付，Slice 1–6 PASS / CLOSED。
-当前独立修复 FIX-TG-01 已激活，计划与进度见 [TASK](../TASK.md)；历史 Slice 结论不变。
+当前独立修复 FIX-TG-01 已实施并等待独立 B 审查，计划与证据见 [TASK](../TASK.md)；历史 Slice 结论不变。
 业务规则见[需求](requirements.md)，最终结果见
 [当前 Slice](../SLICE.md#closure-packet)，计划与审查历史见
 [固定 Git 检查点](development-workflow.md#历史记录)。

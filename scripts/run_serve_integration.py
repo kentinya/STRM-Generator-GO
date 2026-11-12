@@ -35,7 +35,9 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_openlist import TOKEN, load_fixture, make_server  # noqa: E402
-from telegram_receiver import TelegramReceiver, notify_temp_dirs, telegram_env  # noqa: E402
+from telegram_receiver import (  # noqa: E402
+    TelegramReceiver, notify_temp_dirs, telegram_env, visible_text,
+)
 
 DEFAULT_PUBLIC = "https://openlist.example.invalid"
 ALL_SCENARIOS = [
@@ -613,17 +615,21 @@ def scenario_serve_notifications(h, results):
         check(wait_for(lambda: receiver.count() == 1, 30, "holder summary missing"),
               f"holder messages: {receiver.count()}")
         first = receiver.messages()[0]
-        check("运行方式：sync" in first["text"], f"holder body:\n{first['text']}")
-        check("新增 4" in first["text"], f"holder counts:\n{first['text']}")
+        first_body = visible_text(first["text"])
+        check(first.get("parse_mode") == "HTML", "holder summary must request HTML parse mode")
+        check("🏷️ 家庭媒体 · sync" in first_body, f"holder body:\n{first_body}")
+        check("➕ 新增 4" in first_body, f"holder counts:\n{first_body}")
 
         # Phase C: the next serve tick succeeds unchanged and sends exactly one
         # serve summary without change events.
         check(wait_for(lambda: receiver.count() == 2, 30, "serve round message missing"),
               f"serve messages: {receiver.count()}")
         second = receiver.messages()[1]
-        check("运行方式：serve" in second["text"], f"serve body:\n{second['text']}")
-        check("本轮无新增、更新、删除或归属回收事件" in second["text"],
-              f"unchanged serve tick:\n{second['text']}")
+        second_body = visible_text(second["text"])
+        check(second.get("parse_mode") == "HTML", "serve summary must request HTML parse mode")
+        check("🏷️ 家庭媒体 · serve" in second_body, f"serve body:\n{second_body}")
+        check("本轮无新增、更新、删除或归属回收事件" in second_body,
+              f"unchanged serve tick:\n{second_body}")
         check(count_serve_results(stdout_path, "success") >= 1, "serve result line missing")
         check(any("next=" in line for line in read_lines(stdout_path)),
               "the next scheduled line must stay intact")
@@ -636,7 +642,7 @@ def scenario_serve_notifications(h, results):
         check(wait_for(lambda: receiver.count() == 3, 30, "failure message missing"),
               f"failure messages: {receiver.count()}")
         third = receiver.messages()[2]
-        check("未完成" in third["text"], f"failure body:\n{third['text']}")
+        check("未完成" in visible_text(third["text"]), f"failure body:\n{third['text']}")
         fail["on"] = False
 
         # Phase E: the next tick recovers and sends again.

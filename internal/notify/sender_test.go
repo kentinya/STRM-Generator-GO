@@ -38,7 +38,7 @@ func okServer(t *testing.T, hook func(r *http.Request, body []byte) *string) *ht
 
 func TestSendSummaryPostsOfficialEnvelope(t *testing.T) {
 	var gotPath string
-	var gotChat, gotText string
+	var gotChat, gotText, gotParseMode string
 	ts := okServer(t, func(r *http.Request, body []byte) *string {
 		gotPath = r.URL.Path
 		values, err := parseValues(r, body)
@@ -47,17 +47,18 @@ func TestSendSummaryPostsOfficialEnvelope(t *testing.T) {
 		}
 		gotChat = values["chat_id"]
 		gotText = values["text"]
+		gotParseMode = values["parse_mode"]
 		return nil
 	})
 	s := NewSenderWithBase("123:ABC", "-10042", ts.URL)
-	if err := s.Send(context.Background(), "正文", ""); err != nil {
+	if err := s.Send(context.Background(), "<b>正文</b>", ""); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	if gotPath != "/bot123:ABC/sendMessage" {
 		t.Fatalf("endpoint = %s", gotPath)
 	}
-	if gotChat != "-10042" || gotText != "正文" {
-		t.Fatalf("form = chat %q text %q", gotChat, gotText)
+	if gotChat != "-10042" || gotText != "<b>正文</b>" || gotParseMode != "HTML" {
+		t.Fatalf("form = chat %q text %q parse_mode %q", gotChat, gotText, gotParseMode)
 	}
 }
 

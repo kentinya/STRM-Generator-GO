@@ -14,7 +14,8 @@ import (
 const (
 	// PreviewMaxEvents bounds the file events shown in the message body.
 	PreviewMaxEvents = 20
-	// BodyMaxUTF16Units bounds the plain-text message body.
+	// BodyMaxUTF16Units bounds the complete HTML message body, including
+	// tags and entities, in UTF-16 code units.
 	BodyMaxUTF16Units = 3500
 	// AttachmentMaxBytes bounds the single temporary attachment, including its
 	// header and trailer lines. It stays below the platform upload limit and
