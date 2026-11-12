@@ -8,7 +8,7 @@ Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
 Test Level: T4
-Implementation Head: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7
+Implementation Head: 7c54baf660150ced9ac87e41d34dc4631f923fa1
 ```
 
 以下为原规划／激活记录；当前以本页末尾独立 B 审查为准。
@@ -137,14 +137,15 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 ## 完成报告与审查
 
 ```text
-Implementation Status: FIX REQUIRED (independent B re-review complete)
+Implementation Status: FIX REQUIRED (B-R1..B-R3 corrected; independent B re-review pending)
 Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..9dbb58c20be182edbdc64637e1c9ee9a79c901d7
 Fix Range: 20e5325fd034b5295d383cd82d2d966d63252a53..9dbb58c20be182edbdc64637e1c9ee9a79c901d7 (B-01..B-08 corrections within Task 6.1)
-Local Evidence: existing affected-package and tagged CLI tests PASS; independent probes reproduce three remaining contract gaps
+B-R Fix Range: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7..7c54baf660150ced9ac87e41d34dc4631f923fa1
+Local Evidence: quality/race/tagged CLI PASS; sync 14/14, serve 8/8, container 6/6 on candidate 7c54baf
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
-B Product Review: FIX REQUIRED (2026-11-12 re-review; B-R1..B-R3 below)
+B Product Review: FIX REQUIRED (2026-11-12 re-review; B-R1..B-R3 below; B-R fix awaiting re-review)
 A Final Review: PENDING
-Remaining Work: correct B-R1..B-R3 in Task 6.1 and re-review; separately authorized real Telegram evidence; A closure
+Remaining Work: independent B re-review of 1bfac551..7c54baf; separately authorized real Telegram evidence; A closure
 ```
 
 ### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
@@ -297,6 +298,40 @@ transport；本轮未运行该外网用例。所有验证只需在既有测试�
 交接：Developer 在 **Task 6.1** 原范围修复 B-01..08、补上述缺失断言并提交新 Implementation Head，
 保留首次失败及旧检查点；B 再审完整 Task Base..新 Head 并重评所有 RO。
 真实 Telegram 仍需用户另行明确授权的测试 Bot／聊天；本轮不请求秘密、不预签下一 Task。
+
+### Developer B-R 修正轮报告（2026-11-12，Head `7c54baf`）
+
+在 Task 6.1 原范围内修正独立 B 复审全部三项（B-R1..B-R3），未扩大业务范围、未改
+删除资格、协议或远端兼容语义；旧检查点 `9dbb58c` 保留。逐项修正与测试证据见
+[artifacts/task-6.1/EVIDENCE.md](artifacts/task-6.1/EVIDENCE.md) B-R 修正轮小节及
+[artifacts/validation-evidence/task6.1-br-fix-evidence/metadata.json](artifacts/validation-evidence/task6.1-br-fix-evidence/metadata.json)
+（输入 SHA、二进制摘要、命令、退出码、原始日志，含两次驱动侧首失败）。
+
+- **B-R1（P1）**：`factSinkAdapter.Record` 将缺失推进路由到
+  `Collector.RecordProvisional`，真实事务失败后的 `DiscardStaged` 现在真正撤销
+  未提交候选；`DiscardProvisional` 在清单文件无法回退（写入失败叠加回滚）时仍撤销
+  total／preview／anyChange／limitHit 的未提交事实，只保留写失败标记与已发生事实。
+  验收用例 `TestMissingAdvancesFollowRealCommitFacts` 走生产链路：真实 Store、
+  真实 syncer、生产 adapter、真实 collector；取消 context 使真实事务在
+  `StageAdvance` 之后失败，核对 DB 计数不变、预览与正文无 1→2 候选、已提交的
+  0→1 及其附件行保留。
+- **B-R2（P1）**：`buildHead` 对转义后的实例名实施 Unicode 安全预算，超长时截断
+  并附省略号；标题＋尾部受控，所有成功／失败／初始化失败消息均不超过 3500，
+  未重新引入合同外的配置长度拒绝。CLI 真实入口覆盖合法家×5000 与合法
+  U+202E×800（转义膨胀）两种入口，正文 ≤3500、统计保留、无原始控制符。
+- **B-R3（P1）**：`BuildMessage` 在追加溢出来源明细并写入尾部之后才固定尾部措辞
+  与附件决策；追加写失败、尾部写失败与 8 MiB 截断均使正文如实标注“明细不完整”，
+  不再声称“完整内容见附件清单”，损坏清单不上传；`sendRound` 不再在 BuildMessage
+  后忽略 Finalize 结果。复用单个清单文件，不重复追加来源明细。
+- **验证（最终候选 `7c54baf`）**：`python3 scripts/quality.py` PASS；race
+  （notify／cmd／storage／reconciler 四包）PASS；tagged CLI PASS；sync 集成
+  14/14、serve 集成 8/8、容器集成 6/6（含 notifications 权限断言）PASS；Compose
+  `--no-interpolate` 无值透传通过。首次失败保留：容器驱动首次调用缺
+  `--hooks-binary`（驱动调用错误，非产品缺陷）；CLI 扩展场景首版把原始控制字符
+  直接写入 YAML 双引号标量导致退出 2（配置语法错误入口，非产品缺陷），改用合法
+  U+202E 入口后验收；控制字符实例名被产品校验拒绝，不是合法入口，不作为场景。
+- **剩余限制与风险**：真实 Telegram 送达 NOT RUN（无授权测试目标／凭证）；真实
+  OpenList／Jellyfin／插件链路、ARM64 原生实机与容器内 8 MiB 级数据集不在本轮。
 
 ### 独立 B 复审（2026-11-12，修正轮）
 

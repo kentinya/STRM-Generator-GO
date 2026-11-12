@@ -191,9 +191,9 @@ B Task: 6.1 / FIX REQUIRED
 B Product Review: FIX REQUIRED (2026-11-12 re-review; full Task Base..9dbb58c)
 A Final Review: PENDING
 Decision: FIX REQUIRED (B local review; A final decision PENDING)
-Implementation Evidence: Task 6.1 fix implementation at 9dbb58c20be182edbdc64637e1c9ee9a79c901d7; Developer full-suite results indexed in artifacts/task-6.1/EVIDENCE.md; independent re-review found B-R1..B-R3
+Implementation Evidence: Task 6.1 fix implementation at 9dbb58c20be182edbdc64637e1c9ee9a79c901d7; Developer full-suite results indexed in artifacts/task-6.1/EVIDENCE.md; independent re-review found B-R1..B-R3; B-R corrections at 7c54baf660150ced9ac87e41d34dc4631f923fa1
 Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: Task 6.1 corrections B-R1..B-R3; B re-review; separately authorized real Telegram evidence; A closure
+Remaining Authorized Work: B re-review of 1bfac551..7c54baf; separately authorized real Telegram evidence; A closure
 ```
 
 独立 B 复审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..9dbb58c20be182edbdc64637e1c9ee9a79c901d7`，
