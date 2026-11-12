@@ -1,8 +1,8 @@
 # Task FIX-TG-01 — Telegram 通知排版与图标
 
 Slice 1–6 均已 PASS / CLOSED，历史结论见 [Slice 6 Closure Packet](SLICE.md#closure-packet)。
-独立小版本修复 `FIX-TG-01` 已按用户要求激活，状态为 IN PROGRESS。
-本轮完成独立任务治理接入与检查点固定；通知产品实现尚未开始，真实通知未发送。
+独立小版本修复 `FIX-TG-01` 已完成本地实现与独立 B 审查，结论为 FIX REQUIRED。
+本地验收通过；剩余交付是 TG-6 的新版真实客户端视觉与接收证据，开发指导见本页审查报告。
 
 ## 独立修复 Task FIX-TG-01 — Telegram 通知排版与图标
 
@@ -11,13 +11,13 @@ Task ID: FIX-TG-01
 Task Type: standalone-fix
 Parent Slice: NONE
 Related Slice: 6
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: 959451530efbfe8a646f80ce325b4f789f85e770
 Contract Checkpoint: e1f7bb5de5c61953bda42c58721530842f982a94
 Implementation Head: 57d1436456189576e740b4f112a43bd0b8cd94b7
 Difficulty: Medium
 Test Level: T3
-Independent B Review: PENDING
+Independent B Review: FIX REQUIRED
 Real Telegram Visual Check: NOT RUN
 ```
 
@@ -285,6 +285,95 @@ Telegram 发送授权，因此 TG-6 为 NOT RUN，整体验收不能由以下本
   本次未改持久化、删除、清理资格、STRM 字节或调度接口，按计划采用受影响回归。
 - 未提交输入：实现提交前无额外未提交文件；本报告在实现提交后追加，审查范围应覆盖
   实现 Head 与本报告提交。剩余阻塞为 TG-6 真实视觉证据与独立 B 决定。
+
+### 独立 B 审查（2026-11-12）
+
+```text
+Reviewer: B（本轮独立审查，未参与被审产品实现）
+Decision: FIX REQUIRED
+Reviewed Range: 959451530efbfe8a646f80ce325b4f789f85e770..f8a8d7b12bd7781736b2ed7f73771475ad40d5e3
+Reviewed Implementation: 57d1436456189576e740b4f112a43bd0b8cd94b7
+Blocker: B-TG-01 — TG-6 新版真实客户端视觉与附件接收尚未验证
+Visual Evidence: NOT RUN
+```
+
+审查覆盖上述完整范围的 21 个变更文件，包括独立任务治理接入、产品、测试、驱动、
+文档和实现后的报告；`57d1436..f8a8d7b` 仅改 TASK 报告，产品源码一致。
+复核了当前流程及固定历史检查点中的 B 角色指南。Slice 6 原文与 Task Base 完全一致，
+Base、计划检查点和实现 Head 的祖先关系成立。产品行为变化集中在正文展示及
+`sendMessage` 的 HTML 参数；Collector 仅改注释，reconciler、storage、配置与调度未改。
+
+**本地范围通过，整项任务尚不能关闭。** 本轮未发现需要修改产品代码的阻塞问题。
+唯一阻塞 B-TG-01 对应原计划 TG-6：用户完成同步后，在 Telegram 中看到正确的粗体与
+图标，点击展开查看文件，再下载清单核对全部文件，这段实际使用过程尚无新版证据。
+现有 mock 能证明请求内容与附件字节；它不执行客户端展开操作。旧版截图与接收附件
+属于已关闭的 Slice 6，不能证明本次新增的 HTML 展示。
+
+| 验收项 | B 本次结果 | 核对依据 |
+|---|---|---|
+| TG-1 | 本地 PASS | 四种结果标题、九项分行统计、初始化失败计数不可用；原 Outcome 接入保留 |
+| TG-2 | 本地 PASS | 五／六条折叠边界、二十条预览及溢出清单；六类事件保留原来源、路径与清理阶段；CLI 验证三次推进、恢复清零及实际删除 |
+| TG-3 | 本地 PASS | 动态值转义、字面实体、长实例／路径及 UTF-16 预算回归；正文按完整区块计长，路径整体转入附件 |
+| TG-4 | 本地 PASS | 多来源与无事件溢出、收集不可用、正文外写失败／大小上限提示；来源补写在 Finalize 前完成，附件保持纯文本 |
+| TG-5 | 本地 PASS | HTML 参数、发送失败隔离及无重试；tagged CLI 与实 CLI 验证开关、策略、dry-run、锁忙、取消、清理与后续恢复 |
+| TG-6 | NOT RUN／阻塞 | 尚无新版成功轮、来源失败轮的真实客户端检查与接收附件核对 |
+| TG-7 | 治理与本地证据 PASS；收尾未完成 | 完整 Base..Head 已独立审查，最终决定 FIX REQUIRED；待 TG-6 补齐后由 B 续审关闭 |
+
+关联 Slice 的影响也已重评：RO-1 的配置／触发、RO-2 的结果事实、RO-4 的已提交清理
+进度、RO-5 的锁外发送与失败隔离由本轮回归确认；RO-3 的新展示本地通过，真实展示
+随 TG-6 待验；RO-6 的当前文档已核对，新版接收证据待补；RO-7 的本独立修复尚未闭环。
+这些是本修复的影响判断，Slice 1–6 的历史 PASS / CLOSED 保持原结论。
+
+#### B 验证与证据
+
+本轮证据：`artifacts/validation-evidence/fix-tg-01-b-dnge8vhf/`。
+命令、cwd、退出码和耗时见 `review.json`，原始输出见同名日志；所有新增夹具在该目录。
+
+| 独立执行 | 结果 |
+|---|---|
+| `bash scripts/go-local test -count=1 ./...` | 全部 10 包 PASS |
+| `bash scripts/go-local test -count=1 -tags strmgen_testhooks ./cmd/strmgen` | PASS |
+| `bash scripts/go-local vet ./...` | PASS |
+| `python3 -m unittest discover -s tests -p test_governance.py -v` | 31/31 PASS |
+| 现有 sync 驱动 `--scenario notifications,notifications_cleanup` | 2/2 PASS |
+| 现有 serve 驱动 `--scenario serve_notifications` | 1/1 PASS |
+
+CLI 使用现有两份二进制，已核对其摘要与 Developer 原记录一致；发布二进制的
+`go version -m` 为 `f8a8d7b12bd7781736b2ed7f73771475ad40d5e3`、`vcs.modified=false`。
+发布／测试钩子二进制 SHA-256 分别为
+`b50142ef499cbd969aace468d941762454fec664f254f86782dc8ff5503bfa1e`／
+`0f83ed05c63d48ddbbc85f025b2b19154a2081226aab3d4b3bcedca28e8d118e`。
+复用 Developer `fix-tg-01-sync-R7W9DH/final-quality3.log` 的完整质量结果与
+`race3.log` 的受影响两包 race 结果；24 项日志、二进制及源码关系核对全部一致，
+详见 `reused-evidence-check.json`。复用结果不写成本轮独立重跑。
+
+本轮上述独立检查首次均通过，未修改产品代码或测试。审查文档更新后的提交前治理
+检查因路线图尚未提交而拒绝，原始输出保存在 `governance-working.log`；提交后另行复核。
+测试及静态检查命令合计不足一分钟；连续计时审查超过三分钟（此前文档与代码阅读
+未计入），测试占本轮时间低于
+50%。真实 Telegram 发送／客户端检查仍 NOT RUN；本轮未读取历史凭证。
+容器全套、真实 OpenList／Jellyfin／插件及 ARM64 原生运行未重跑，沿用本任务 T3 边界。
+
+#### 开发指导：补齐 B-TG-01 后交回 B
+
+继续原 FIX-TG-01，保留 Base、计划检查点和当前实现 Head。剩余工作以现有产品入口及
+接收证据为主；无需新增测试平台或扩大功能。真实发送须有用户当次明确授权的专用
+Bot／聊天及当前环境凭证，当前会话尚未提供该授权。
+
+1. 在新建的 `artifacts/validation-evidence/` 隔离目录内准备配置、输出与状态，复用
+   `scripts/mock_openlist.py` 的现有夹具能力。用当前发布二进制的正常
+   `strmgen sync --config <隔离配置>` 发送一次 25 文件成功轮；首批预览纳入中文、
+   emoji、`&<>` 和字面 `&lt;b&gt;` 文件名，使接收端能直接核对真实文件身份。
+2. 在 Telegram 中记录客户端名称／版本，查看摘要标题、分行统计和特殊文件名，
+   保存折叠前及点击展开后的脱敏截图；下载实际接收的 `strm-events.txt`，核对 25 条
+   路径、顺序、运行时间标识、总数与输出，并记录接收文件 SHA-256。
+3. 使用同一现有夹具的列表失败能力，通过正常 CLI 再运行一次来源失败轮；在客户端
+   核对失败标题和来源诊断，保存接收截图与对应退出码／日志。由正常同步形成报告，
+   不直接调用发送 API 拼装成功消息。
+4. 在 Task Report 追加当前源码／二进制身份、两轮命令、结果、消息关联信息、截图与
+   接收附件索引，更新真实视觉字段并交回 READY FOR B REVIEW。产品源码未改时复用
+   本轮本地回归；若实际展示发现问题，只修对应渲染／交接并运行直接相关检查。
+   B 核对新增接收证据及后续完整差异后决定是否关闭，本独立修复无需追加 A 验收。
 
 ## 已完成 Task 6.1
 

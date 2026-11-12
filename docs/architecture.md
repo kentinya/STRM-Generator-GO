@@ -5,7 +5,8 @@
 当前实现支持 `sync`、`sync --dry-run`、定时 `serve`、全局自定义媒体扩展名和可选的
 Telegram 运行通知（本地实现与真实文本／附件送达均已验收）。
 V4.4、Slice 5 与 Slice 6 增量均已交付，Slice 1–6 PASS / CLOSED。
-独立修复 FIX-TG-01 已实施，新版 HTML 排版等待独立 B 审查，范围与证据见 [TASK](../TASK.md)。
+独立修复 FIX-TG-01 的 B 结论为 FIX REQUIRED：新版 HTML 排版本地验收通过，
+待补真实客户端证据，范围与开发指导见 [TASK](../TASK.md)。
 Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见 TASK／SLICE。
 当前合同见 [SLICE](../SLICE.md)，已关闭结果、分层验收及未运行项见[路线图](roadmap.md)，
 完整合同与过程记录从[固定 Git 检查点](development-workflow.md#历史记录)查阅。

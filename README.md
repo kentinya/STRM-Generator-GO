@@ -223,4 +223,4 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-Slice 1–6 均已 PASS / CLOSED；独立修复 FIX-TG-01 已实施，等待独立 B 审查，范围与证据见 [TASK](TASK.md)。
+Slice 1–6 均已 PASS / CLOSED；独立修复 FIX-TG-01 的 B 结论为 FIX REQUIRED，本地验收通过，待补新版真实客户端证据，见 [TASK](TASK.md)。
