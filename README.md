@@ -291,11 +291,9 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-V4.4 与自定义扩展名增量均已交付，Slice 1–5 **PASS / CLOSED**。
-[Slice 6](SLICE.md) 的 Telegram 本地实现已通过 Task 6.1 独立 B 审查；
-真实 Telegram 文本／附件送达已由用户确认；A 全范围审查接受本地实现，Slice 6 仅因
-消息身份／实际收件附件摘要缺失判 FIX REQUIRED，详见 [TASK](TASK.md)。
-最近关闭结果见 [Slice 5 历史审查](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)。
+V4.4、自定义扩展名与 Telegram 通知增量均已交付，Slice 1–6 **PASS / CLOSED**。
+[Slice 6](SLICE.md#closure-packet) 已经 A 完整范围审查及真实回执续审通过，
+当前无活动实施任务。原 Task 计划、B 审查与 P2 自复核入口见 [TASK](TASK.md)。
 固定万文件、Jellyfin 原始扫描与插件八行决定属于 Slice 4 历史验收，
 Slice 5 使用合成 CLI／回归证据，未重跑真实服务、容器或规模验收。
 探测启动不等于探测成功；ARM64 原生实机与正式发布仍 NOT RUN，完整边界见[路线图](docs/roadmap.md)。

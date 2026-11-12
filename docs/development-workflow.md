@@ -175,12 +175,14 @@ SLICE／TASK 维护当前状态与追溯入口，路线图汇总已交付能力�
 | Slice 1–4 旧计划、角色经验、Slice 4 A 审查与资产清单 | `4d16846722f31aa9615494b90df715cf4b5bb6df` | `docs/`、`Task/` |
 | Task 5.1 正式计划、完成报告、首次失败／修复及独立 B 审查 | `85a31337bb1a36bba9198fd8ff77959fc8d151cd` | `TASK.md` |
 | Slice 5 完整原合同与 A 最终审查 | `4ee49b872dba0964de1c62ec11d63b1717221b7a` | `SLICE.md` |
+| Task 6.1 完整计划、完成报告、B 审查、P2 自复核、真实送达记录与 A 首次退回补证 | `89bf67b7868561ab27f307ea88604a65136f4f7f` | `TASK.md`、`SLICE.md` |
 
 ```bash
 git ls-tree -r --name-only 4d16846722f31aa9615494b90df715cf4b5bb6df -- docs Task
 git show 4d16846722f31aa9615494b90df715cf4b5bb6df:docs/slice-4-a-final-review.md
 git show 85a31337bb1a36bba9198fd8ff77959fc8d151cd:TASK.md
 git show 4ee49b872dba0964de1c62ec11d63b1717221b7a:SLICE.md
+git show 89bf67b7868561ab27f307ea88604a65136f4f7f:TASK.md
 ```
 
 历史“当前”、授权与 UNKNOWN 仅属原时点，不转成新权限或无泄露证明；Slice 4 临时认证已撤销。
