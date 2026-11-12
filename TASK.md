@@ -144,8 +144,8 @@ B-R Fix Range: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7..7c54baf660150ced9ac87e4
 Local Evidence: independent quality/full race/prior failure probes/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
 Real Telegram Evidence: delivery CONFIRMED by API and user; message IDs / received attachment hash NOT CAPTURED
 B Product Review: independent PASS through 7c54baf; P2 self-review PASS by explicit user request (not independent)
-A Final Review: PENDING
-Remaining Work: receipt evidence limits (message IDs / received attachment hash); A final Slice review
+A Final Review: FIX REQUIRED (receipt evidence only; local implementation accepted)
+Remaining Work: B plans receipt evidence closure within Slice 6; A reviews the completed evidence
 ```
 
 ### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
@@ -520,6 +520,21 @@ OpenList 使用既有本机合成夹具，新建独立输出／数据库，不�
 或重建内容的摘要替代。RO-6 的真实送达结果完成，合同规定的回执身份／附件摘要证据仍未齐全，
 交 A 评估；RO-7 A 最终审查继续 PENDING。计数／清理与失败恢复沿用此前本地证据，
 本轮未额外验证其真实 Telegram 送达，也未重跑其他真实外部链路。
+
+### A 交接（2026-11-12）
+
+A 已审查 Slice Base `20677f1906837428324d58885e719ed385a07258` 至交接 Head
+`b92bba22250a1566a7727d18b347441eb3cf19f5` 的完整范围，含 Implementation Head
+`757b082855974c43498ff7e3f5896b31d657a4ea` 的 P2 增量与真实送达证据。
+**Slice 6 判 FIX REQUIRED，仅补真实回执；Task 6.1 本地 PASS 保留。**
+RO-1..5 接受，RO-6 缺消息身份／实际收件附件 SHA-256，RO-7 等补证后最终关闭。
+本次未发现新的产品 P0／P1，不新增小版本修复或产品范围。
+
+本轮质量检查与受影响两包串行 race 通过；18 项证据／源码摘要全部匹配。
+完整结论、复用限制、原始证据目录与 A-01 关闭条件见
+[A 完整范围审查](SLICE.md#a-完整范围审查2026-11-12)。
+下一步由 B 规划原 Slice 内最小补证闭环；本记录不是新 Task，不授权恢复旧凭证或发送
+真实消息，也不要求为取证扩展产品。不能取得回执时如实保留缺项并提交显式合同调整建议。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从
 [固定 Git 检查点](docs/development-workflow.md#历史记录)中的

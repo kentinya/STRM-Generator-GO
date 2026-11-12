@@ -2,7 +2,7 @@
 
 V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 用户于 2026-11-12 授权规划 Slice 6；[Task 6.1](../TASK.md) 原本地范围已独立 B **PASS**，P2 补充修复按用户要求自复核通过；
-[当前 Slice](../SLICE.md) 保持 ACTIVE；真实 Telegram 送达已由用户确认，回执取证及 A 最终验收待完成。
+[当前 Slice](../SLICE.md) 经 A 全范围审查判 FIX REQUIRED，仅补真实回执；真实 Telegram 送达已由用户确认。
 业务规则见[需求](requirements.md)，原合同与审查从[固定 Git 检查点](development-workflow.md#历史记录)查看。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
@@ -12,7 +12,7 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 | 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
-| 6 | Telegram 运行结果与文件清理进度通知 | ACTIVE | Slice 1–5 已交付基线 | Task 6.1 原本地 B PASS；P2 按用户要求自复核关闭，真实 Telegram 送达已确认（回执证据未齐），A 最终审查 PENDING |
+| 6 | Telegram 运行结果与文件清理进度通知 | FIX REQUIRED | Slice 1–5 已交付基线 | A 接受本地实现，Task 6.1 本地 PASS 保留；真实送达确认，消息身份／实际收件附件摘要缺失，交 B 规划最小补证 |
 
 ## Slice 6 当前规划
 
@@ -22,17 +22,20 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 [Slice 6 合同](../SLICE.md)。用户已授权本会话代替 B 规划 Task 6.1，
 Task Base／Contract Checkpoint 均为 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749`；
 此前独立 B 已复审完整 Task Base..`7c54baf`，并核对 Slice Base 以来合同／规划及
-截至 `fe4512e` 的交付报告；Task 6.1 本地 PASS，Slice A 最终决定仍 PENDING。
+截至 `fe4512e` 的交付报告；Task 6.1 本地 PASS 保留。
+A 已独立审查 Slice Base 至 `b92bba22250a1566a7727d18b347441eb3cf19f5` 全范围，
+含 P2 增量与真实送达记录，RO-1..5 接受，未发现新的产品 P0／P1。
 合同已按用户要求精简：单个本轮文本附件、按发生顺序记录，不增加业务状态或持久通知历史。
 Task 6.1 固定单附件上限 8 MiB；配置／CLI／传输按 T3，提交／清零结果接口改动按 T4
 执行全部现有回归及适用恢复／打包验证。真实 Telegram 文本及附件单独取证；
 最终 B 复审中，原三项失败探测、质量检查、全包 race、通知／清理 CLI 与 serve 8/8 均通过；
 回滚虚报、长标题超限和明细写失败提示缺口已修正。Developer 完整 sync 14/14 与容器 6/6
-证据已复核。RO-1..4 本地通过，RO-5 核心通过并保留明细写失败缺少专用本地警告的非阻塞 P2；
+证据已复核。RO-1..4 本地通过，RO-5 的原非阻塞 P2 已由后续固定本地警告修复；
 后续 RO-6 真实文本／附件送达已由 API 与用户确认，消息身份／实际附件摘要仍未采集；
-RO-7 A 最终验收 PENDING。详见 TASK 的真实送达记录。
+RO-6／RO-7 因回执缺项尚未闭合。详见 [A 完整范围审查](../SLICE.md#a-完整范围审查2026-11-12)。
 P2 已补充固定脱敏警告，实施自测及用户指定的自复核通过并关闭；不标作新的独立 B 审查。
-本次已获真实发送授权并完成两种场景；不预签下一 Task，Slice 6 尚未关闭。
+此前真实发送已获授权并完成两种场景；本次 A 未发送真实消息或恢复旧凭证。
+Slice 6 仅退回 A-01 回执补证，交 B 规划最小闭环，不预签下一 Task，不扩展产品功能。
 
 ## Slice 5 已关闭记录
 

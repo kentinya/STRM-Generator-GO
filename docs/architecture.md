@@ -5,7 +5,7 @@
 当前实现支持 `sync`、`sync --dry-run`、定时 `serve`、全局自定义媒体扩展名和可选的
 Telegram 运行通知（Task 6.1 本地实现，真实文本／附件送达已由用户确认）。
 V4.4 与 Slice 5 增量均已交付，Slice 1–5 PASS / CLOSED；Task 6.1 通知本地范围已独立 B PASS，
-Slice 6 仍 ACTIVE，回执取证、P2 关闭记录与 A 最终验收状态见 TASK。
+Slice 6 经 A 全范围审查判 FIX REQUIRED，仅补真实回执；P2 关闭记录与补证状态见 TASK。
 当前合同见 [SLICE](../SLICE.md)，已关闭结果、分层验收及未运行项见[路线图](roadmap.md)，
 完整合同与过程记录从[固定 Git 检查点](development-workflow.md#历史记录)查阅。
 本页维护模块职责与设计约束，业务规则统一见[需求](requirements.md)。

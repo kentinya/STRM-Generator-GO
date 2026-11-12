@@ -3,7 +3,7 @@
 ```text
 Slice ID: 6
 Owner: A
-Status: ACTIVE
+Status: FIX REQUIRED
 Base SHA: 20677f1906837428324d58885e719ed385a07258
 Implementation Head: 757b082855974c43498ff7e3f5896b31d657a4ea
 ```
@@ -189,12 +189,14 @@ A Contract Date: 2026-11-12
 A Contract Revision: 2026-11-12 user-requested simplification; Base unchanged
 B Task: 6.1 / PASS (prior independent local review; P2 self-review per user request)
 B Product Review: independent PASS through 7c54baf; P2 self-review PASS at 757b082 (not independent)
-A Final Review: PENDING
-Decision: ACTIVE (local Task PASS; real delivery confirmed; receipt evidence limits and A final review PENDING)
+A Final Review: FIX REQUIRED (2026-11-12; local implementation accepted; receipt evidence incomplete)
+Decision: FIX REQUIRED
+Reviewed Range: 20677f1906837428324d58885e719ed385a07258..b92bba22250a1566a7727d18b347441eb3cf19f5
+Blockers: A-01 — received-message identity and received-attachment SHA-256 not captured
 Implementation Evidence: 7c54baf660150ced9ac87e41d34dc4631f923fa1; independent quality/full race/prior failures/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
 P2 Implementation Evidence: 757b082855974c43498ff7e3f5896b31d657a4ea; quality and affected-package serial race passed; user-requested self-review PASS
 Real Telegram Evidence: text and attachment delivery CONFIRMED by API and user; message IDs / received attachment hash NOT CAPTURED
-Remaining Authorized Work: receipt evidence limits and A final Slice review
+Remaining Authorized Work: B plans the minimal receipt-evidence closure within Slice 6; A reviews the evidence before closing
 ```
 
 独立 B 最终复审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e41d34dc4631f923fa1`，
@@ -206,7 +208,61 @@ A 最终决定仍 PENDING。详情与证据见 [Task 6.1 最终 B 复审](TASK.m
 随后按用户明确要求完成自复核，P2 关闭（非新的独立 B 审查）；详见 [P2 自复核](TASK.md#p2-自复核2026-11-12用户指定)。
 后续正常 CLI 真实发送文本和附件成功，用户确认内容正常；首次 HTTP 400 失败记录保留。
 消息身份与实际收到附件的 SHA-256 尚未采集，详见 [真实送达记录](TASK.md#真实-telegram-送达验证2026-11-12)。
-本 Slice 保持 ACTIVE，等待回执证据与 A 最终审查；不将送达确认等同于 Slice 关闭。
+本 Slice 经下述 A 完整范围审查退回补证；不将送达确认等同于合同证据齐全。
 前两轮失败审查保留在 TASK 中。
 以上覆盖本页激活时“等待 B／尚未实现”的历史规划时态；合同能力正文与 Base 不变，
 不将开发者汇总的通过场景等同于合同已验收。
+
+### A 完整范围审查（2026-11-12）
+
+**结论：FIX REQUIRED，仅限真实回执补证；不关闭 Slice 6。** Task 6.1 本地实现与
+P2 修复接受，未发现新的产品 P0／P1。原独立 B PASS 与用户指定的 P2 自复核记录保留；
+本次 A 核对包含 P2 的完整交付，不把原自复核改写成独立 B 审查。
+
+审查固定 Slice Base `20677f1906837428324d58885e719ed385a07258` 至交接 Head
+`b92bba22250a1566a7727d18b347441eb3cf19f5` 的完整增量：合同／Task、配置与示例、
+CLI 生命周期、通知收集／格式／传输、reconciler／storage／文件操作结果接口、测试驱动、
+部署与原始证据。产品 Implementation Head 仍为
+`757b082855974c43498ff7e3f5896b31d657a4ea`；其后至交接 Head 仅有文档变更。
+Task Base 和 Contract Checkpoint 均保持 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749`。
+
+| RO | A 本次重评 | 依据与边界 |
+|---|---|---|
+| RO-1 | PASS | 缺省关闭、严格配置、凭证缺失降级、三策略及 sync／serve／dry-run 接入；关闭／dry-run 不创建通知清单或发送 |
+| RO-2 | PASS | 多来源聚合与原报告计数；冲突及初始化失败分类；实际文件操作事实与来源后续失败分别保留 |
+| RO-3 | PASS | Unicode 安全正文预算、20 条预览、单个 8 MiB 流式附件；超限／写失败明确不完整，损坏附件不上传 |
+| RO-4 | PASS | 原事务内捕获前后值，提交后确认、回滚撤销；三个清零窗口、阈值后重核、删除与归属回收保持原语义 |
+| RO-5 | PASS | 发送在锁与本地资源释放后；共同预算、取消、无重试与脱敏；私有临时文件与清理；P2 本地警告增量已核对 |
+| RO-6 | PARTIAL / FIX REQUIRED | 文档与本地／容器证据支持；真实文本与附件送达已确认，但合同要求的消息身份及实际收件附件摘要缺失（A-01） |
+| RO-7 | FIX REQUIRED | 固定范围、实现 SHA、B 审查和本次 A 全范围审查齐全；A-01 补齐前不签最终 PASS |
+
+架构边界核对：原业务表结构、STRM 协议、稳定 URL、远端 Get／list、删除资格、
+完整轮阈值、先清理后提交及跨进程锁均未另造语义。新增 reason 仅在既有私有 scratch
+中暂存本轮事实；通知不增加 OpenList 查询、持久状态、业务锁或逐文件 goroutine。
+本次没有修改产品、启动代理、访问真实外部服务或从旧文件恢复凭证。
+
+**验证与证据：** 本轮执行 `python3 scripts/quality.py` 通过（Python 112 项、
+治理／语法／空白、gofmt、vet、Go 全包及 tagged CLI、build；Go 普通测试复用有效缓存）；
+另执行 `-race -p 1 -count=1 ./cmd/strmgen ./internal/notify` 通过，覆盖 P2 实际写失败、
+策略跳过、正文／附件与清理。没有新增探测入口，使用仓库既有测试入口。
+本轮记录在 `artifacts/validation-evidence/slice6-a-review-20261112-v0f4yguc/`。
+
+核验 B 最终失败回归／CLI／quality／race 原件摘要、P2 源码摘要及真实送达三轮日志／
+结果文件和发布二进制摘要，共 18 项，全部匹配。复核并复用 B 的全包 race、
+通知／清理 CLI、serve 8/8，以及 B 已核对的 Developer sync 14/14、容器 6/6
+原始结果；后者使用修正轮预提交输入及其记录的二进制，不能称为本轮精确 Head 独立重跑。
+首次真实 HTTP 400 与先前失败／重跑记录保留；发送失败不影响同步的结果未改写。
+真实 OpenList／Jellyfin／插件、ARM64 原生与容器内 8 MiB 极端数据集本轮 NOT RUN，
+不属于本次新增的关闭阻塞，也不改变 Slice 1–5 历史结论。
+
+**A-01 的关闭条件与 B 交接：** 合同“真实 Telegram”行明确要求“记录消息身份／附件摘要”。
+`artifacts/telegram-real-check/delivery-evidence.json` 中两项均为 null；发布 Sender 仅检查
+响应状态与 `ok`，不保存消息 ID，发送后清理本轮附件，因此不能从现存本地结果还原收件原件。
+用户确认“正常的”支持送达与内容可用，不能替代这两项身份取证。
+
+B 在原 Slice 内规划最小补证闭环：取得能定位已收到摘要／附件的消息标识及实际收到的
+`strm-events.txt` 原件，计算 SHA-256，并关联既有源码、二进制、轮次、25 条事件核对与
+用户确认；只保留脱敏回执信息。能补已有收件就复用，不为取证增加生产持久化／重试／
+历史功能，不读旧凭证；若需要再次真实发送，须先取得当前会话对具体测试目标的授权。
+若无法取得原件或身份，提交明确的证据限制与合同调整建议，不能自行把缺项改为 PASS。
+本次不代 B 创建或激活 Task，不把 Task 6.1 的本地 PASS 退回为产品实现失败。
