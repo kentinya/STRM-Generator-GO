@@ -5,7 +5,7 @@ Slice ID: 6
 Owner: A
 Status: FIX REQUIRED
 Base SHA: 20677f1906837428324d58885e719ed385a07258
-Implementation Head: 606e31089a2f41fe09f57610f34ce006f622828b
+Implementation Head: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7
 ```
 
 ## 用户结果与授权
@@ -188,19 +188,20 @@ B 基于本合同和真实代码提交可独立验证完整成功／失败／恢
 A Contract Date: 2026-11-12
 A Contract Revision: 2026-11-12 user-requested simplification; Base unchanged
 B Task: 6.1 / FIX REQUIRED
-B Product Review: FIX REQUIRED (2026-11-12; full Task Base..Implementation Head)
+B Product Review: FIX REQUIRED (2026-11-12 re-review; full Task Base..9dbb58c)
 A Final Review: PENDING
 Decision: FIX REQUIRED (B local review; A final decision PENDING)
-Implementation Evidence: Task 6.1 local implementation complete at 606e31089a2f41fe09f57610f34ce006f622828b; quality/race and sync 14/14, serve 8/8, container 6/6 integration scenarios PASS (artifacts/task-6.1/EVIDENCE.md)
+Implementation Evidence: Task 6.1 fix implementation at 9dbb58c20be182edbdc64637e1c9ee9a79c901d7; Developer full-suite results indexed in artifacts/task-6.1/EVIDENCE.md; independent re-review found B-R1..B-R3
 Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: Task 6.1 corrections B-01..B-08 and missing local evidence; B re-review; separately authorized real Telegram evidence; A closure
+Remaining Authorized Work: Task 6.1 corrections B-R1..B-R3; B re-review; separately authorized real Telegram evidence; A closure
 ```
 
-独立 B 已审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b`，
-并核对 Slice Base 以来合同／规划与交付报告 `e7df63213dea2497a0fead6f1b3ad544d7321e8d`。
-本地范围 **FIX REQUIRED**：有界提交取证、发布后失败／清零事实、正文上限与来源附件、
-安全转义、临时明细失败降级、进度含义及配置校验需在原 Task 修正；详见
-[Task 6.1 独立 B 审查](TASK.md#独立-b-审查2026-11-12)。RO-1..5 FIX REQUIRED，
-RO-6..7 PENDING；真实 Telegram NOT RUN，A 未作最终决定。
+独立 B 复审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..9dbb58c20be182edbdc64637e1c9ee9a79c901d7`，
+并核对 Slice Base 以来合同／规划与截至 `1e7a3813af6ab93e7339aeb24480064223d509fb` 的交付报告。
+本地范围仍为 **FIX REQUIRED**：剩余事务回滚虚报推进、合法长实例名正文超限、
+来源明细／最终写入失败的完整性说明缺口；详见
+[Task 6.1 独立 B 复审](TASK.md#独立-b-复审2026-11-12修正轮)。RO-1 本地通过，
+RO-2..5 FIX REQUIRED，RO-6..7 PENDING；首次审查保留在 TASK 中。
+真实 Telegram NOT RUN，A 未作最终决定。
 以上覆盖本页激活时“等待 B／尚未实现”的历史规划时态；合同能力正文与 Base 不变，
 不将开发者汇总的通过场景等同于合同已验收。

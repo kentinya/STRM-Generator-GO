@@ -8,7 +8,7 @@ Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
 Test Level: T4
-Implementation Head: 606e31089a2f41fe09f57610f34ce006f622828b
+Implementation Head: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7
 ```
 
 以下为原规划／激活记录；当前以本页末尾独立 B 审查为准。
@@ -137,14 +137,14 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 ## 完成报告与审查
 
 ```text
-Implementation Status: READY FOR B REVIEW (fix round; awaiting B re-review)
-Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b (original round)
+Implementation Status: FIX REQUIRED (independent B re-review complete)
+Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..9dbb58c20be182edbdc64637e1c9ee9a79c901d7
 Fix Range: 20e5325fd034b5295d383cd82d2d966d63252a53..9dbb58c20be182edbdc64637e1c9ee9a79c901d7 (B-01..B-08 corrections within Task 6.1)
-Local Evidence: original round FAIL REQUIRED; fix round Developer-reported PASS, pending independent B re-review
+Local Evidence: existing affected-package and tagged CLI tests PASS; independent probes reproduce three remaining contract gaps
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
-B Product Review: FIX REQUIRED (2026-11-12); re-review pending on fix range
+B Product Review: FIX REQUIRED (2026-11-12 re-review; B-R1..B-R3 below)
 A Final Review: PENDING
-Remaining Work: independent B re-review of 1bfac551..9dbb58c; separately authorized real Telegram evidence; A closure
+Remaining Work: correct B-R1..B-R3 in Task 6.1 and re-review; separately authorized real Telegram evidence; A closure
 ```
 
 ### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
@@ -297,6 +297,66 @@ transport；本轮未运行该外网用例。所有验证只需在既有测试�
 交接：Developer 在 **Task 6.1** 原范围修复 B-01..08、补上述缺失断言并提交新 Implementation Head，
 保留首次失败及旧检查点；B 再审完整 Task Base..新 Head 并重评所有 RO。
 真实 Telegram 仍需用户另行明确授权的测试 Bot／聊天；本轮不请求秘密、不预签下一 Task。
+
+### 独立 B 复审（2026-11-12，修正轮）
+
+**Decision: FIX REQUIRED。** 原有八项中，多项修正成立；仍有三个阻塞结果。
+本次只修改审查／交接文档，未改产品代码、未代行 Developer 自签通过、未 push。
+
+- 完整审查范围为固定 Task Base `1bfac55136dc4d3137d9ee9d470ec5c6ba840749`
+  至新实现 `9dbb58c20be182edbdc64637e1c9ee9a79c901d7`；结合首次审查重新核对完整增量，
+  重点复核新修正。另核对 Slice Base 以来合同／规划及截至
+  `1e7a3813af6ab93e7339aeb24480064223d509fb` 的交付报告增量，后者只改 TASK 和证据索引。
+  原实现 `606e310`、首次 B 审查 `20e5325` 和固定 Base 均保留。
+- 新证据在本机 `artifacts/validation-evidence/task6.1-b-rereview-20261112/`，
+  入口为 `metadata.json`、`failure-windows-confirmed.log`、`cli-results.json`。
+  Go 探测通过既有测试入口及 overlay 加载；复用现有 backing-file 写失败注入方式，
+  事务探测使用实际 reconciler、SQLite Store 与 CLI fact adapter，模拟提交写失败。
+  CLI 探测复用现有 Harness／本地 Telegram 接收端，不访问真实外部服务。
+  首次探测中的测试夹具字段笔误及日志保留，修正夹具后才判定产品结果。
+
+| ID／级别 | 已验证的剩余问题 | 原 Task 内修正与验收 |
+|---|---|---|
+| B-R1 / P1（B-01 未闭合） | `cmd/strmgen/notify.go:25` 仍将所有事实送入 `Collector.Record`；缺失推进没有走 `RecordProvisional`，所以真实事务失败后的 `DiscardStaged` 无效。实测提交 UPDATE 失败后主库 missing_count=0，但通知仍有 A.strm 的 0→1 及 change 标记。另 `collector.go:162` 在写失败／Truncate／Seek 失败时提前返回，不恢复内存预览、总数和 change；直接补上接线仍会在明细写失败叠加回滚时虚报。 | 将缺失推进接入实际暂存协议；回滚无论文件能否回退，都撤销未提交的逻辑事实，保留此前已发生的文件操作／清零事实和写失败标记。通过生产 adapter + 实际 Store 的失败／成功／commit 后 scratch 失败用例核对 DB、正文和附件，覆盖写失败叠加回滚；保持有界处理，不增加业务状态或全量切片。 |
+| B-R2 / P1（B-04 未闭合） | `internal/notify/message.go:196,231` 只移除来源／事件，固定 head 超长时直接退出裁剪。取消实例名 64 字符限制后，合法单行实例名 `家`×5000 从正常 CLI 生成 **5219 UTF-16 units** 的正文；违反 3500 上限，并超过正常 Telegram 文本容量。 | 在展示层对实例名／标题实施 Unicode 安全预算，保留必要统计与省略说明，所有成功／失败／初始化失败消息均不超过 3500；不重新添加合同外的配置拒绝限制。用合法长实例名和转义后膨胀的实例名从正常 CLI 验收。 |
+| B-R3 / P1（B-06 的写失败路径未闭合） | `message.go:160,205` 在追加溢出来源明细前就生成 tail；追加写失败后只取消附件，正文未更新，仍声称“完整内容见附件清单”，且无“明细不完整”。复用既有写失败注入实测 `WriteFailed=true`、附件为空、正文不完整标记=false。`sendRound` 又在 BuildMessage 后 Finalize 且忽略最终写失败，因此尾部写失败也不会修正已定正文／附件决定（代码审查）。 | 来源明细追加和最终尾部写入完成后，再确定降级说明与可用附件；复用单个文件，不重复追加来源明细。覆盖来源追加、8 MiB 截断和 Finalize 失败，正文与本地诊断如实标记不完整，不能承诺不可用的完整附件；同步产物、计数、退出码不受影响。 |
+
+**已核实的修正：** B-01 的全源路径切片已去除，但事务事实完整性见 B-R1；
+B-02 的实际发布／替换结果接口与 B-03 三个清零窗口修正成立，相关回归通过。
+B-04 的 60 个失败来源场景已降至 **3295 UTF-16 units** 并上传一个附件，但长标题见 B-R2。
+B-05 原正常 CLI bidi 冲突场景不再泄露原始方向控制符。
+B-06 不可用 TMPDIR 场景现在同步退出 0、生成 1 文件、提交 1 轮且发送 1 条降级摘要，
+后续写失败仍见 B-R3。B-07 的原因／阶段及安全保留展示、B-08 的 disabled 校验／字符串类型
+修正成立；两个非法配置的 CLI dry-run 均退出 2。上述确认不构成整个 Task PASS。
+
+**验证与证据边界：** 本轮独立执行受影响四包测试及 tagged CLI 测试，均 PASS；
+三个新增失败断言均稳定 FAIL，另有长实例名 CLI 超限实测。构建来自干净报告 Head，
+二进制 SHA-256 为 `01933abebbe91a8aa6c6debe59bfdb417fccde383c83bfc6aade6af892b30bcb`。
+已查阅 Developer 的 race、sync 14/14、serve 8/8、container 6/6 和安全 Compose 原始结果，
+并审阅新增慢发送／权限断言；本轮不重复跑这些全套。其二进制记录为 `20e5325+dirty`，
+不将该历史全套标签表述为本轮独立重现的精确 Head 全套结果。
+测试执行时间低于本轮复核时间的 50%；未新建过程工具平台。
+
+**全部 AC 重评：** AC-1 本地通过；AC-2 FIX（B-R2）；AC-3 正常策略回归通过；
+AC-4 实际文件操作事实回归通过；AC-5 正常清理／恢复闭环通过；AC-6 FIX（B-R1）；
+AC-7 FIX（B-R2、B-R3）；AC-8 本地传输测试通过；AC-9 FIX（B-R3）；
+AC-10／11 新增代码与原始证据支持慢发送隔离和私有临时权限，未发现本轮新增阻塞；
+AC-12 本次已更新真实范围、失败证据及交接，不把 Developer 汇总通过当作产品通过。
+
+| RO | 本次重评与剩余结果 |
+|---|---|
+| RO-1 | 本地配置／默认／策略／sync 与 serve 接入通过；不据此验收其他 RO |
+| RO-2 | FIX REQUIRED：回滚仍虚报进度，超长标题破坏可交付摘要（B-R1、B-R2） |
+| RO-3 | FIX REQUIRED：完整正文边界及来源附件完整性说明仍有缺口（B-R2、B-R3） |
+| RO-4 | FIX REQUIRED：正常计数、清零、删除展示已修正；未提交推进仍可被报告（B-R1） |
+| RO-5 | FIX REQUIRED：全源切片已去除，锁外发送／取消及权限证据已补；写失败降级仍不可靠（B-R3） |
+| RO-6 | PENDING：真实 Telegram 文本与附件送达 NOT RUN；说明与最终修正结果仍需同步 |
+| RO-7 | PENDING：本次独立完整范围复审完成但未通过；后续修正复审与 A 最终验收未完成 |
+
+交接：只在 **Task 6.1** 修复 B-R1..B-R3，保留已验证的改动；先跑上述失败用例和直接影响检查，
+最终候选按原 T4 计划完成对应回归。不得以孤立 Collector 测试替代真实 adapter 接线验证。
+不扩展过程工具、不新开功能 Slice。真实 Telegram、真实 OpenList／Jellyfin／插件链路、
+ARM64 原生实机及容器内 8 MiB 极端数据集本轮均 NOT RUN；Slice 1–5 保持 PASS / CLOSED。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从
 [固定 Git 检查点](docs/development-workflow.md#历史记录)中的

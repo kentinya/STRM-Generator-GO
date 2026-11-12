@@ -17,18 +17,19 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 ## Slice 6 当前规划
 
 固定 Base 为 `20677f1906837428324d58885e719ed385a07258`，Implementation Head 为
-`606e31089a2f41fe09f57610f34ce006f622828b`。
+`9dbb58c20be182edbdc64637e1c9ee9a79c901d7`（原实现 `606e310` 保留）。
 配置／触发、逐文件事实、删除计数、资源与凭证边界、RO-1..7 及验收门槛统一见
 [Slice 6 合同](../SLICE.md)。用户已授权本会话代替 B 规划 Task 6.1，
 Task Base／Contract Checkpoint 均为 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749`；
-独立 B 已审完整 Task Base..Implementation Head，并核对 Slice Base 以来合同／规划及
-`e7df63213dea2497a0fead6f1b3ad544d7321e8d` 的交付报告；决定 FIX REQUIRED，无 B／A PASS。
+独立 B 已复审完整 Task Base..新 Implementation Head，并核对 Slice Base 以来合同／规划及
+截至 `1e7a3813af6ab93e7339aeb24480064223d509fb` 的交付报告；决定仍为 FIX REQUIRED，无 Task B／A PASS。
 合同已按用户要求精简：单个本轮文本附件、按发生顺序记录，不增加业务状态或持久通知历史。
 Task 6.1 固定单附件上限 8 MiB；配置／CLI／传输按 T3，提交／清零结果接口改动按 T4
 执行全部现有回归及适用恢复／打包验证。真实 Telegram 文本及附件单独取证；
-本轮聚焦回归通过，但已复现实际发布／清零事实漏报、明细创建失败不发摘要、正文超限及 bidi
-诊断未转义；有界提交取证、计数原因和配置校验也需修正。全部 RO 与缺失证据见 TASK 的
-独立 B 审查；不扩大工具范围，不新开功能任务。真实 Telegram NOT RUN，A 最终审查 PENDING。
+本轮受影响四包及 tagged CLI 回归通过，发布／清零事实、明细创建失败降级、bidi 转义和
+配置校验等修正成立；仍复现事务回滚虚报推进、合法长实例名正文超限及来源明细写失败后
+缺少不完整说明。剩余 B-R1..B-R3 与全部 RO 重评见 TASK 的独立 B 复审，继续在原 Task
+修正；不扩大工具范围，不新开功能任务。真实 Telegram NOT RUN，A 最终审查 PENDING。
 
 ## Slice 5 已关闭记录
 
