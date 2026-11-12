@@ -7,8 +7,16 @@ import (
 )
 
 // tailReserveUTF16Units reserves space for the bounded tail notes so the
-// omission and completeness notes are always fully included.
+// omission and completeness notes are always fully included. The tail is
+// built from fixed strings and small numbers, so it always stays within this
+// reserve.
 const tailReserveUTF16Units = 220
+
+// headMaxUTF16Units bounds the fixed heading. Even a long legal instance name
+// must never push the heading past what the body can hold together with the
+// reserved tail; the display layer budgets it instead of rejecting the
+// configuration value.
+const headMaxUTF16Units = BodyMaxUTF16Units - tailReserveUTF16Units
 
 // Outcome classifies one round for the summary heading. The classification
 // only distinguishes what the product already knows: success, source-level
@@ -117,8 +125,10 @@ func outcomeLabel(info RunInfo) string {
 // details, file event preview and tail notes — shares the BodyMaxUTF16Units
 // budget with at most PreviewMaxEvents preview events; truncation never splits
 // a Unicode character. Source details that do not fit the body are appended to
-// the same bounded attachment, so the single listing stays complete within its
-// own size cap.
+// the same bounded attachment, and the final tail notes plus the attachment
+// decision are only fixed after those appends and the listing trailer have
+// actually been written, so a failed append or trailer write is reported as
+// an incomplete listing instead of promising an unusable attachment.
 func BuildMessage(info RunInfo, c *Collector) (text string, attachmentPath string) {
 	head := buildHead(info)
 	units := buildSourceUnits(info)
@@ -166,46 +176,36 @@ func BuildMessage(info RunInfo, c *Collector) (text string, attachmentPath strin
 
 	omittedSources := len(units) - shownSources
 	totalEvents := c.TotalEvents()
-	tail := buildTail(info, c, shownEvents, totalEvents, shownSources, omittedSources)
-
-	// Drop body lines from the end until everything fits; the tail is rebuilt
-	// so the omission notes always match what the body actually shows.
-	for {
-		total := UTF16Len(head)
-		for _, lines := range bodyUnits {
-			for _, line := range lines {
-				total += UTF16Len(line)
-			}
-		}
-		if len(bodyEvents) > 0 {
-			total += UTF16Len("\n文件事件：\n")
-			for _, line := range bodyEvents {
-				total += UTF16Len(line)
-			}
-		}
-		total += UTF16Len(tail)
-		if total <= BodyMaxUTF16Units {
-			break
-		}
-		if len(bodyEvents) > 0 {
-			bodyEvents = bodyEvents[:len(bodyEvents)-1]
-			shownEvents--
-		} else if shownSources > 0 {
-			shownSources--
-			bodyUnits = bodyUnits[:len(bodyUnits)-1]
-		} else {
-			break
-		}
-		omittedSources = len(units) - shownSources
-		tail = buildTail(info, c, shownEvents, totalEvents, shownSources, omittedSources)
-	}
 
 	// Every source unit that did not fit the body goes into the same bounded
-	// attachment, in order, with its full escaped detail lines.
+	// attachment, in order, with its full escaped detail lines. The trailer
+	// is written before the tail notes are fixed so a final write failure is
+	// visible in the body; the collector never writes the trailer twice.
 	for _, unit := range units[shownSources:] {
 		for _, line := range unit.detailLines {
 			c.AppendSourceDetail(line)
 		}
+	}
+	if err := c.Finalize(); err != nil {
+		_ = err // the degraded collector state drives the tail notes below
+	}
+
+	tail := buildTail(info, c, shownEvents, totalEvents, shownSources, omittedSources)
+	// Defensive final budget check. The heading and the tail are bounded by
+	// construction, so this loop can only ever drop preview events — and
+	// every event is already carried by the listing file, so nothing is lost
+	// from the attachment.
+	for bodyUnitsLen(bodyUnits)+eventsLen(bodyEvents) > 0 &&
+		UTF16Len(head)+bodyUnitsLen(bodyUnits)+eventsLen(bodyEvents)+UTF16Len(tail) > BodyMaxUTF16Units {
+		if len(bodyEvents) > 0 {
+			bodyEvents = bodyEvents[:len(bodyEvents)-1]
+			shownEvents--
+		} else {
+			bodyUnits = bodyUnits[:len(bodyUnits)-1]
+			shownSources--
+		}
+		omittedSources = len(units) - shownSources
+		tail = buildTail(info, c, shownEvents, totalEvents, shownSources, omittedSources)
 	}
 
 	body := &strings.Builder{}
@@ -225,11 +225,55 @@ func BuildMessage(info RunInfo, c *Collector) (text string, attachmentPath strin
 	return body.String(), attachmentPathFor(info, c, shownEvents, omittedSources)
 }
 
+// bodyUnitsLen reports the UTF-16 length of the selected source unit lines.
+func bodyUnitsLen(units [][]string) int {
+	n := 0
+	for _, lines := range units {
+		n += linesLen(lines)
+	}
+	return n
+}
+
+// eventsLen reports the UTF-16 length of the selected preview lines including
+// their shared heading.
+func eventsLen(lines []string) int {
+	if len(lines) == 0 {
+		return 0
+	}
+	return UTF16Len("\n文件事件：\n") + linesLen(lines)
+}
+
+// linesLen reports the UTF-16 length of one line group.
+func linesLen(lines []string) int {
+	n := 0
+	for _, line := range lines {
+		n += UTF16Len(line)
+	}
+	return n
+}
+
 // buildHead renders the fixed heading, result, timing and statistics sections.
 // Every dynamic value is escaped so a crafted file name or instance name can
-// never inject lines or reorder the rendered text.
+// never inject lines or reorder the rendered text. A long legal instance name
+// is truncated in the display layer with an explicit omission marker so the
+// heading always stays within its budget; no configuration value is rejected
+// for being long.
 func buildHead(info RunInfo) string {
 	instance := EscapeText(info.InstanceName)
+	if n := UTF16Len(headWithInstance(info, instance)); n > headMaxUTF16Units {
+		overhead := UTF16Len(headWithInstance(info, ""))
+		budget := headMaxUTF16Units - overhead - UTF16Len("…")
+		if budget < 0 {
+			budget = 0
+		}
+		instance = TruncateUTF16(instance, budget) + "…"
+	}
+	return headWithInstance(info, instance)
+}
+
+// headWithInstance renders the heading with the given already-escaped instance
+// display value.
+func headWithInstance(info RunInfo, instance string) string {
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "%s STRM 同步报告\n", instance)
 	fmt.Fprintf(b, "运行方式：%s\n", info.Mode)
@@ -346,23 +390,29 @@ func buildTail(info RunInfo, c *Collector, shownEvents int, totalEvents int, sho
 	}
 	if info.DetailUnavailable {
 		b.WriteString("明细不完整：本轮明细收集不可用，文件事件与缺失计数进度未知。\n")
-	} else {
-		if totalEvents == 0 {
-			b.WriteString("文件事件：本轮无新增、更新、删除或归属回收事件。\n")
-		} else if totalEvents > shownEvents {
-			b.WriteString(fmt.Sprintf("文件事件：正文仅预览前 %d 条，另有 %d 条未在正文展示。\n", shownEvents, totalEvents-shownEvents))
-		}
-		if omittedSources > 0 {
-			b.WriteString(fmt.Sprintf("来源明细：另有 %d 条未在正文展示，完整内容见附件清单。\n", omittedSources))
-		}
-		if c.Degraded() {
-			if c.LimitReached() {
-				b.WriteString("明细不完整：附件清单达到大小上限，未包含全部事件。\n")
-			}
-			if c.WriteFailed() {
-				b.WriteString("明细不完整：本地明细收集写入失败，清单可能缺失。\n")
-			}
-		}
+		return b.String()
+	}
+	if totalEvents == 0 {
+		b.WriteString("文件事件：本轮无新增、更新、删除或归属回收事件。\n")
+	} else if totalEvents > shownEvents {
+		b.WriteString(fmt.Sprintf("文件事件：正文仅预览前 %d 条，另有 %d 条未在正文展示。\n", shownEvents, totalEvents-shownEvents))
+	}
+	// The omission note only promises the attachment when the listing is
+	// actually usable; a size cap or a write failure is reported instead of
+	// claiming a complete listing that cannot exist.
+	switch {
+	case omittedSources > 0 && c.LimitReached():
+		b.WriteString(fmt.Sprintf("来源明细：另有 %d 条未在正文展示；附件清单已达大小上限，其余来源明细未写入。\n", omittedSources))
+	case omittedSources > 0 && c.WriteFailed():
+		b.WriteString(fmt.Sprintf("明细不完整：本地明细写入失败，另有 %d 条来源明细未知。\n", omittedSources))
+	case omittedSources > 0:
+		b.WriteString(fmt.Sprintf("来源明细：另有 %d 条未在正文展示，完整内容见附件清单。\n", omittedSources))
+	}
+	if c.LimitReached() {
+		b.WriteString("明细不完整：附件清单达到大小上限，未包含全部事件。\n")
+	}
+	if c.WriteFailed() {
+		b.WriteString("明细不完整：本地明细收集写入失败，清单可能缺失。\n")
 	}
 	return b.String()
 }

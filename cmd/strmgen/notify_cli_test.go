@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"strm-generator-go/internal/notify"
 )
 
 // telegramReceiver is a minimal local stand-in for the Bot API used only by
@@ -182,6 +184,76 @@ func runSyncForTest(t *testing.T, configPath string, receiver *telegramReceiver)
 	t.Helper()
 	t.Setenv("STRMGEN_TEST_TELEGRAM_API_BASE", receiver.server.URL)
 	return run([]string{"sync", "--config", configPath}, io.Discard, os.Stderr)
+}
+
+// B re-review B-R2: a long legal instance name and an escape-expanding legal
+// instance name are budgeted in the display layer. The summaries sent from
+// the real sync entry never exceed the Telegram text limit and keep the
+// statistics.
+func TestSyncNotificationLongInstanceNameStaysBounded(t *testing.T) {
+	for name, tc := range map[string]struct{ instance string }{
+		"long":     {strings.Repeat("家", 5000)},
+		"expanded": {strings.Repeat("\u202e", 800)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			receiver := newTelegramReceiver(t)
+			api := startMultiFileAPI(t, 1)
+			base := t.TempDir()
+			root := filepath.Join(base, "out")
+			db := filepath.Join(base, "data", "strmgen.db")
+			setTelegramEnv(t, "test-token", "-10042")
+			configPath := writeNotifyConfigWithInstance(t, api.URL, root, db, "all", tc.instance)
+
+			if code := runSyncForTest(t, configPath, receiver); code != 0 {
+				t.Fatalf("sync exit = %d", code)
+			}
+			messages := receiver.sentMessages()
+			if len(messages) != 1 {
+				t.Fatalf("messages = %d, want exactly one summary", len(messages))
+			}
+			text := messages[0].content
+			if n := notify.UTF16Len(text); n > notify.BodyMaxUTF16Units {
+				t.Fatalf("summary = %d UTF-16 units, over the limit:\n%s", n, text)
+			}
+			if !strings.Contains(text, "新增 1") {
+				t.Fatalf("statistics lost to the instance name:\n%s", text)
+			}
+			if !strings.Contains(text, "…") {
+				t.Fatalf("the truncated instance name must carry an omission marker:\n%s", text)
+			}
+			if strings.Contains(text, strings.Repeat("家", 4000)) {
+				t.Fatal("the full instance name must not survive in the summary")
+			}
+			if strings.Contains(text, "\u202e") {
+				t.Fatalf("a raw bidirectional control character leaked into the summary:\n%q", text)
+			}
+			if strings.ContainsRune(tc.instance, '\u202e') && !strings.Contains(text, `\u202E`) {
+				t.Fatalf("the escaped instance value missing:\n%s", text)
+			}
+		})
+	}
+}
+
+// writeNotifyConfigWithInstance writes a notification config with an explicit
+// instance name value.
+func writeNotifyConfigWithInstance(t *testing.T, apiURL, root, db, policy, instance string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "openlist:\n" +
+		"  api_url: \"" + apiURL + "\"\n" +
+		"  public_url: \"https://openlist.example.invalid\"\n" +
+		"  token_env: \"OPENLIST_TOKEN\"\n" +
+		"sources:\n  - remote: \"/Movies\"\n    output: \"" + root + "\"\n" +
+		"cleanup:\n  enabled: false\n" +
+		"database:\n  path: \"" + db + "\"\n" +
+		"notifications:\n  telegram:\n    enabled: true\n" +
+		"    instance_name: \"" + instance + "\"\n" +
+		"    policy: \"" + policy + "\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestSyncNotificationSendsOneSummaryPerRun(t *testing.T) {

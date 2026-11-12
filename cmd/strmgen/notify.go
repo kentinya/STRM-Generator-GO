@@ -23,14 +23,22 @@ type factSinkAdapter struct {
 }
 
 func (a factSinkAdapter) Record(fact reconciler.Fact) {
-	a.collector.Record(notify.Event{
+	event := notify.Event{
 		SourceIndex:  fact.SourceIndex,
 		Kind:         notifyEventKind(fact.Kind),
 		RelativePath: fact.RelativePath,
 		PriorCount:   fact.PriorCount,
 		NewCount:     fact.NewCount,
 		Reason:       fact.Reason,
-	})
+	}
+	if fact.Kind == reconciler.FactMissingAdvanced {
+		// Missing-count advances arrive inside the commit transaction window;
+		// they must stay provisional so a failed or rolled-back commit never
+		// publishes an uncommitted candidate as progress.
+		a.collector.RecordProvisional(event)
+		return
+	}
+	a.collector.Record(event)
 }
 
 // CommitStaged confirms the provisional advance records of one commit attempt.
@@ -151,10 +159,10 @@ func (n *notifier) sendRound(ctx context.Context, mode string, started time.Time
 	}
 	// The message is built before the trailer is finalized: the body budget
 	// may append omitted source details to the same single attachment.
+	// BuildMessage appends the overflow source details and writes the final
+	// trailer itself, so the tail notes and the attachment decision reflect
+	// the real final listing state, including a failed trailer write.
 	text, attachment := notify.BuildMessage(info, collector)
-	if collector != nil {
-		collector.Finalize()
-	}
 	if err := n.sender.Send(ctx, text, attachment); err != nil {
 		if ctx.Err() != nil {
 			fmt.Fprintf(n.stderr, "notifications: delivery stopped: %s\n", err)

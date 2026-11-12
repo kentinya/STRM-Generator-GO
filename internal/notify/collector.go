@@ -69,6 +69,7 @@ type Collector struct {
 	anyChange   bool
 	limitHit    bool // stopped appending because of the size cap
 	broken      bool // a write failed; the listing cannot be trusted
+	finalized   bool // the trailer has been written once
 	headerBytes bool
 
 	// mark snapshots the state before the first provisional record of the
@@ -157,24 +158,23 @@ func (c *Collector) CommitProvisional() {
 }
 
 // DiscardProvisional removes every provisional record of the current commit
-// attempt after the commit failed or rolled back. A listing that already
-// failed a write cannot be rewound reliably and stays broken.
+// attempt after the commit failed or rolled back. The uncommitted logical
+// facts are withdrawn whether or not the listing file can be rewound: a
+// failed candidate never counts as progress or triggers change_or_error. A
+// rewind failure only marks the listing broken so it will not be uploaded;
+// already committed records and the write-failure marker stay untouched.
 func (c *Collector) DiscardProvisional() {
 	if c == nil || !c.mark.set {
 		return
 	}
 	m := c.mark
 	c.mark.set = false
-	if c.broken || c.file == nil {
-		return
-	}
-	if err := c.file.Truncate(m.bytes); err != nil {
-		c.broken = true
-		return
-	}
-	if _, err := c.file.Seek(m.bytes, 0); err != nil {
-		c.broken = true
-		return
+	if c.file != nil {
+		if err := c.file.Truncate(m.bytes); err != nil {
+			c.broken = true
+		} else if _, err := c.file.Seek(m.bytes, 0); err != nil {
+			c.broken = true
+		}
 	}
 	c.bytes = m.bytes
 	c.total = m.total
@@ -325,11 +325,13 @@ func (c *Collector) LimitReached() bool { return c != nil && c.limitHit }
 func (c *Collector) WriteFailed() bool { return c != nil && c.broken }
 
 // Finalize flushes and writes the trailer with the totals and the
-// incompleteness state. It is called once before the attachment is uploaded.
+// incompleteness state. It is called once before the attachment is uploaded;
+// a later call is a no-op so the trailer is never written twice.
 func (c *Collector) Finalize() error {
-	if c == nil || c.file == nil {
+	if c == nil || c.file == nil || c.finalized {
 		return nil
 	}
+	c.finalized = true
 	if !c.broken {
 		trailer := fmt.Sprintf("事件总数: %d（已写入明细 %d 条）\n", c.total, c.appended)
 		if c.details > 0 {

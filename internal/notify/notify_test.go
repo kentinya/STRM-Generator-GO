@@ -574,3 +574,180 @@ func TestCollectorProvisionalDiscardRevertsLimit(t *testing.T) {
 		t.Fatal("the reverted records must not leave a degradation behind")
 	}
 }
+
+// B re-review B-R1: even when the listing file can no longer be rewound, the
+// discard must withdraw the uncommitted logical facts so a rolled-back
+// candidate never counts as progress or triggers change_or_error. The
+// write-failure marker stays so the unusable listing is never uploaded.
+func TestCollectorDiscardAfterWriteFailureWithdrawsFacts(t *testing.T) {
+	c, err := NewCollector("sync discard broken", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	committed := Event{SourceIndex: 1, Kind: KindCreated, RelativePath: "A.strm"}
+	c.Record(committed)
+	if c.TotalEvents() != 1 || !c.HasChange() {
+		t.Fatalf("committed fact: total=%d change=%v", c.TotalEvents(), c.HasChange())
+	}
+	// The backing file fails from here on.
+	if err := c.file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c.RecordProvisional(Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "B.strm", PriorCount: 1, NewCount: 2, Reason: ReasonSourceTarget})
+	if !c.WriteFailed() {
+		t.Fatal("the failing write must be recorded")
+	}
+	c.DiscardProvisional()
+	if c.TotalEvents() != 1 || len(c.Preview()) != 1 || c.Preview()[0] != committed {
+		t.Fatalf("uncommitted candidate stayed behind: total=%d preview=%+v", c.TotalEvents(), c.Preview())
+	}
+	if !c.HasChange() {
+		t.Fatal("the already committed fact must keep the change flag")
+	}
+	if !c.WriteFailed() || c.LimitReached() {
+		t.Fatalf("degradation markers: broken=%v limit=%v", c.broken, c.limitHit)
+	}
+	if _, ok := c.AttachmentPath(); ok {
+		t.Fatal("a broken listing must never be uploaded")
+	}
+
+	// A later committed provisional record stays visible in memory and the
+	// trailer totals remain truthful about what the listing carries.
+	c.RecordProvisional(Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "B.strm", PriorCount: 1, NewCount: 2})
+	c.CommitProvisional()
+	if err := c.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	if c.TotalEvents() != 2 || len(c.Preview()) != 2 {
+		t.Fatalf("committed record after failure: total=%d preview=%d", c.TotalEvents(), len(c.Preview()))
+	}
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true, Threshold: 3,
+	}
+	text, attachment := BuildMessage(info, c)
+	if attachment != "" {
+		t.Fatalf("a broken listing must not be attached")
+	}
+	if !strings.Contains(text, "明细不完整：本地明细收集写入失败，清单可能缺失。") {
+		t.Fatalf("write-failure note missing:\n%s", text)
+	}
+}
+
+// B re-review B-R2: a long legal instance name is budgeted in the display
+// layer — the body never exceeds the limit, keeps its statistics and marks
+// the omission instead of rejecting the configuration value.
+func TestBuildMessageLongInstanceNameStaysBounded(t *testing.T) {
+	info := RunInfo{
+		InstanceName: strings.Repeat("家", 5000), Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Skipped: 1}, Threshold: 3,
+	}
+	text, _ := BuildMessage(info, nil)
+	if n := UTF16Len(text); n > BodyMaxUTF16Units {
+		t.Fatalf("body = %d UTF-16 units, over the limit", n)
+	}
+	if !strings.Contains(text, "…") {
+		t.Fatalf("the truncated instance name must carry an omission marker:\n%s", text)
+	}
+	if !strings.Contains(text, "来源总数：1（完成 1 / 未完成 0）") {
+		t.Fatalf("statistics lost to the long instance name:\n%s", text)
+	}
+	if strings.Contains(text, strings.Repeat("家", 4000)) {
+		t.Fatal("the full instance name must not survive in the body")
+	}
+
+	// Escaped bidirectional control characters inflate the display value far
+	// beyond the raw length; they pass the single-line validation, so the
+	// budget applies after escaping and never emits a raw control character.
+	expanded := RunInfo{
+		InstanceName: strings.Repeat("\u202e", 800), Mode: "serve", Outcome: OutcomeSourceFailure,
+		SourceCount: 1, IncompleteSources: 1, StatsAvailable: true,
+		Stats: Stats{Errors: 1}, Threshold: 3,
+	}
+	text2, _ := BuildMessage(expanded, nil)
+	if n := UTF16Len(text2); n > BodyMaxUTF16Units {
+		t.Fatalf("escaped-expansion body = %d UTF-16 units, over the limit", n)
+	}
+	if strings.Contains(text2, "\u202e") {
+		t.Fatalf("a raw bidirectional control character leaked into the body:\n%q", text2)
+	}
+	if !strings.Contains(text2, `\u202E`) {
+		t.Fatalf("the escaped instance value missing:\n%s", text2)
+	}
+}
+
+// B re-review B-R3: when the overflow source details cannot be written, the
+// body must report the incompleteness and never promise an unusable
+// attachment as a complete listing.
+func TestBuildMessageSourceDetailWriteFailureMarksBodyIncomplete(t *testing.T) {
+	var sources []SourceStatus
+	for i := 0; i < 60; i++ {
+		note := fmt.Sprintf("source root %d not readable as a directory; no round committed", i)
+		sources = append(sources, SourceStatus{
+			Index:       i,
+			Notes:       []string{note},
+			DetailNotes: []string{note},
+		})
+	}
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSourceFailure,
+		SourceCount: 60, IncompleteSources: 60, StatsAvailable: true,
+		Stats: Stats{Errors: 60}, Threshold: 3, Sources: sources,
+	}
+	c, err := NewCollector("sync overflow broken", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	text, attachment := BuildMessage(info, c)
+	if attachment != "" {
+		t.Fatal("a broken listing must not be attached")
+	}
+	if strings.Contains(text, "完整内容见附件清单") {
+		t.Fatalf("the body must not promise a complete listing that cannot exist:\n%s", text)
+	}
+	if !strings.Contains(text, "明细不完整") {
+		t.Fatalf("incompleteness note missing:\n%s", text)
+	}
+	if n := UTF16Len(text); n > BodyMaxUTF16Units {
+		t.Fatalf("body = %d UTF-16 units, over the limit", n)
+	}
+}
+
+// B re-review B-R3: a final trailer write failure after usable event appends
+// must still flip the body to the incompleteness wording and drop the
+// attachment; the round facts themselves stay untouched.
+func TestBuildMessageTrailerWriteFailureMarksBodyIncomplete(t *testing.T) {
+	c, err := NewCollector("sync trailer broken", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Record(Event{SourceIndex: 1, Kind: KindCreated, RelativePath: "Movies/A.strm"})
+	if c.WriteFailed() {
+		t.Fatal("the event write itself must succeed first")
+	}
+	if err := c.file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Created: 1}, Threshold: 3,
+	}
+	text, attachment := BuildMessage(info, c)
+	if attachment != "" {
+		t.Fatal("a listing without its trailer must not be attached")
+	}
+	if !strings.Contains(text, "明细不完整：本地明细收集写入失败，清单可能缺失。") {
+		t.Fatalf("trailer-failure note missing:\n%s", text)
+	}
+	if strings.Contains(text, "完整内容见附件清单") {
+		t.Fatalf("no complete-listing promise may survive:\n%s", text)
+	}
+}
