@@ -88,3 +88,27 @@ serve 8/8（含 Phase F）、容器 6/6（含权限断言）PASS；Compose `--no
 
 仍然 NOT RUN：真实 Telegram 文本／附件送达（无授权测试目标）；真实 OpenList／
 Jellyfin／插件链路；ARM64 原生实机；容器内 8 MiB 级数据集附件。
+
+---
+
+## B 复审修正轮（B-R1..B-R3，2026-11-12）
+
+独立 B 复审判定三项剩余阻塞后，在本 Task 范围内修正。命令、输入 SHA、二进制摘要、
+原始日志与首次失败记录见
+[artifacts/validation-evidence/task6.1-br-fix-evidence/metadata.json](../validation-evidence/task6.1-br-fix-evidence/metadata.json)。
+
+| 项 | 修正与证据 |
+|---|---|
+| B-R1 | `factSinkAdapter.Record` 将 `FactMissingAdvanced` 路由到 `Collector.RecordProvisional`，使真实事务失败后的 `DiscardStaged` 真正生效；`DiscardProvisional` 在清单文件无法回退（写入失败叠加回滚）时仍撤销未提交的逻辑事实（total／preview／anyChange／limitHit），只保留写失败标记与此前已发生事实；`Finalize` 增加一次性守卫避免双尾部。测试：`TestMissingAdvancesFollowRealCommitFacts`（真实 Store + 真实 syncer + 生产 adapter + 真实 collector：取消 ctx 使真实事务在 StageAdvance 后失败，核对 DB 计数、预览、附件与正文）、`TestCollectorDiscardAfterWriteFailureWithdrawsFacts` |
+| B-R2 | `buildHead` 对转义后的实例名实施 Unicode 安全预算（`headMaxUTF16Units`，截断后附省略号），标题＋尾部始终受控，不再重新引入配置长度拒绝。测试：`TestBuildMessageLongInstanceNameStaysBounded`（合法长名与 U+202E 转义膨胀）、CLI `TestSyncNotificationLongInstanceNameStaysBounded`（真实 sync 入口，家×5000 与 U+202E×800，正文 ≤3500、统计保留、无原始控制符） |
+| B-R3 | `BuildMessage` 在追加溢出来源明细并写入尾部之后才固定尾部措辞与附件决策：追加写失败／尾部写失败／8 MiB 截断时正文如实标注“明细不完整”，不再声称“完整内容见附件清单”，损坏清单不上传；`sendRound` 不再在 BuildMessage 后忽略 Finalize 结果。测试：`TestBuildMessageSourceDetailWriteFailureMarksBodyIncomplete`、`TestBuildMessageTrailerWriteFailureMarksBodyIncomplete` |
+
+最终候选结果（`python3 scripts/quality.py` PASS；race 受影响四包 PASS；
+tagged CLI PASS）：sync 集成 14/14、serve 集成 8/8、容器集成 6/6（含
+notifications 权限断言）PASS；Compose `--no-interpolate` 无值透传通过。
+首次失败保留：容器驱动首次调用缺 `--hooks-binary` 参数（驱动侧调用错误，非产品缺陷），
+原始目录 `task6.1-br-fix-container-cMxclq`；CLI 扩展场景首版把原始控制字符直接写入
+YAML 双引号标量导致退出 2（配置语法错误入口，非产品缺陷），已改用合法 U+202E 入口。
+
+仍然 NOT RUN：真实 Telegram 文本／附件送达（无授权测试目标／凭证）；真实
+OpenList／Jellyfin／插件链路；ARM64 原生实机；容器内 8 MiB 级数据集附件。
