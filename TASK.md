@@ -137,14 +137,68 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 ## 完成报告与审查
 
 ```text
-Implementation Status: READY FOR B REVIEW
-Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b
-Local Evidence: Developer-reported PASS; independent B found contract failures below
+Implementation Status: READY FOR B REVIEW (fix round; awaiting B re-review)
+Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b (original round)
+Fix Range: 20e5325fd034b5295d383cd82d2d966d63252a53..9dbb58c20be182edbdc64637e1c9ee9a79c901d7 (B-01..B-08 corrections within Task 6.1)
+Local Evidence: original round FAIL REQUIRED; fix round Developer-reported PASS, pending independent B re-review
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
-B Product Review: FIX REQUIRED (2026-11-12)
+B Product Review: FIX REQUIRED (2026-11-12); re-review pending on fix range
 A Final Review: PENDING
-Remaining Work: correct B-01..B-08 within Task 6.1; complete missing local evidence; B re-review; separately authorized real Telegram evidence; A closure
+Remaining Work: independent B re-review of 1bfac551..9dbb58c; separately authorized real Telegram evidence; A closure
 ```
+
+### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
+
+在原 Task 范围内修正独立 B 审查全部八项，未扩大业务范围、未改删除资格、协议或
+远端兼容语义；旧检查点 `606e310` 与首次失败记录均保留。逐项修正与测试证据见
+[artifacts/task-6.1/EVIDENCE.md](artifacts/task-6.1/EVIDENCE.md) 修正轮小节及
+[artifacts/validation-evidence/task6.1-fix-20261112/metadata.json](artifacts/validation-evidence/task6.1-fix-20261112/metadata.json)
+（输入 SHA、二进制摘要、命令、退出码、原始日志，含首轮失败）。
+
+- **B-01（P1）**：`Store.CommitRound` 改为可选 `AdvanceSink` 暂存协议：推进记录
+  在原事务窗口内按 200 项有界批次捕获，事务提交成功后 `CommitAdvances` 才发布为
+  有效进度，事务失败 `DiscardAdvances` 丢弃；无 sink（通知关闭）时不构造任何明细。
+  内存不再随全源条数增长；未新增业务状态、第二套持久清单或表字段。
+- **B-02（P1）**：`LocalFS.Publish`／`Update` 返回 `PublishOutcome.Published`／
+  `UpdateOutcome.Replaced`，表达链接／交换完成后目标已持有新字节的事实；后续
+  目录持久化失败仍计入并保留事实，同步仍失败，归属／恢复协议不变。
+- **B-03（P1）**：`ClearMissing` 在主库清零成功而私有工作区清理失败时返回持久
+  事实 + 错误；三个清零窗口（noteObserved、confirmMissing、删除重核）均在检查
+  错误前发布已持久化的 N→0 事实，不再漏报。
+- **B-04（P1）**：整个正文（标题、来源明细、事件预览与尾注）共享 3500 UTF-16
+  预算；来源明细溢出进入同一单个 8 MiB 附件（零文件事件时同样成立）；
+  初始化失败摘要保留已知配置来源总数，完成／未完成计数标为不可用。
+- **B-05（P1）**：来源诊断、实例名等全部动态展示内容统一 `EscapeText`
+  （含 U+202E 双向控制符），正文与附件一致。
+- **B-06（P1）**：临时清单创建失败不再静默：无 collector 时按策略发送降级摘要，
+  正文标注“明细不完整、缺失计数进度未知”，不把未知报告为 0；change_or_error
+  回退报告计数、不猜测缺失进度；busy-skip／取消仍静默。
+- **B-07（P1）**：正文预览与附件逐事件携带原因与阶段说明（首次进入待删除、
+  计数推进、达到阈值等待后续重核且不等于已删除、已确认恢复条件清零、已实际
+  删除、归属回收说明）；完成来源的安全保留诊断进入来源区，不再丢失。
+- **B-08（P2）**：`resolveNotifications` 在 enabled: false 下仍校验已提供字段；
+  自定义 `UnmarshalYAML` 拒绝非字符串 `instance_name` 并手工维护未知字段拒绝；
+  移除合同外 64 字符上限。校验不读凭证、不创建文件。
+- **补齐证据**：`TestSendRoundCleansUpAfterDeliveryFailure` 改用本地失败
+  transport；AC-8 附件失败分支与共享预算取消用例；AC-10 serve 驱动新增 Phase F
+  （接收端 hold：阻塞发送期间并行 sync 完成证明锁已释放、不重入不积压、SIGTERM
+  发送中及时取消且非零退出）；AC-11 容器 notifications 场景在发送阻塞窗口实测
+  临时目录 0700／清单 0600。B 审查遗留的 overlay 测试副本移入同目录 `_overlay/`
+  子目录（内容不变）以恢复 `scripts/quality.py` 的 `go vet ./...` 入口。
+- **验证（最终候选 `9dbb58c`）**：`python3 scripts/quality.py` PASS；race
+  `CGO_ENABLED=1 -race -count=1 ./...` 与 tagged CLI PASS；sync 集成 14/14、
+  serve 集成 8/8（含 Phase F）、容器集成 6/6（含权限断言）PASS；Compose
+  `--no-interpolate` 无值透传通过。首次失败日志保留于证据目录。
+- **剩余限制与风险**：真实 Telegram 送达 NOT RUN（无授权测试目标／凭证）；真实
+  OpenList／Jellyfin／插件链路与 ARM64 原生实机不在本 Task 范围；附件 8 MiB 上限
+  行为由单元与二进制层覆盖，未在容器内复现 8 MiB 级数据集；无 collector 时
+  change_or_error 的变化判定回退报告计数（缺失进度不可知，如实不触发）。
+
+原交付流程：实施后在本节填入实际实现 Head、变更摘要、AC／RO 证据、首次失败／修复和剩余限制，
+再交独立 B 审查完整 Task Base..Head；实施者不得自签 B PASS。
+原计划由本会话代行 B 制定；规划与本次激活均不构成独立产品审查。
+规划与激活文档按 T0 核对合同一致性、检查点可达性、链接／锚点、补丁空白和提交后治理；
+本节 NOT RUN 指产品实施证据，规划检查不代替产品测试。
 
 Developer 报告（Task Base `1bfac551` → Implementation Head `606e310`）：
 
