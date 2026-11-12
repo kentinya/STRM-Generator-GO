@@ -191,7 +191,7 @@ B Task: 6.1 / IN PROGRESS
 B Product Review: PENDING
 A Final Review: PENDING
 Decision: PENDING
-Implementation Evidence: NOT RUN
+Implementation Evidence: Task 6.1 local implementation complete at 606e31089a2f41fe09f57610f34ce006f622828b; quality/race and sync 14/14, serve 8/8, container 6/6 integration scenarios PASS (artifacts/task-6.1/EVIDENCE.md)
 Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: Task 6.1 activated; product implementation and validation not started
+Remaining Authorized Work: independent B review of 1bfac551..606e310; real Telegram evidence; A closure
 ```

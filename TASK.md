@@ -8,7 +8,7 @@ Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
 Test Level: T4
-Implementation Head: NOT SET
+Implementation Head: 606e31089a2f41fe09f57610f34ce006f622828b
 ```
 
 2026-11-12 用户授权本会话代替 B 规划首个 Task，正式计划已提交；用户随后授权激活，
@@ -136,14 +136,37 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 ## 完成报告与审查
 
 ```text
-Implementation Status: NOT STARTED
+Implementation Status: READY FOR B REVIEW
 Reviewed Range: NOT SET
-Local Evidence: NOT RUN
+Local Evidence: PASS — see artifacts/task-6.1/EVIDENCE.md and the run directories under artifacts/validation-evidence/task6.1-*
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
 B Product Review: PENDING
 A Final Review: PENDING
-Remaining Work: implementation; local validation; independent B review; real Telegram evidence; A closure
+Remaining Work: independent B review of 1bfac551..606e310; real Telegram evidence in a separately authorized test chat; A closure
 ```
+
+Developer 报告（Task Base `1bfac551` → Implementation Head `606e310`）：
+
+- **实现范围**：`notifications.telegram` 五字段配置与三策略（缺省关闭、旧配置兼容、
+  严格校验）；`internal/storage` 最小结果接口扩展（`CommitResult` 携带已提交推进与
+  committed 事实、`ClearResult` 携带清零前计数、scratch reason 列），未改业务表；
+  `internal/reconciler` 可选 `FactSink` 在原操作窗口取证（新增／更新／实际删除／
+  归属回收、计数推进与清零）；新增 `internal/notify`（摘要、单个 8 MiB 流式附件、
+  官方 Bot API 传输）；`cmd/strmgen` 装配与每轮生命周期（锁释放后串行发送、
+  busy-skip／取消不发送且清理临时文件）；文档、示例与 Compose 无值凭证透传。
+- **验证**：`python3 scripts/quality.py`（含 tagged CLI 通知测试）PASS；race 全部包与
+  tagged CLI PASS；sync 集成 14/14、serve 集成 8/8、容器集成 6/6（含新增
+  notifications／notifications_cleanup／serve_notifications／容器 notifications 场景）
+  PASS；Compose `--no-interpolate` 脱敏渲染通过。证据与 AC 映射见
+  [artifacts/task-6.1/EVIDENCE.md](artifacts/task-6.1/EVIDENCE.md)。
+- **首次失败／修复**：集成驱动发现 busy-skip／取消路径临时目录残留
+  （defer 注册时机）→ 修正并补回归测试；容器场景回连地址改用 host-gateway；
+  驱动初版跨根对照断言过严 → 改为字节／业务行对照。后两项为驱动侧修正，
+  产品代码无改动。
+- **剩余限制与风险**：真实 Telegram 送达 NOT RUN；真实 OpenList／Jellyfin／插件与
+  ARM64 原生实机不在本 Task 范围；附件 8 MiB 上限行为由单元与二进制层覆盖，
+  未在容器内复现 8 MiB 级数据集；collect 器损坏时 change_or_error 的变化判定
+  回退到报告计数（缺失进度不可知，如实不触发），已在代码注释说明。
 
 实施后在本节填入实际实现 Head、变更摘要、AC／RO 证据、首次失败／修复和剩余限制，
 再交独立 B 审查完整 Task Base..Head；实施者不得自签 B PASS。
