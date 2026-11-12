@@ -14,7 +14,7 @@ Related Slice: 6
 Status: READY FOR B REVIEW
 Task Base: 959451530efbfe8a646f80ce325b4f789f85e770
 Contract Checkpoint: e1f7bb5de5c61953bda42c58721530842f982a94
-Implementation Head: 8b8158623cb7856e8e084d883509a5f6a15e41cf
+Implementation Head: a21168be00b06699c75208654793b0787adec6d1
 Difficulty: Medium
 Test Level: T3
 Independent B Review: PENDING
@@ -228,7 +228,7 @@ Slice 1–6 的状态、历史合同、实现 Head 和验收决定保持原样�
 
 按激活计划完成 FIX-TG-01 的产品实现与受影响验证，状态提交为 READY FOR B REVIEW。
 Task Base 与 Contract Checkpoint 保持不变；Implementation Head 为
-`8b8158623cb7856e8e084d883509a5f6a15e41cf`。独立 B 审查仍为 PENDING；本轮没有真实
+`a21168be00b06699c75208654793b0787adec6d1`（含折叠块内不产生空首行的展示修正）。独立 B 审查仍为 PENDING；本轮没有真实
 Telegram 发送授权，因此 TG-6 为 NOT RUN，整体验收不能由以下本地／合成证据代替。
 
 实现范围：
@@ -255,6 +255,9 @@ Telegram 发送授权，因此 TG-6 为 NOT RUN，整体验收不能由以下本
 | serve 通知生命周期 | `python3 scripts/run_serve_integration.py --scenario serve_notifications` | PASS |
 | 受影响包 race | 固定 CC／CGO=1，`go-local test -race -count=1 ./internal/notify ./cmd/strmgen` | PASS |
 | 常规质量 | `python3 scripts/quality.py` | PASS（治理、Python 125/125、语法／空白、gofmt、vet、全包 Go、tagged CLI、build） |
+
+实现 Head 之后有一次展示修正：`blockquote expandable` 开标签不再带入空首行，事件预览
+紧跟标签内容；聚焦 Go 测试、sync／serve 通知集成与受影响 race 已对该 Head 重跑 PASS。
 
 证据位于 `artifacts/validation-evidence/fix-tg-01-sync-R7W9DH/`：`run.log`、`serve.log`、
 `race.log`、`quality.log`、`sample.log`（合成 25 条事件的原始 HTML 与可见文本），以及
