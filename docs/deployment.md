@@ -26,7 +26,7 @@ v1.2.0 增加可选 Telegram 通知，兼容 v1.1.0 配置，默认不发送。
 
 | 产物 | 触发与配置 | 工作流 |
 |---|---|---|
-| Linux amd64／arm64 二进制 | 推送 `v*` 标签；从 `.go-version` 安装 Go，校验依赖，使用 CGO=0 构建。生成 `strmgen_<标签>_linux_<架构>.tar.gz`，每包包含 `strmgen` 和 `config.example.yaml`，另附 `SHA256SUMS.txt`，上传 GitHub Release | [release.yml](../.github/workflows/release.yml) |
+| Linux amd64／arm64 二进制 | 推送 `v*` 附注标签；从 `.go-version` 安装 Go，校验依赖，使用 CGO=0 构建。生成 `strmgen_<标签>_linux_<架构>.tar.gz`，每包包含 `strmgen` 和 `config.example.yaml`，另附 `SHA256SUMS.txt`。以标签说明和自动变更记录创建正式 Release | [release.yml](../.github/workflows/release.yml) |
 | Linux amd64／arm64 镜像 | 推送 `main` 或手动运行；需配置 `DOCKERHUB_USERNAME`／`DOCKERHUB_TOKEN` secrets，推送 `<用户名>/strm-generator-go:latest` 与 `:sha-<完整提交 SHA>` | [docker-publish.yml](../.github/workflows/docker-publish.yml) |
 | 仓库质量检查 | push／pull_request；固定 SDK／C 工具链、双架构 smoke、race、治理与工具回归 | [quality.yml](../.github/workflows/quality.yml) |
 

@@ -62,6 +62,11 @@ jobs:
           sha256sum *.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: Read release notes from tag
+        shell: bash
+        run: |
+          git for-each-ref --format='%(contents)' "refs/tags/${GITHUB_REF_NAME}" > dist/RELEASE_NOTES.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -69,4 +74,7 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS.txt
           generate_release_notes: true
+          body_path: dist/RELEASE_NOTES.md
+          draft: false
+          prerelease: false
           fail_on_unmatched_files: true
