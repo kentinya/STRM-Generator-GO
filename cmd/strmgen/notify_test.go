@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,6 +166,94 @@ func TestSendRoundWithoutCollectorStillSendsDegradedSummary(t *testing.T) {
 		&reconciler.Report{Sources: []reconciler.SourceResult{{SourceIndex: 0, Errors: 1, Partial: true}}}, scheduler.Result{}, nil)
 	if requests != 2 {
 		t.Fatalf("requests = %d, a failing round must send without detail", requests)
+	}
+}
+
+func TestSendRoundLogsDetailWriteFailure(t *testing.T) {
+	for _, stage := range []string{"healthy", "record", "finalize", "policy-skipped"} {
+		t.Run(stage, func(t *testing.T) {
+			messages := make(chan string, 4)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/botunit-token/sendMessage" {
+					t.Errorf("unexpected request: %s", r.URL.Path)
+				}
+				if err := r.ParseForm(); err != nil {
+					t.Error(err)
+				}
+				messages <- r.Form.Get("text")
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer server.Close()
+			n := testNotifier(t)
+			n.sender = notify.NewSenderWithBase("unit-token", "42", server.URL)
+			var log strings.Builder
+			n.stderr = &log
+			collector := n_newCollector(t)
+			defer collector.Close()
+			const warning = "notifications: detail listing write failed; notification details are incomplete\n"
+			record := func() {
+				collector.Record(notify.Event{SourceIndex: 0, Kind: notify.KindCreated, RelativePath: "private-name.strm"})
+			}
+			send := func() {
+				n.sendRound(context.Background(), "sync", time.Now(), time.Second,
+					&reconciler.Report{Sources: []reconciler.SourceResult{{SourceIndex: 0, Created: 1}}}, scheduler.Result{}, collector)
+			}
+			// A real file-size failure exercises the collector through its public
+			// interface. Restore the process limit immediately; do not parallelize.
+			withWriteFailure := func(action func()) {
+				var limit syscall.Rlimit
+				if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &limit); err != nil {
+					t.Fatal(err)
+				}
+				signals := make(chan os.Signal, 1)
+				signal.Notify(signals, syscall.SIGXFSZ)
+				defer signal.Stop(signals)
+				if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &syscall.Rlimit{Cur: 0, Max: limit.Max}); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &limit); err != nil {
+						t.Fatal(err)
+					}
+				}()
+				action()
+			}
+			switch stage {
+			case "record", "policy-skipped":
+				withWriteFailure(record)
+				if stage == "policy-skipped" {
+					n.policy = "error"
+				}
+				send()
+			case "finalize":
+				record()
+				withWriteFailure(send)
+			default:
+				record()
+				send()
+			}
+			if stage == "healthy" {
+				if log.Len() != 0 {
+					t.Fatalf("healthy listing logged a warning: %q", log.String())
+				}
+			} else if log.String() != warning {
+				t.Fatalf("want one fixed, redacted warning; got %q", log.String())
+			}
+			if stage == "policy-skipped" {
+				if len(messages) != 0 {
+					t.Fatal("a local write failure must not override the send policy")
+				}
+			} else {
+				select {
+				case body := <-messages:
+					if stage != "healthy" && !strings.Contains(body, "不完整") {
+						t.Fatal("degraded summary must still explain incomplete details")
+					}
+				default:
+					t.Fatal("summary was not sent")
+				}
+			}
+		})
 	}
 }
 

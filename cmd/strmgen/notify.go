@@ -141,7 +141,13 @@ func (n *notifier) sendRound(ctx context.Context, mode string, started time.Time
 	// The temporary listing is cleaned up on every path, including busy skips
 	// and cancelled rounds that never send.
 	if collector != nil {
-		defer collector.Close()
+		defer func() {
+			// Check after message construction as Finalize can also fail.
+			if collector.WriteFailed() {
+				fmt.Fprintln(n.stderr, "notifications: detail listing write failed; notification details are incomplete")
+			}
+			collector.Close()
+		}()
 	}
 	if result.Busy || ctx.Err() != nil {
 		return
