@@ -11,10 +11,10 @@ Task ID: FIX-TG-01
 Task Type: standalone-fix
 Parent Slice: NONE
 Related Slice: 6
-Status: IN PROGRESS
+Status: READY FOR B REVIEW
 Task Base: 959451530efbfe8a646f80ce325b4f789f85e770
 Contract Checkpoint: e1f7bb5de5c61953bda42c58721530842f982a94
-Implementation Head: NOT SET
+Implementation Head: 8b8158623cb7856e8e084d883509a5f6a15e41cf
 Difficulty: Medium
 Test Level: T3
 Independent B Review: PENDING
@@ -223,6 +223,64 @@ Slice 1–6 的状态、历史合同、实现 Head 和验收决定保持原样�
 - Go 产品回归、CLI／serve 产品集成、race、真实 Telegram、OpenList、Jellyfin、
   插件与容器运行本轮 NOT RUN；Python 中模拟的缺服务诊断不是实际服务运行结果。
   激活检查不代替本计划的 T3 产品验证或独立 B 审查。
+
+### 实施报告（2026-11-12）
+
+按激活计划完成 FIX-TG-01 的产品实现与受影响验证，状态提交为 READY FOR B REVIEW。
+Task Base 与 Contract Checkpoint 保持不变；Implementation Head 为
+`8b8158623cb7856e8e084d883509a5f6a15e41cf`。独立 B 审查仍为 PENDING；本轮没有真实
+Telegram 发送授权，因此 TG-6 为 NOT RUN，整体验收不能由以下本地／合成证据代替。
+
+实现范围：
+
+- `internal/notify/message.go` 改为受控 HTML 渲染：四种结果粗体标题、固定图标、
+  九项统计分行、实例／来源／耗时／开始完成时间、来源诊断先于事件、5 条直接展示／
+  6 条起单个 `<blockquote expandable>`、最多 20 条预览、正文预览／省略与附件说明。
+  动态值先做原控制／换行／双向字符转义，再做 `&`、`<`、`>` HTML 转义；完整待发送
+  HTML 连标签和实体共享 3500 UTF-16 预算，长实例名按完整 rune／实体缩短，路径不截断。
+- `internal/notify/sender.go` 的 `sendMessage` 固定传递 `parse_mode=HTML`；其余传输、
+  预算、重定向、响应上限、无重试与脱敏逻辑未改。
+- Collector、reconciler、storage、STRM／清理／调度、配置 schema 与 Slice 6 历史合同未改。
+- README、需求 R-14、架构与路线图记录本次 HTML 增量及长度口径；旧 SLICE 原文未改。
+- `scripts/telegram_receiver.py` 增加 `parse_mode` 记录与测试用可见文本读取；sync／serve／
+  container 集成断言改为同时核对原始 HTML 与可见文字，未删除原安全断言。
+
+验证与证据（本机，T3）：
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 聚焦格式化／发送／CLI 测试 | `bash scripts/go-local test ./internal/notify ./cmd/strmgen` | PASS |
+| tagged CLI 测试 | `bash scripts/go-local test -tags strmgen_testhooks ./cmd/strmgen` | PASS |
+| sync 通知与清理实 CLI | `python3 scripts/run_isolated_sync_integration.py --scenario notifications,notifications_cleanup` | 2/2 PASS |
+| serve 通知生命周期 | `python3 scripts/run_serve_integration.py --scenario serve_notifications` | PASS |
+| 受影响包 race | 固定 CC／CGO=1，`go-local test -race -count=1 ./internal/notify ./cmd/strmgen` | PASS |
+| 常规质量 | `python3 scripts/quality.py` | PASS（治理、Python 125/125、语法／空白、gofmt、vet、全包 Go、tagged CLI、build） |
+
+证据位于 `artifacts/validation-evidence/fix-tg-01-sync-R7W9DH/`：`run.log`、`serve.log`、
+`race.log`、`quality.log`、`sample.log`（合成 25 条事件的原始 HTML 与可见文本），以及
+驱动各自输出目录与 `summary.json`。构建产物为 `artifacts/bin/strmgen` 与
+`artifacts/bin/strmgen-testhooks`。
+
+首次失败与修正：
+
+- 原测试仍断言纯文本标题／无标签事件，改为同时核对 HTML 结构与解析后可见文字；
+  没有删除业务或安全断言。
+- 诊断顺序用例首次复用了已 Finalize 的 collector，关闭文件后未触发新失败；改为独立
+  故障 collector 后通过。
+- 长路径用例的合成路径仍能容纳于正文，改为更长路径后验证整条移入附件。
+- 单来源失败被正确地归为“全部来源未完成”，测试预期由部分完成改为该标题。
+- 首次 `quality.py` 在实现提交前因 `docs/roadmap.md` 尚未提交而被治理拒绝
+  （`Working roadmap differs from committed HEAD`）；提交实现后同一质量套件 PASS。
+  这是工作区提交顺序问题，不是产品失败。
+
+未运行与限制：
+
+- 真实 Telegram 客户端视觉检查、真实发送与接收附件核验：NOT RUN；需另行授权的
+  Bot／聊天。mock 只记录请求，不证明 Telegram 的 HTML 渲染、折叠展开或 emoji 宽度。
+- 容器全套、真实 OpenList／Jellyfin／插件、ARM64 原生与 T4 恢复链路本轮未重跑；
+  本次未改持久化、删除、清理资格、STRM 字节或调度接口，按计划采用受影响回归。
+- 未提交输入：实现提交前无额外未提交文件；本报告在实现提交后追加，审查范围应覆盖
+  实现 Head 与本报告提交。剩余阻塞为 TG-6 真实视觉证据与独立 B 决定。
 
 ## 已完成 Task 6.1
 
