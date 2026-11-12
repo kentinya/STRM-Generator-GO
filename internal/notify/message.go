@@ -26,7 +26,7 @@ const (
 	collapsePreviewAt = 6
 
 	eventTitleTag     = "<b>📋 文件事件</b>\n"
-	blockquoteOpenTag = "<blockquote expandable>\n"
+	blockquoteOpenTag = "<blockquote expandable>"
 	blockquoteEndTag  = "</blockquote>\n"
 )
 
