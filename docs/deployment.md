@@ -1,8 +1,8 @@
 # 部署与运行包
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
-Slice 1–6 均 PASS / CLOSED；Telegram 通知的本地实现与真实文本／附件送达已验收，
-当前独立修复范围与进度见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
+Slice 1–6 与通知排版修复 FIX-TG-01 均 PASS / CLOSED，当前无活动实施任务。
+验收记录见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
 
 基础容器实测来自 Slice 3，通知增量另有 Slice 6 的 amd64 容器证据；arm64 仅有
 交叉构建、OCI manifest／digest 与 ELF 架构核对，未做原生实机验收。
@@ -15,7 +15,8 @@ Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
 `config.example.yaml`，无需运行时 Go SDK；下载、校验和初次配置见
 [README](../README.md#下载二进制)。
 
-v1.2.0 增加可选 Telegram 通知，兼容 v1.1.0 配置，默认不发送。
+v1.2.0 增加可选 Telegram 通知；v1.2.1 改善摘要排版、图标和文件明细折叠，
+兼容原配置，通知仍默认关闭。
 升级前停止生成器，备份输出、配置与完整状态目录；替换程序或镜像时保留这些目录和
 共享锁挂载，先执行 dry-run 再恢复运行。Compose 修改镜像或环境变量后需重新创建容器。
 不要用安装包里的示例覆盖现有配置，不要删除数据库来升级。
@@ -158,8 +159,8 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
 ## 边界与 NOT RUN
 
 Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启；Slice 6 另有通知容器验收。
-v1.0.0、v1.1.0 的二进制 Release 和对应 main 镜像工作流已有成功记录；
-后续发布状态以该版本的 GitHub Actions／Release 为准，不把历史验收当作新版本发布成功。
+各版本的二进制 Release 和 main 镜像发布结果以对应 GitHub Actions／Release 为准；
+版本与安装入口统一见 [README](../README.md)。
 Slice 4 的外部服务／固定万文件证据见[已关闭记录](roadmap.md#slice-4-已关闭记录)，
 由独立 B 验收及 A 最终接受。Compose 的 `mem_limit: 512m` 是部署配置，
 不是 512 MB 性能验收门槛；客户端播放、代理及更高规模压力不在验收范围。

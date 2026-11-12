@@ -4,7 +4,7 @@
 独立 Go 命令行工具，支持 **Linux amd64 / arm64**、Docker Compose 和二进制运行。
 可配合 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe) 使用。
 
-**当前版本：v1.2.0** · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
+**当前版本：v1.2.1** · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
 [快速开始](#快速开始) · [配置](#配置) · [Telegram 通知](#telegram-通知) · [升级](#升级)
 
 ## 特性
@@ -15,7 +15,7 @@
 - **定时同步**：`sync` 执行一次；`serve` 启动即同步，默认每 60 分钟运行一轮。
 - **安全清理**：默认关闭；只处理可靠归属的 STRM，累计至少三次完整成功轮的缺失记录，删除前再次核对。
 - **预览与恢复**：`--dry-run` 不修改输出、原数据库或计数；支持跨进程互斥和正常中断后的重试恢复。
-- **Telegram 通知**：v1.2.0 新增，每轮带图标的 HTML 摘要、文件变化与清理进度，明细过多时附文本清单；默认关闭。
+- **Telegram 通知**：每轮带图标的 HTML 摘要、可展开文件明细与清理进度，明细过多时附文本清单；默认关闭。
 
 ```mermaid
 flowchart LR
@@ -38,21 +38,21 @@ flowchart LR
 
 从 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases) 下载对应架构的压缩包和
 `SHA256SUMS.txt`。预编译包只需 Linux 运行环境，无需安装 Go 或 Python。
-下面以 v1.2.0 为例，在一个新的安装目录内执行：
+下面以 v1.2.1 为例，在一个新的安装目录内执行：
 
 ```bash
-mkdir strmgen-v1.2.0
-cd strmgen-v1.2.0
+mkdir strmgen-v1.2.1
+cd strmgen-v1.2.1
 case "$(uname -m)" in
   x86_64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
   *) echo '仅提供 Linux amd64 / arm64 安装包'; exit 1 ;;
 esac
-release_url='https://github.com/kentinya/STRM-Generator-GO/releases/download/v1.2.0'
-curl -fLO "$release_url/strmgen_v1.2.0_linux_${arch}.tar.gz"
+release_url='https://github.com/kentinya/STRM-Generator-GO/releases/download/v1.2.1'
+curl -fLO "$release_url/strmgen_v1.2.1_linux_${arch}.tar.gz"
 curl -fLO "$release_url/SHA256SUMS.txt"
 sha256sum --check --ignore-missing SHA256SUMS.txt && \
-  tar -xzf "strmgen_v1.2.0_linux_${arch}.tar.gz"
+  tar -xzf "strmgen_v1.2.1_linux_${arch}.tar.gz"
 cp config.example.yaml config.yaml
 ```
 
@@ -73,7 +73,7 @@ export OPENLIST_TOKEN='替换为你的 OpenList token'
 ```bash
 git clone https://github.com/kentinya/STRM-Generator-GO.git
 cd STRM-Generator-GO
-git checkout v1.2.0
+git checkout v1.2.1
 docker buildx build --load --tag strmgen:local .
 cp deploy/config.example.yaml deploy/config.yaml
 mkdir -p deploy/data/output deploy/data/state deploy/data/locks
@@ -177,7 +177,7 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 
 ## 升级
 
-从 v1.1.0 升级到 v1.2.0，旧配置可继续使用，Telegram 通知默认关闭。
+v1.2.1 兼容 v1.1.0／v1.2.0 配置。Telegram 通知仍默认关闭，已启用时自动采用新版排版。
 先停止生成器并备份输出、状态目录（含 SQLite sidecar）和配置，再替换二进制或镜像。
 保留原数据库、输出映射和共享锁目录，先运行 `sync --dry-run`，核对后恢复同步。
 

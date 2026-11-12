@@ -188,6 +188,7 @@ SLICE／TASK 维护当前状态与追溯入口，路线图汇总已交付能力�
 | Task 6.1 完整计划、完成报告、B 审查、P2 自复核、真实送达记录与 A 首次退回补证 | `89bf67b7868561ab27f307ea88604a65136f4f7f` | `TASK.md`、`SLICE.md` |
 | Slice 6 A 最终验收与原 Task 6.1 本地证据索引 | `03e9e94f431bcf1367e6c65bec13829db43a09ee` | `SLICE.md`、`artifacts/task-6.1/EVIDENCE.md` |
 | FIX-TG-01 原计划、实施报告、B 首次退回及完整真实预览发送记录 | `1afb5aa36fc541cd04e1c31451979253a49767b6` | `TASK.md`；最终用户确认与 B 关闭见当前 TASK |
+| FIX-TG-01 用户最终确认与独立 B 关闭 | `1f193b798744ef96083a788a7deeb37d4e6c5b0c` | `TASK.md` |
 
 ```bash
 git ls-tree -r --name-only 4d16846722f31aa9615494b90df715cf4b5bb6df -- docs Task

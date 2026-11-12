@@ -8,7 +8,8 @@ V4.4、自定义扩展名与 Telegram 通知增量均已交付，Slice 1–6 PAS
 [固定 Git 检查点](development-workflow.md#历史记录)。
 
 软件分发版本见 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases)：
-v1.0.0 为基础功能发布，v1.1.0 增加自定义扩展名，v1.2.0 对应已验收的 Telegram 通知。
+v1.0.0 为基础功能发布，v1.1.0 增加自定义扩展名，v1.2.0 增加 Telegram 通知，
+v1.2.1 改善通知排版、图标与明细折叠。
 软件版本与 V4.4 需求合同版本分别维护；具体发布结果以 Release 与 Actions 记录为准。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
@@ -22,26 +23,16 @@ v1.0.0 为基础功能发布，v1.1.0 增加自定义扩展名，v1.2.0 对应�
 
 ## 独立修复 FIX-TG-01 已关闭记录
 
-Task Base 为 `959451530efbfe8a646f80ce325b4f789f85e770`，计划检查点为
-`e1f7bb5de5c61953bda42c58721530842f982a94`，实现 Head 为
-`57d1436456189576e740b4f112a43bd0b8cd94b7`；B 完整审查至
-`1afb5aa36fc541cd04e1c31451979253a49767b6`，最终判定 PASS。
 交付 HTML 粗体标题、固定图标、分行统计与五／六条折叠边界，保留原事件、清理和
-单附件语义。15 条真实摘要与一个附件获 API 接受，用户明确“我很满意，可以关闭了”，
-唯一补证项 B-TG-01 关闭。独立修复不重开 Slice 6，完整证据与未采集项见 TASK。
+单附件语义。完整真实预览获用户满意确认，B 最终 PASS，B-TG-01 关闭。
+固定 Base／计划／实现 Head、完整审查范围与证据边界见 [TASK](../TASK.md)。
 
 ## Slice 6 已关闭记录
 
-固定 Base 为 `20677f1906837428324d58885e719ed385a07258`，Implementation Head 为
-`757b082855974c43498ff7e3f5896b31d657a4ea`。Task 6.1 的 Task Base／Contract Checkpoint
-为 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749`；独立 B 本地 PASS 至 `7c54baf`，
-后续 P2 小修复按用户要求自复核，A 完整审查接受全部实现。
-
-真实文本与附件由正常发布 CLI 发送并获用户确认；用户补交的截图与 950 字节接收附件
-已核验，25 条记录、运行身份、原输出与接收摘要一致，唯一补证项 A-01 关闭。
-数字消息 ID 仍未采集，消息身份以截图中的实例／UTC 时间／内容与原轮次关联；
-未重建收件或补发消息。完整 RO、摘要、复用证据和 NOT RUN 边界见
-[Slice 6 Closure Packet](../SLICE.md#closure-packet)。
+Telegram 运行结果、文件变化、已提交清理进度及单附件通知已交付，RO-1..7 全部 PASS。
+独立 B 本地审查与 A 完整范围审查、真实接收续审已闭环，A-01 关闭。
+固定 Base／Head、逐 RO 结果与验证边界统一见 [Slice 6 Closure Packet](../SLICE.md#closure-packet)。
+完整原合同与过程记录从[固定历史检查点](development-workflow.md#历史记录)查阅。
 
 ## Slice 5 已关闭记录
 
