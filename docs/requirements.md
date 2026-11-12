@@ -2,7 +2,9 @@
 
 已交付需求版本为 V4.4，本文件定义业务规则、本地文件安全和证据边界。
 自定义扩展名增量需求已由 Slice 5 验收并 PASS / CLOSED，见下节与
-[A 最终审查](../SLICE.md#closure-packet)；当前无活动实施任务，历史入口见 [TASK](../TASK.md)。
+[A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)。
+[Slice 6](../SLICE.md) 定义尚未交付的 Telegram 通知增量，合同 ACTIVE、等待 B 正式 Task；
+本文件保持已交付业务规则，任务状态见 [TASK](../TASK.md)。
 
 | ID | 要求与验收含义 |
 |---|---|
@@ -22,7 +24,7 @@
 ## 自定义扩展名
 
 R-13 是 Slice 5 对 V4.4 的已验收增量。以下规则与原合同含义一致；
-验收结果见 [Slice 5 关闭记录](../SLICE.md#closure-packet)，实现职责见
+验收结果见 [Slice 5 历史关闭记录](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)，实现职责见
 [架构](architecture.md#自定义扩展名接入)。V4.4 历史验收不回写为当时已支持本增量。
 
 ### 输入与筛选

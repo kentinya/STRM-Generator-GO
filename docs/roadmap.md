@@ -1,7 +1,8 @@
 # Slice 路线图
 
 V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
-根 [TASK](../TASK.md) 无活动实施任务，无剩余已授权产品需求；新增功能须由用户另行授权。
+用户于 2026-11-12 授权规划 Slice 6；[当前合同](../SLICE.md) ACTIVE，等待 B 正式 Task，
+根 [TASK](../TASK.md) 仍无活动实施任务，Telegram 通知尚未交付。
 业务规则见[需求](requirements.md)，原合同与审查从[固定 Git 检查点](development-workflow.md#历史记录)查看。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
@@ -11,6 +12,15 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 | 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
+| 6 | Telegram 运行结果与文件清理进度通知 | ACTIVE | Slice 1–5 已交付基线 | A 合同已固定；运行摘要、变更／删除文件明细、待删除计数进度、完整附件与失败隔离；等待 B Task |
+
+## Slice 6 当前规划
+
+固定 Base 为 `20677f1906837428324d58885e719ed385a07258`，Implementation Head 为 NOT SET。
+配置／触发、逐文件事实、删除计数、资源与凭证边界、RO-1..7 及验收门槛统一见
+[Slice 6 合同](../SLICE.md)。当前只完成 A 规划，无产品实现或独立 B／A 产品 PASS。
+未来验收按 T4 覆盖持久化／删除取证与通知旁路失败，真实 Telegram 文本及附件单独取证；
+本次不发送真实消息，不从历史恢复凭证，产品与真实链路验证均 NOT RUN。
 
 ## Slice 5 已关闭记录
 
@@ -19,7 +29,8 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 A 审查 Base 至 B 交接 `85a31337bb1a36bba9198fd8ff77959fc8d151cd` 的完整范围，
 RO-1..5 全部 PASS，无阻塞项；原最终审查位于 `4ee49b872dba0964de1c62ec11d63b1717221b7a:SLICE.md`。
 
-关闭摘要、证据路径与复用边界见 [Closure Packet](../SLICE.md#closure-packet)，
+关闭摘要、证据路径与复用边界见[固定历史检查点](development-workflow.md#历史记录)中
+`4ee49b872dba0964de1c62ec11d63b1717221b7a:SLICE.md` 的 Closure Packet，
 配置与清理规则见[需求 R-13](requirements.md#自定义扩展名)。
 验证为 Go／Python 回归和合成 CLI，包含排除清理、重新入选、失败／取消后恢复及定时重启生效。
 真实 OpenList、容器、万文件、Jellyfin／插件、播放／代理、ARM64 实机及正式发布均 NOT RUN。

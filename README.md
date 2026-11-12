@@ -247,13 +247,15 @@ race 所需的固定 C 工具链、合成 OpenList 夹具、真实服务集成�
 | [架构](docs/architecture.md) | 模块职责、数据流、持久化与并发设计 |
 | [开发流程](docs/development-workflow.md) | 环境、测试、任务审查与历史查看 |
 | [路线图](docs/roadmap.md) | 已交付能力与最终验收索引 |
-| [SLICE](SLICE.md) | 最近关闭的能力结果、合同与审查历史入口 |
+| [SLICE](SLICE.md) | 当前能力合同、状态与审查历史入口 |
 | [TASK](TASK.md) | 当前产品实施任务状态 |
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-V4.4 与自定义扩展名增量均已交付，Slice 1–5 **PASS / CLOSED**，当前无活动实施任务。
-最近关闭结果见 [Slice 5](SLICE.md#closure-packet)，历史 Task 入口见 [TASK](TASK.md)。
+V4.4 与自定义扩展名增量均已交付，Slice 1–5 **PASS / CLOSED**。
+[Slice 6](SLICE.md) 的 Telegram 运行结果、文件明细与删除进度通知合同已 **ACTIVE**，
+等待 B 正式 Task，尚未实施；当前发行能力不含通知，任务状态见 [TASK](TASK.md)。
+最近关闭结果见 [Slice 5 历史审查](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)。
 固定万文件、Jellyfin 原始扫描与插件八行决定属于 Slice 4 历史验收，
 Slice 5 使用合成 CLI／回归证据，未重跑真实服务、容器或规模验收。
 探测启动不等于探测成功；ARM64 原生实机与正式发布仍 NOT RUN，完整边界见[路线图](docs/roadmap.md)。
