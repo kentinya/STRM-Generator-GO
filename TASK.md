@@ -142,10 +142,10 @@ Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e
 Fix Range: 20e5325fd034b5295d383cd82d2d966d63252a53..9dbb58c20be182edbdc64637e1c9ee9a79c901d7 (B-01..B-08 corrections within Task 6.1)
 B-R Fix Range: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7..7c54baf660150ced9ac87e41d34dc4631f923fa1
 Local Evidence: independent quality/full race/prior failure probes/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
-Real Telegram Evidence: NOT RUN — no authorized test target or credentials
+Real Telegram Evidence: delivery CONFIRMED by API and user; message IDs / received attachment hash NOT CAPTURED
 B Product Review: independent PASS through 7c54baf; P2 self-review PASS by explicit user request (not independent)
 A Final Review: PENDING
-Remaining Work: separately authorized real Telegram evidence; A final Slice review
+Remaining Work: receipt evidence limits (message IDs / received attachment hash); A final Slice review
 ```
 
 ### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
@@ -496,6 +496,30 @@ A 终审 PENDING。下一步独立复核完整 Task Base..新 Head，重点核�
 完整质量检查、受影响包串行 race 的通过证据及首次并行失败记录；未机械重跑产品测试。
 本轮仅更新结论和治理检查，不新增产品改动。Task 6.1 本地范围恢复 PASS；
 真实 Telegram 送达仍 NOT RUN，Slice 6 保持 ACTIVE，A 终审 PENDING。
+
+### 真实 Telegram 送达验证（2026-11-12）
+
+用户填写专用凭证后授权继续验证，并在完成 Bot 聊天准备后再次要求继续。
+使用不带 testhooks 的发布二进制，从正常 `sync --config` 入口连接官方 Telegram API；
+OpenList 使用既有本机合成夹具，新建独立输出／数据库，不接触生产媒体或服务。
+源码为 `beb3b0ac1dd7102f8fdb37e2cfd5055bb1eab7c9`（产品代码与 Implementation Head 相同），
+二进制 SHA-256：`8efc8e56e860b81b4aa5fecdf3bb1d1c2b21a88abe632217d4c438ff3013e577`。
+
+- 首次文本轮：同步成功并生成 2 个文件，Telegram 摘要请求返回 HTTP 400；
+  未发送附件，保留失败日志，具体远端原因未被产品记录，不猜测原因。
+- 后续文本轮：生成 2 个文件，摘要请求成功，无通知错误。
+- 附件轮：生成 25 个文件，摘要及 `strm-events.txt` 上传请求均成功，无通知错误。
+- 已请用户核对两条摘要、新增 2／25 个文件及附件的 25 条记录；用户确认“正常的”。
+  **真实文本与附件送达已确认**，不再记作 NOT RUN，也不据此声明 Slice 已关闭。
+
+证据在本机 `artifacts/telegram-real-check/delivery-evidence.json`，包含源码、二进制及日志摘要；
+三个原始轮次依次为 `runs/text-f7ufio4h`、`runs/text-t_chphkj`、`runs/attachment-raygim02`。
+准备过程及凭证留在 Git 忽略的专用目录，不将凭证写入审查文档或提交。
+**取证限制：** 产品不保存 Telegram 返回的消息 ID，发送后清理临时附件；本轮尚未获得
+用户下载的接收文件。因此消息 ID／链接与实际收到附件的 SHA-256 未采集，不能用本地 STRM
+或重建内容的摘要替代。RO-6 的真实送达结果完成，合同规定的回执身份／附件摘要证据仍未齐全，
+交 A 评估；RO-7 A 最终审查继续 PENDING。计数／清理与失败恢复沿用此前本地证据，
+本轮未额外验证其真实 Telegram 送达，也未重跑其他真实外部链路。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从
 [固定 Git 检查点](docs/development-workflow.md#历史记录)中的

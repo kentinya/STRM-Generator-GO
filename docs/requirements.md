@@ -4,7 +4,7 @@
 自定义扩展名增量需求已由 Slice 5 验收并 PASS / CLOSED，见下节与
 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)。
 [Slice 6](../SLICE.md) 定义 Telegram 通知增量；Task 6.1 本地范围已独立 B PASS，
-真实 Telegram 送达与 A 最终验收待完成，目标业务规则见 R-14。
+真实 Telegram 送达已由用户确认，回执取证与 A 最终验收待完成，目标业务规则见 R-14。
 任务状态见 [TASK](../TASK.md)。
 
 | ID | 要求与验收含义 |

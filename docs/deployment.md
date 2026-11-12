@@ -2,7 +2,7 @@
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
 Slice 1–5 均 PASS / CLOSED；Task 6.1 通知本地范围已独立 B PASS，
-Slice 6 真实送达与 A 最终验收待完成。分层验收入口见[路线图](roadmap.md)。
+Slice 6 真实送达已由用户确认，回执取证与 A 最终验收待完成。分层验收入口见[路线图](roadmap.md)。
 
 容器实测来自 Slice 3：本机 amd64 运行通过，arm64 只核对 OCI manifest／digest 与 ELF
 架构；ARM64 原生实机和正式发布验收为 NOT RUN。Slice 5 未改容器装配、未重跑容器验收，

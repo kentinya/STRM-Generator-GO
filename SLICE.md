@@ -190,11 +190,11 @@ A Contract Revision: 2026-11-12 user-requested simplification; Base unchanged
 B Task: 6.1 / PASS (prior independent local review; P2 self-review per user request)
 B Product Review: independent PASS through 7c54baf; P2 self-review PASS at 757b082 (not independent)
 A Final Review: PENDING
-Decision: ACTIVE (local Task PASS; real delivery and A final decision PENDING)
+Decision: ACTIVE (local Task PASS; real delivery confirmed; receipt evidence limits and A final review PENDING)
 Implementation Evidence: 7c54baf660150ced9ac87e41d34dc4631f923fa1; independent quality/full race/prior failures/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
 P2 Implementation Evidence: 757b082855974c43498ff7e3f5896b31d657a4ea; quality and affected-package serial race passed; user-requested self-review PASS
-Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: A handoff; real Telegram execution requires separate explicit authorization
+Real Telegram Evidence: text and attachment delivery CONFIRMED by API and user; message IDs / received attachment hash NOT CAPTURED
+Remaining Authorized Work: receipt evidence limits and A final Slice review
 ```
 
 独立 B 最终复审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e41d34dc4631f923fa1`，
@@ -204,6 +204,9 @@ RO-6 本地文档／部署证据通过，真实 Telegram 文本／附件仍 NOT 
 A 最终决定仍 PENDING。详情与证据见 [Task 6.1 最终 B 复审](TASK.md#独立-b-最终复审2026-11-12)。
 用户随后要求补齐 P2，已在 `757b082` 实现固定脱敏警告并完成实施自测；
 随后按用户明确要求完成自复核，P2 关闭（非新的独立 B 审查）；详见 [P2 自复核](TASK.md#p2-自复核2026-11-12用户指定)。
-本 Slice 保持 ACTIVE，不能将本地通过改写为真实送达或 Slice 关闭。前两轮失败审查保留在 TASK 中。
+后续正常 CLI 真实发送文本和附件成功，用户确认内容正常；首次 HTTP 400 失败记录保留。
+消息身份与实际收到附件的 SHA-256 尚未采集，详见 [真实送达记录](TASK.md#真实-telegram-送达验证2026-11-12)。
+本 Slice 保持 ACTIVE，等待回执证据与 A 最终审查；不将送达确认等同于 Slice 关闭。
+前两轮失败审查保留在 TASK 中。
 以上覆盖本页激活时“等待 B／尚未实现”的历史规划时态；合同能力正文与 Base 不变，
 不将开发者汇总的通过场景等同于合同已验收。
