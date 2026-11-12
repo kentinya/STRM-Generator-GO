@@ -1132,3 +1132,40 @@ func TestBuildMessageSyntheticSample(t *testing.T) {
 	t.Logf("RAW HTML:\n%s", text)
 	t.Logf("VISIBLE TEXT:\n%s", body)
 }
+
+// FIX-TG-01: a size-capped listing keeps the preview block but marks the
+// attachment incomplete outside it and never promises a complete listing.
+func TestBuildMessageLimitWarningStaysOutsideBlock(t *testing.T) {
+	c, err := NewCollector("sync capped body", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for i := 0; i < 30; i++ {
+		c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: fmt.Sprintf("F%02d.strm", i)})
+	}
+	long := strings.Repeat("长", 4096)
+	for i := 0; i < 4096 && !c.LimitReached(); i++ {
+		c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: long})
+	}
+	if !c.LimitReached() {
+		t.Fatal("the synthetic round did not reach the listing size cap")
+	}
+	info := RunInfo{InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Created: c.TotalEvents()}, Threshold: 3}
+	text, attachment := BuildMessage(info, c)
+	if attachment == "" {
+		t.Fatal("the bounded partial listing is still a usable attachment")
+	}
+	open := strings.Index(text, "<blockquote expandable>")
+	close := strings.Index(text, "</blockquote>")
+	warning := strings.Index(text, "明细不完整：附件清单达到大小上限")
+	note := strings.Index(text, "📎 清单随附上传（已达大小上限，内容不完整）。")
+	if open < 0 || close < 0 || warning < close || note < close || warning < 0 || note < 0 {
+		t.Fatalf("the capped listing notes must stay outside the preview block:\n%s", text)
+	}
+	if strings.Contains(text, "📎 完整清单") {
+		t.Fatalf("a capped listing must not be promised as complete:\n%s", text)
+	}
+}
