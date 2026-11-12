@@ -3,7 +3,7 @@
 ```text
 Task ID: 6.1
 Parent Slice: 6
-Status: IN PROGRESS
+Status: FIX REQUIRED
 Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
@@ -11,6 +11,7 @@ Test Level: T4
 Implementation Head: 606e31089a2f41fe09f57610f34ce006f622828b
 ```
 
+以下为原规划／激活记录；当前以本页末尾独立 B 审查为准。
 2026-11-12 用户授权本会话代替 B 规划首个 Task，正式计划已提交；用户随后授权激活，
 Task 进入 IN PROGRESS。本次只激活任务，产品代码尚未改动；
 不发送真实 Telegram 消息，不签发独立 B／A 产品 PASS，不 push。
@@ -137,12 +138,12 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 
 ```text
 Implementation Status: READY FOR B REVIEW
-Reviewed Range: NOT SET
-Local Evidence: PASS — see artifacts/task-6.1/EVIDENCE.md and the run directories under artifacts/validation-evidence/task6.1-*
+Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b
+Local Evidence: Developer-reported PASS; independent B found contract failures below
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
-B Product Review: PENDING
+B Product Review: FIX REQUIRED (2026-11-12)
 A Final Review: PENDING
-Remaining Work: independent B review of 1bfac551..606e310; real Telegram evidence in a separately authorized test chat; A closure
+Remaining Work: correct B-01..B-08 within Task 6.1; complete missing local evidence; B re-review; separately authorized real Telegram evidence; A closure
 ```
 
 Developer 报告（Task Base `1bfac551` → Implementation Head `606e310`）：
@@ -168,11 +169,80 @@ Developer 报告（Task Base `1bfac551` → Implementation Head `606e310`）：
   未在容器内复现 8 MiB 级数据集；collect 器损坏时 change_or_error 的变化判定
   回退到报告计数（缺失进度不可知，如实不触发），已在代码注释说明。
 
-实施后在本节填入实际实现 Head、变更摘要、AC／RO 证据、首次失败／修复和剩余限制，
+原交付流程：实施后在本节填入实际实现 Head、变更摘要、AC／RO 证据、首次失败／修复和剩余限制，
 再交独立 B 审查完整 Task Base..Head；实施者不得自签 B PASS。
 原计划由本会话代行 B 制定；规划与本次激活均不构成独立产品审查。
 规划与激活文档按 T0 核对合同一致性、检查点可达性、链接／锚点、补丁空白和提交后治理；
 本节 NOT RUN 指产品实施证据，规划检查不代替产品测试。
+
+### 独立 B 审查（2026-11-12）
+
+**Decision: FIX REQUIRED。** 本轮仅审查与维护交接状态，未修改产品实现，未代替 Developer
+修复后自签 PASS，未启动多代理、push 或发送真实 Telegram 消息。
+
+- 完整 Task 范围：`1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b`。
+  另核对 Slice Base `20677f1906837428324d58885e719ed385a07258` 以来的合同／规划增量，
+  以及交付报告 Head `e7df63213dea2497a0fead6f1b3ad544d7321e8d`；后者只改 SLICE／TASK，
+  产品代码与 Implementation Head 相同。固定 Base、合同和实现检查点均不移动。
+- 角色依据为[开发流程的任务与审查](docs/development-workflow.md#任务与审查)；当前文档已合并
+  旧角色指南，不从历史角色文件引入新范围。先检查状态（干净，main ahead 6）与治理（PASS）。
+- 新证据位于本机 `artifacts/validation-evidence/task6.1-b-review-20261112/`：
+  `metadata.json` 记录输入 SHA、二进制摘要、命令、工具链及退出码；`cli-results.json`、
+  `failure-windows.log` 为下列失败原始结果。此目录不随克隆提供。
+
+| ID／级别 | 真实入口、发现与影响 | 原 Task 内修正及验收 |
+|---|---|---|
+| B-01 / P1 | `Store.CommitRound`（storage.go:980、1017）跨所有 200 项批次持续 append `Advances`，直到整源提交后返回；即使通知关闭也收集全源路径。大量既有文件缺失／被扩展名排除时，内存随全源条数增长，违反有界处理与禁止全量路径切片；附件 8 MiB 截断并不限制该切片。代码审查确认。 | 用有界批次捕获原事务前后事实，仍仅在真实提交后发布有效进度；关闭时不构造通知全量明细。不得新增业务状态／第二套持久清单。以既有 storage／reconciler 测试覆盖多批、回滚、重复 epoch、commit 后 scratch 失败及关闭路径；审查资源界限，不新增规模平台。 |
+| B-02 / P1 | 正常 `sync` 更新在 `LocalFS.Update` 原有 afterUpdate／目录持久化失败窗口中，目标已是新字节，但 syncer.go:605 见 error 即返回，`Updated` 与事实均为 0。复用既有 LocalFS 注入点的 `TestBReviewUpdatePublishedBeforeFailure` 实测失败。`Publish` 链接成功后 `dir.Sync` 失败也存在同类接口盲区。 | 最小表达实际发布／替换结果及后续持久化不确定性，失败摘要保留实际操作；同步仍失败，归属／恢复协议不变。用既有文件系统故障入口断言原字节、新字节、事实、失败及重跑收敛，覆盖新增与更新，不只测 DB 登记失败。 |
+| B-03 / P1 | `ClearMissing` 主库已成功清零后，scratch DELETE 失败返回空 `ClearResult`（storage.go:768）；实测 DB 为 0、返回 PriorMissing=0。三个调用窗口又都在检查 error 或后续 `MarkObserved` 后才 emit，已持久化 N→0 会永久漏报。复用原 query_only 故障入口的 `TestBReviewClearSurvivesScratchFailure` 失败。 | 明确返回主库是否已清零及可靠前值，在后续失败前记录事实。覆盖 noteObserved、确认缺失与删除重核三个窗口、scratch／MarkObserved 失败和来源后续失败；不得用再次读库猜旧值，不把未提交观察发布为进度。 |
+| B-04 / P1 | `BuildMessage` 只裁文件预览，不裁 `buildHead` 的来源诊断；无预览时直接返回超长头（message.go:145）。正常 CLI 配置 60 个不可读来源实测发送正文 **4903 UTF-16 units**，超过 3500，且无附件；零文件事件时附件逻辑也完全忽略来源溢出。 | 对整个正文统一预算，来源明细溢出进入同一个有界附件；保留完整统计与省略／附件说明。覆盖多来源失败、长合法相对路径、零事件且来源溢出和单附件完整性。 |
+| B-05 / P1 | 文件事件经过 EscapeText，但失败来源诊断在 message.go:197 原样插入。正常 CLI 对已有未归属 `evil\u202E.strm` 报冲突时，正文仍含原始 U+202E，可改变呈现顺序。该文件名通过现有路径校验，已从真实 CLI 复现；不依赖被拒绝的换行文件名。 | 对所有进入正文／附件的动态展示内容统一转义，包含诊断中的合法相对路径、实例名及 Unicode 控制／方向字符；保留固定安全原因，不转发原始错误。通过实际冲突入口核对字节及行结构。 |
+| B-06 / P1 | `newCollector` 创建失败返回 nil，`sendRound` 在 notify.go:78 立即退出，后面的 fallback 永不可达。正常 CLI 设置不可用 TMPDIR，实测同步退出 0、生成 1 文件并提交 1 轮，却发送 0 条 all 摘要。与“明细失败只降级，摘要标明不完整”不符。 | collector 缺失时仍按策略发送已有可靠报告摘要，明细／进度未知必须明示；busy-skip 与取消仍静默。用现有 CLI 接收端覆盖 all／error／change_or_error、成功／失败、临时创建／写入失败，并与关闭通知的产物及 DB 对照。 |
+| B-07 / P1 | 短轮次不发附件，而 `previewLine` 完全省略 Reason；首次、推进、达阈值都只显示“缺失计数”，没有“文件仍保留／等待后续重核”的说明。因而常见单文件通知无法区分源目标未读到与扩展名排除。`buildRunInfo` 还只保留失败来源的诊断，成功来源的安全保留原因消失。代码及现有 cleanup 场景断言确认该缺口。 | 同一事件在正文和附件都带合同要求的原因与阶段说明，阈值不等于实际删除；清零注明恢复条件，安全保留复用已有来源级原因。不得增加状态、逐文件冻结扫描或额外远端查询。用单文件两种原因的完整 0→1→2→3→删除／恢复闭环核对实际消息，不只匹配数字。 |
+| B-08 / P2 | 配置未严格遵循字段合同：disabled 提前返回跳过非法枚举／环境名校验；YAML 数字 instance_name 隐式转字符串。正常 CLI dry-run 对 disabled+非法 policy、enabled+数字实例名均退出 0。另新增了合同没有规定的 64 字符拒绝限制。 | 在不读取凭证、不创建临时文件的前提下校验已提供配置；字符串类型按合同检查，非法配置在动作前退出 2。按现合同处理实例名；若要新增输入限制，先由 A 明确修订。用现有配置表驱动与 CLI dry-run 覆盖。 |
+
+以上均为原合同缺口；P1 阻塞本地 PASS，B-08 是有界的小项，随本 Task 修正，
+不另开功能 Slice、不重新激活 Slice 1–5。未发现需要修改原删除资格、协议或远端兼容的授权需求。
+
+**全部验收重评：** AC-1 FIX（B-08）；AC-2 FIX（B-02、04）；AC-3 FIX（B-06、07）；
+AC-4 FIX（B-02）；AC-5 FIX（B-07）；AC-6 FIX（B-01、03）；AC-7 FIX（B-04、05）；
+AC-8 已有本地 HTTP 错误／取消回归通过，但共享预算及附件失败分支的证据仍须补齐；
+AC-9 FIX（B-06，尚缺旁路故障与清理继续对照）；AC-10 PENDING（现有场景仅检查 next 字段存在，
+未阻塞发送来验证锁释放、慢发送等待与发送中取消）；AC-11 PENDING（容器摘要／附件场景有结果，
+权限及完整失败消息安全尚未覆盖）；AC-12 检查点可追溯，验收映射须按本结论更正。
+初始化失败摘要还应保留已知的配置来源总数，不能因 report 为 nil 一并丢失。
+
+| RO | 本轮决定与剩余结果 |
+|---|---|
+| RO-1 | FIX REQUIRED：默认／旧配置、基本策略与 dry-run 已有本地通过证据，严格配置及降级策略需修正 |
+| RO-2 | FIX REQUIRED：基本聚合已实现；发布后失败事实、来源摘要有缺口 |
+| RO-3 | FIX REQUIRED：基本预览／附件通过；全正文上限、来源溢出与安全展示未满足 |
+| RO-4 | FIX REQUIRED：正常缺失数字闭环通过；清零失败窗口、原因与阶段展示不完整 |
+| RO-5 | FIX REQUIRED：无重试、取消、锁外发送结构存在；全源内存、创建失败降级与安全展示有缺口，部分运行断言缺失 |
+| RO-6 | PENDING：操作文档需与修正后行为一致；真实 Telegram 文本／附件送达 NOT RUN |
+| RO-7 | PENDING：独立 B 本轮已审完整范围但不通过；修复后再审，A 最终验收尚未进行 |
+
+**验证与证据可信度：** 本轮 config／storage／reconciler／notify 聚焦包回归与 tagged CLI
+通知用例通过；两个补充合同断言失败，保留原始日志，未修改产品或弱化断言。补充 Go 用例通过
+`go test -overlay` 接入现有包测试，替换副本仅在 artifacts；CLI 复用既有 Harness、mock OpenList、
+TelegramReceiver 和正常 `sync --config`／dry-run 入口，仅用合成凭证与本仓库隔离夹具。
+首次 CLI 试探的 40 来源正文尚未超限，换行名被现有路径校验拒绝，不作为缺陷；保留首次记录，
+改用合同允许的 60 来源及合法 bidi 文件名后复现 B-04／05，未猜造产品入口。
+
+Developer 的 sync 14/14、serve 8/8、container 6/6 summary.json 在本机存在且场景状态一致；
+只认可对应断言已覆盖的结果，不提升为全部 AC PASS。原始摘要固定二进制 hash，但未固定源码
+SHA／完整命令原始日志；质量／race 仅有报告，未找到对应原始日志，不能独立复核为本轮 PASS。
+现有 TestSendRoundCleansUpAfterDeliveryFailure 使用真实官方地址并假定其不可达，应改为本地失败
+transport；本轮未运行该外网用例。所有验证只需在既有测试／驱动补必要断言，不建设新平台。
+
+已确认阻塞项，本轮不重跑完整质量、race、sync／serve／容器长套件。修复后仍按原 T4 门槛
+执行最终候选质量／race、受影响完整集成与适用打包恢复验证，并固定准确输入及原始产物；
+无关真实 OpenList／Jellyfin／插件、固定万媒体、ARM64 原生及真实 Telegram 均未运行。
+本轮测试为秒级聚焦执行，测试耗时低于本轮总耗时 50%；未以长测试替代代码／合同复核。
+
+交接：Developer 在 **Task 6.1** 原范围修复 B-01..08、补上述缺失断言并提交新 Implementation Head，
+保留首次失败及旧检查点；B 再审完整 Task Base..新 Head 并重评所有 RO。
+真实 Telegram 仍需用户另行明确授权的测试 Bot／聊天；本轮不请求秘密、不预签下一 Task。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从
 [固定 Git 检查点](docs/development-workflow.md#历史记录)中的

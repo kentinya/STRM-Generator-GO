@@ -3,9 +3,9 @@
 ```text
 Slice ID: 6
 Owner: A
-Status: ACTIVE
+Status: FIX REQUIRED
 Base SHA: 20677f1906837428324d58885e719ed385a07258
-Implementation Head: NOT SET
+Implementation Head: 606e31089a2f41fe09f57610f34ce006f622828b
 ```
 
 ## 用户结果与授权
@@ -187,11 +187,20 @@ B 基于本合同和真实代码提交可独立验证完整成功／失败／恢
 ```text
 A Contract Date: 2026-11-12
 A Contract Revision: 2026-11-12 user-requested simplification; Base unchanged
-B Task: 6.1 / IN PROGRESS
-B Product Review: PENDING
+B Task: 6.1 / FIX REQUIRED
+B Product Review: FIX REQUIRED (2026-11-12; full Task Base..Implementation Head)
 A Final Review: PENDING
-Decision: PENDING
+Decision: FIX REQUIRED (B local review; A final decision PENDING)
 Implementation Evidence: Task 6.1 local implementation complete at 606e31089a2f41fe09f57610f34ce006f622828b; quality/race and sync 14/14, serve 8/8, container 6/6 integration scenarios PASS (artifacts/task-6.1/EVIDENCE.md)
 Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: independent B review of 1bfac551..606e310; real Telegram evidence; A closure
+Remaining Authorized Work: Task 6.1 corrections B-01..B-08 and missing local evidence; B re-review; separately authorized real Telegram evidence; A closure
 ```
+
+独立 B 已审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..606e31089a2f41fe09f57610f34ce006f622828b`，
+并核对 Slice Base 以来合同／规划与交付报告 `e7df63213dea2497a0fead6f1b3ad544d7321e8d`。
+本地范围 **FIX REQUIRED**：有界提交取证、发布后失败／清零事实、正文上限与来源附件、
+安全转义、临时明细失败降级、进度含义及配置校验需在原 Task 修正；详见
+[Task 6.1 独立 B 审查](TASK.md#独立-b-审查2026-11-12)。RO-1..5 FIX REQUIRED，
+RO-6..7 PENDING；真实 Telegram NOT RUN，A 未作最终决定。
+以上覆盖本页激活时“等待 B／尚未实现”的历史规划时态；合同能力正文与 Base 不变，
+不将开发者汇总的通过场景等同于合同已验收。

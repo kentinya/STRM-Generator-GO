@@ -1,8 +1,8 @@
 # 部署与运行包
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
-Slice 1–5 均 PASS / CLOSED；Slice 6 通知合同 ACTIVE，Task 6.1 已激活（IN PROGRESS），产品尚未实现。
-本页及部署示例仍说明已交付能力，分层验收入口见[路线图](roadmap.md)。
+Slice 1–5 均 PASS / CLOSED；Slice 6 通知本地实现已提交，独立 B 审查为 FIX REQUIRED，
+Task 6.1 待修正，真实送达未验收。分层验收入口见[路线图](roadmap.md)。
 
 容器实测来自 Slice 3：本机 amd64 运行通过，arm64 只核对 OCI manifest／digest 与 ELF
 架构；ARM64 原生实机和正式发布验收为 NOT RUN。Slice 5 未改容器装配、未重跑容器验收，
