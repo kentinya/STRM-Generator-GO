@@ -10,7 +10,7 @@ STRM Generator Go 是 OpenList 到本地 STRM 的独立生成器。先读本文�
 - 在用户授权范围内完成实现、修复和必要验证；不自动 push、不重写历史、不捏造 Git 身份。
 - 本仓库 Git 提交统一使用用户指定的 `kentinya` 身份，邮箱沿用该身份最近提交的 GitHub noreply 地址。
 - A／B／Developer 是职责，不自动启动多代理；实施者不得自签独立 B／A PASS。
-- Slice 1–5 已 PASS / CLOSED；Slice 6 的 Telegram 通知合同 ACTIVE，Task 6.1 原本地范围已独立 B PASS；P2 日志修复已实现、待独立复核，真实 Telegram 与 A 最终验收仍待完成，见 TASK。
+- Slice 1–5 已 PASS / CLOSED；Slice 6 的 Telegram 通知合同 ACTIVE，Task 6.1 原本地范围已独立 B PASS；P2 日志修复已按用户要求自复核关闭（非独立审查），真实 Telegram 与 A 最终验收仍待完成，见 TASK。
   当前合同与历史审查入口见 SLICE，实施任务状态见 TASK。
   新增大版本功能须先由 A 提交 ACTIVE 合同，再由 B 提交正式 Task，Developer 才开始实施；
   小版本 bug 无需 A 介入。独立产品审查要求不变，不自动扩展范围。

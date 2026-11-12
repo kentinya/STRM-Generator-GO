@@ -3,7 +3,7 @@
 ```text
 Task ID: 6.1
 Parent Slice: 6
-Status: READY FOR B REVIEW
+Status: PASS
 Task Base: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Contract Checkpoint: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749
 Difficulty: High
@@ -137,15 +137,15 @@ Task 6.1 的独立 B 审查可判定本地范围是否通过，但不能据此�
 ## 完成报告与审查
 
 ```text
-Implementation Status: READY FOR B REVIEW (P2 warning follow-up implemented; prior local PASS retained)
+Implementation Status: PASS (prior independent local review plus user-requested P2 self-review)
 Reviewed Range: 1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e41d34dc4631f923fa1
 Fix Range: 20e5325fd034b5295d383cd82d2d966d63252a53..9dbb58c20be182edbdc64637e1c9ee9a79c901d7 (B-01..B-08 corrections within Task 6.1)
 B-R Fix Range: 9dbb58c20be182edbdc64637e1c9ee9a79c901d7..7c54baf660150ced9ac87e41d34dc4631f923fa1
 Local Evidence: independent quality/full race/prior failure probes/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
 Real Telegram Evidence: NOT RUN — no authorized test target or credentials
-B Product Review: prior local scope PASS at 7c54baf; P2 follow-up independent review PENDING
+B Product Review: independent PASS through 7c54baf; P2 self-review PASS by explicit user request (not independent)
 A Final Review: PENDING
-Remaining Work: independent P2 follow-up review; separately authorized real Telegram evidence; A final Slice review
+Remaining Work: separately authorized real Telegram evidence; A final Slice review
 ```
 
 ### Developer 修正轮报告（2026-11-12，Head `9dbb58c`）
@@ -479,6 +479,23 @@ ARM64 原生实机及容器内 8 MiB 极端数据集本轮未运行；既有 Sli
 `focused.log`、`quality.log`、`race.log`、`race-serial.log`。测试时间低于本轮 50%。
 真实 Telegram、容器与真实 OpenList／Jellyfin 未运行；本修复不改变此前真实送达 NOT RUN 和
 A 终审 PENDING。下一步独立复核完整 Task Base..新 Head，重点核对该 P2 增量及历史结论。
+
+### P2 自复核（2026-11-12，用户指定）
+
+**Decision: PASS（自复核），P2 关闭。** 用户明确要求“你自己复核下吧，改动不多”，
+本次小修复按该指令由实施者自复核，不标作新的独立 B／A PASS，不改变其他工作的独立审查要求。
+审查完整增量 `521c76c84978ac94440331fbf2156ec58b4690bd..17733f373812656b58471f377a448e366a73dc80`，
+涵盖两个代码／测试文件及四份状态文档；此前 Task Base..`7c54baf` 的独立审查结论保留。
+
+核对结果：defer 在 BuildMessage／Finalize 之后检查现有失败状态，能够报告收集及收尾写失败；
+固定日志不含路径、凭证或原始错误；每轮只输出一次，策略跳过仍有本地警告；
+原 collector.Close 仍在所有既有返回路径执行。无新增发送、业务写入、状态或并发流程。
+测试的文件大小限制会恢复，未并行运行；本轮未发现阻塞项或新 P2。
+
+已核验上一轮测试记录中的源码 SHA-256 与当前代码完全一致，复用四个针对性用例、
+完整质量检查、受影响包串行 race 的通过证据及首次并行失败记录；未机械重跑产品测试。
+本轮仅更新结论和治理检查，不新增产品改动。Task 6.1 本地范围恢复 PASS；
+真实 Telegram 送达仍 NOT RUN，Slice 6 保持 ACTIVE，A 终审 PENDING。
 
 历史 Task 5.1 已独立 B PASS；原计划、报告与审查从
 [固定 Git 检查点](docs/development-workflow.md#历史记录)中的

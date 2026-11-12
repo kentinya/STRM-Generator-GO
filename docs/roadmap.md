@@ -1,7 +1,7 @@
 # Slice 路线图
 
 V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
-用户于 2026-11-12 授权规划 Slice 6；[Task 6.1](../TASK.md) 原本地范围已独立 B **PASS**，P2 补充修复待独立复核；
+用户于 2026-11-12 授权规划 Slice 6；[Task 6.1](../TASK.md) 原本地范围已独立 B **PASS**，P2 补充修复按用户要求自复核通过；
 [当前 Slice](../SLICE.md) 保持 ACTIVE，真实 Telegram 与 A 最终验收尚未完成。
 业务规则见[需求](requirements.md)，原合同与审查从[固定 Git 检查点](development-workflow.md#历史记录)查看。
 
@@ -12,7 +12,7 @@ V4.4 与自定义扩展名增量均已交付，Slice 1–5 PASS / CLOSED。
 | 3 | 定时与部署 | PASS / CLOSED | Slice 2 | serve／共同互斥、停止恢复、双架构构建及 amd64 隔离容器 |
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 | 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
-| 6 | Telegram 运行结果与文件清理进度通知 | ACTIVE | Slice 1–5 已交付基线 | Task 6.1 原本地 B PASS；P2 已补待独立复核，真实 Telegram NOT RUN，A 最终审查 PENDING |
+| 6 | Telegram 运行结果与文件清理进度通知 | ACTIVE | Slice 1–5 已交付基线 | Task 6.1 原本地 B PASS；P2 按用户要求自复核关闭，真实 Telegram NOT RUN，A 最终审查 PENDING |
 
 ## Slice 6 当前规划
 
@@ -30,7 +30,7 @@ Task 6.1 固定单附件上限 8 MiB；配置／CLI／传输按 T3，提交／�
 回滚虚报、长标题超限和明细写失败提示缺口已修正。Developer 完整 sync 14/14 与容器 6/6
 证据已复核。RO-1..4 本地通过，RO-5 核心通过并保留明细写失败缺少专用本地警告的非阻塞 P2；
 RO-6 真实文本／附件送达、RO-7 A 最终验收仍待完成。详见 TASK 的最终 B 复审。
-P2 已按用户要求补充固定脱敏警告，实施自测通过，新增修复独立复核 PENDING。
+P2 已补充固定脱敏警告，实施自测及用户指定的自复核通过并关闭；不标作新的独立 B 审查。
 不预签下一 Task，真实发送需另行明确授权，Slice 6 尚未关闭。
 
 ## Slice 5 已关闭记录
