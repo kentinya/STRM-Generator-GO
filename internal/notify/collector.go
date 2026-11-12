@@ -1,7 +1,6 @@
 package notify
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -48,9 +47,15 @@ var reasonLabels = map[string]string{
 // first PreviewMaxEvents events in memory for the message body and tracks the
 // totals needed by the summary. Collection failures degrade the notification
 // only; they never affect the synchronization round.
+//
+// Missing-count advances are recorded while the commit transaction runs and
+// are provisional until it commits: DiscardProvisional removes every
+// provisional record so an uncommitted candidate can never be published as
+// progress. Memory stays bounded because every record is written through
+// immediately.
 type Collector struct {
 	file   *os.File
-	writer *bufio.Writer
+	offset int64
 
 	runLabel  string
 	threshold int
@@ -59,11 +64,26 @@ type Collector struct {
 	bytes       int64
 	total       int
 	appended    int
+	details     int
 	preview     []Event
 	anyChange   bool
 	limitHit    bool // stopped appending because of the size cap
 	broken      bool // a write failed; the listing cannot be trusted
 	headerBytes bool
+
+	// mark snapshots the state before the first provisional record of the
+	// current commit attempt so a failed commit can remove them again.
+	mark collectorMark
+}
+
+type collectorMark struct {
+	set       bool
+	bytes     int64
+	total     int
+	appended  int
+	preview   int
+	anyChange bool
+	limitHit  bool
 }
 
 // NewCollector creates the private temporary directory (0700) and listing file
@@ -85,7 +105,6 @@ func NewCollector(runLabel string, threshold int) (*Collector, error) {
 	}
 	c := &Collector{
 		file:      file,
-		writer:    bufio.NewWriter(file),
 		runLabel:  runLabel,
 		threshold: threshold,
 		created:   time.Now(),
@@ -100,12 +119,79 @@ func NewCollector(runLabel string, threshold int) (*Collector, error) {
 // failure only degrades the attachment. Events beyond the size cap stop being
 // appended while the totals keep counting.
 func (c *Collector) Record(event Event) {
+	if c == nil {
+		return
+	}
+	c.record(event)
+}
+
+// RecordProvisional appends one missing-count advance while the commit
+// transaction that applies it is still running. The record is provisional
+// until CommitProvisional confirms the commit; DiscardProvisional removes it
+// again after a failed or rolled-back commit attempt.
+func (c *Collector) RecordProvisional(event Event) {
+	if c == nil || c.file == nil {
+		return
+	}
+	if !c.mark.set {
+		c.mark = collectorMark{
+			set:       true,
+			bytes:     c.bytes,
+			total:     c.total,
+			appended:  c.appended,
+			preview:   len(c.preview),
+			anyChange: c.anyChange,
+			limitHit:  c.limitHit,
+		}
+	}
+	c.record(event)
+}
+
+// CommitProvisional confirms every provisional record of the current commit
+// attempt as committed progress.
+func (c *Collector) CommitProvisional() {
+	if c == nil {
+		return
+	}
+	c.mark.set = false
+}
+
+// DiscardProvisional removes every provisional record of the current commit
+// attempt after the commit failed or rolled back. A listing that already
+// failed a write cannot be rewound reliably and stays broken.
+func (c *Collector) DiscardProvisional() {
+	if c == nil || !c.mark.set {
+		return
+	}
+	m := c.mark
+	c.mark.set = false
+	if c.broken || c.file == nil {
+		return
+	}
+	if err := c.file.Truncate(m.bytes); err != nil {
+		c.broken = true
+		return
+	}
+	if _, err := c.file.Seek(m.bytes, 0); err != nil {
+		c.broken = true
+		return
+	}
+	c.bytes = m.bytes
+	c.total = m.total
+	c.appended = m.appended
+	c.preview = c.preview[:m.preview]
+	c.anyChange = m.anyChange
+	c.limitHit = m.limitHit
+	c.offset = m.bytes
+}
+
+func (c *Collector) record(event Event) {
 	c.total++
 	c.anyChange = true
 	if len(c.preview) < PreviewMaxEvents {
 		c.preview = append(c.preview, event)
 	}
-	if c.broken || c.limitHit {
+	if c.broken || c.limitHit || c.file == nil {
 		return
 	}
 	line := c.eventLine(event)
@@ -121,6 +207,25 @@ func (c *Collector) Record(event Event) {
 	c.appended++
 }
 
+// AppendSourceDetail appends one already-escaped source diagnostic line to the
+// listing when the message body cannot carry it. Appending stops at the size
+// cap and a write failure degrades the attachment only.
+func (c *Collector) AppendSourceDetail(line string) {
+	if c == nil || c.broken || c.limitHit || c.file == nil {
+		return
+	}
+	needed := int64(len(line))
+	if c.bytes+needed+attachmentTrailerMargin > AttachmentMaxBytes {
+		c.limitHit = true
+		return
+	}
+	if err := c.writeRaw(line); err != nil {
+		c.broken = true
+		return
+	}
+	c.details++
+}
+
 // eventLine renders one bounded, escaped single-line record.
 func (c *Collector) eventLine(event Event) string {
 	label := kindLabels[event.Kind]
@@ -132,30 +237,46 @@ func (c *Collector) eventLine(event Event) string {
 		c.total, event.SourceIndex, label, EscapeText(event.RelativePath))
 	switch event.Kind {
 	case KindDeleted:
-		fmt.Fprintf(b, " 删除前计数 %d/阈值 %d", event.PriorCount, c.threshold)
+		fmt.Fprintf(b, " 删除前计数 %d/阈值 %d 已实际删除", event.PriorCount, c.threshold)
 		if reason, ok := reasonLabels[event.Reason]; ok {
 			fmt.Fprintf(b, " 原因 %s", reason)
 		}
 	case KindReclaimed:
+		b.WriteString(" 本地目标此前已不存在，归属已移除")
 		if reason, ok := reasonLabels[event.Reason]; ok {
 			fmt.Fprintf(b, " 原因 %s", reason)
 		}
 	case KindMissingCleared:
-		fmt.Fprintf(b, " 计数 %d→0/阈值 %d", event.PriorCount, c.threshold)
+		fmt.Fprintf(b, " 计数 %d→0/阈值 %d 已确认恢复条件，文件保留", event.PriorCount, c.threshold)
 	case KindMissingAdvanced:
 		fmt.Fprintf(b, " 计数 %d→%d/阈值 %d", event.PriorCount, event.NewCount, c.threshold)
 		if reason, ok := reasonLabels[event.Reason]; ok {
 			fmt.Fprintf(b, " 原因 %s", reason)
 		}
+		fmt.Fprintf(b, "；%s", advanceStage(event.NewCount, c.threshold))
 	}
 	b.WriteString("\n")
 	return b.String()
 }
 
+// advanceStage describes where one committed count stands in the cleanup
+// pipeline. The wording reuses the established contract vocabulary.
+func advanceStage(newCount int64, threshold int) string {
+	switch {
+	case threshold > 0 && newCount >= int64(threshold):
+		return "达到阈值，等待后续清理重核，不等于已删除"
+	case newCount <= 1:
+		return "首次进入待删除，文件仍保留"
+	default:
+		return "待删除计数推进，文件仍保留"
+	}
+}
+
 // writeRaw appends bytes to the listing and tracks the size.
 func (c *Collector) writeRaw(s string) error {
-	n, err := c.writer.WriteString(s)
+	n, err := c.file.WriteString(s)
 	c.bytes += int64(n)
+	c.offset = c.bytes
 	if err != nil {
 		return err
 	}
@@ -211,24 +332,24 @@ func (c *Collector) Finalize() error {
 	}
 	if !c.broken {
 		trailer := fmt.Sprintf("事件总数: %d（已写入明细 %d 条）\n", c.total, c.appended)
+		if c.details > 0 {
+			trailer += fmt.Sprintf("来源明细: 追加 %d 条\n", c.details)
+		}
 		if c.limitHit {
-			trailer += fmt.Sprintf("清单不完整: 达到 %d 字节大小上限，其余 %d 条未写入\n",
-				AttachmentMaxBytes, c.total-c.appended)
+			trailer += fmt.Sprintf("清单不完整: 达到 %d 字节大小上限，其余内容未写入\n",
+				AttachmentMaxBytes)
 		}
 		if err := c.writeRaw(trailer); err != nil {
 			c.broken = true
 		}
 	}
-	if err := c.writer.Flush(); err != nil {
-		c.broken = true
-	}
 	return nil
 }
 
-// AttachmentPath returns the temporary listing path when it carries at least
-// one usable event and no write failure destroyed the listing.
+// AttachmentPath returns the temporary listing path when it carries usable
+// content and no write failure destroyed the listing.
 func (c *Collector) AttachmentPath() (string, bool) {
-	if c == nil || c.broken || !c.headerBytes || c.appended == 0 {
+	if c == nil || c.broken || !c.headerBytes || (c.appended == 0 && c.details == 0) {
 		return "", false
 	}
 	return c.file.Name(), true
@@ -241,15 +362,11 @@ func (c *Collector) Close() {
 	if c == nil {
 		return
 	}
-	if c.writer != nil {
-		_ = c.writer.Flush()
-	}
 	if c.file != nil {
 		name := c.file.Name()
 		_ = c.file.Close()
 		dir := filepath.Dir(name)
 		_ = os.RemoveAll(dir)
 		c.file = nil
-		c.writer = nil
 	}
 }

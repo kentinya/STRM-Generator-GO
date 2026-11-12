@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -294,4 +295,42 @@ func parseValues(r *http.Request, body []byte) (map[string]string, error) {
 		}
 	}
 	return values, nil
+}
+
+// B review AC-8: a successful summary followed by an attachment failure is a
+// best-effort upload: exactly one attachment attempt, no compensating status
+// message, and the failure keeps the fixed redacted vocabulary.
+func TestSendAttachmentFailureAfterSuccessfulSummary(t *testing.T) {
+	var mu sync.Mutex
+	summaryRequests, documentRequests := 0, 0
+	ts := okServer(t, func(r *http.Request, body []byte) *string {
+		mu.Lock()
+		defer mu.Unlock()
+		if strings.HasSuffix(r.URL.Path, "/sendDocument") {
+			documentRequests++
+			reply := `{"ok":false,"description":"hidden"}`
+			return &reply
+		}
+		summaryRequests++
+		return nil
+	})
+	s := NewSenderWithBase("t", "c", ts.URL)
+	dir := t.TempDir()
+	listing := filepath.Join(dir, "events.txt")
+	if err := os.WriteFile(listing, []byte("listing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Send(context.Background(), "summary", listing)
+	if err == nil || !strings.Contains(err.Error(), "attachment upload failed") {
+		t.Fatalf("attachment failure must keep its fixed identity: %v", err)
+	}
+	// The description is never echoed.
+	if err != nil && strings.Contains(err.Error(), "hidden") {
+		t.Fatalf("the response description must not leak: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if summaryRequests != 1 || documentRequests != 1 {
+		t.Fatalf("summary=%d document=%d: exactly one attempt each", summaryRequests, documentRequests)
+	}
 }

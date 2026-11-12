@@ -42,15 +42,18 @@ database:
 # 启用后，普通 sync／serve 在启动时读取通知环境变量；Bot Token 或目标缺失／为空
 # 只记录脱敏警告并跳过本进程的通知，同步照常进行，退出码不变。
 # dry-run 校验配置结构但不要求通知环境值、不创建临时清单、不发送。
-# 每轮 sync／serve 聚合所有 source 只发送一条中文摘要；正文最多 3500 个
-# UTF-16 code units、预览 20 条文件事件，装不下时附本轮单个 UTF-8 文本清单
-# （总大小上限 8 MiB，超限停止追加并标明不完整）。
+# 每轮 sync／serve 聚合所有 source 只发送一条中文摘要；整个正文（含来源明细）共用
+# 最多 3500 个 UTF-16 code units 的预算、预览 20 条文件事件，装不下时附本轮单个
+# UTF-8 文本清单（总大小上限 8 MiB，超限停止追加并标明不完整；来源明细溢出也进入
+# 同一清单）。临时清单创建或写入失败时摘要仍按策略发送，并明确标注明细不完整。
 # 发送在网络与锁释放后执行；凭证只来自环境变量，配置文件不保存 Token，
 # 消息与附件不包含 Token、Chat ID、媒体 URL 或私有绝对路径。
 notifications:
   telegram:
     enabled: false
-    # 实例名，出现在通知标题中；省略为 "STRM Generator"，显式提供须为非空单行字符串。
+    # 实例名，出现在通知标题中；省略为 "STRM Generator"。显式提供须为非空单行
+    # YAML 字符串（数字、布尔等标量会被拒绝）；校验不读取凭证也不创建文件，
+    # enabled: false 时同样生效。
     instance_name: "家庭媒体"
     # 凭证环境变量名；省略分别使用默认名 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID。
     bot_token_env: "TELEGRAM_BOT_TOKEN"

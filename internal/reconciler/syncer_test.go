@@ -803,11 +803,16 @@ func TestConcurrentTargetAppearanceIsNotOverwritten(t *testing.T) {
 // racingFS creates the target just before delegating to the real publish.
 type racingFS struct{ LocalFS }
 
-func (f *racingFS) Publish(root, rel string, data []byte) error {
+func (f *racingFS) Publish(root, rel string, data []byte) (PublishOutcome, error) {
 	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(rel)), []byte("external"), 0o644); err != nil {
-		return err
+		return PublishOutcome{}, err
 	}
-	return f.LocalFS.Publish(root, rel, data)
+	if outcome, err := f.LocalFS.Publish(root, rel, data); err != nil {
+		return PublishOutcome{}, err
+	} else if !outcome.Published {
+		return PublishOutcome{}, errors.New("publish did not complete")
+	}
+	return PublishOutcome{Published: true}, nil
 }
 
 func TestWideDirectoryCompletes(t *testing.T) {
@@ -907,9 +912,9 @@ type failingFS struct {
 	failOn string
 }
 
-func (f *failingFS) Publish(root, rel string, data []byte) error {
+func (f *failingFS) Publish(root, rel string, data []byte) (PublishOutcome, error) {
 	if strings.HasSuffix(rel, f.failOn) {
-		return errors.New("injected publish failure")
+		return PublishOutcome{}, errors.New("injected publish failure")
 	}
 	return f.LocalFS.Publish(root, rel, data)
 }
@@ -920,9 +925,9 @@ type failingUpdateFS struct {
 	failOn string
 }
 
-func (f *failingUpdateFS) Update(root, rel string, expected, data []byte) error {
+func (f *failingUpdateFS) Update(root, rel string, expected, data []byte) (UpdateOutcome, error) {
 	if strings.HasSuffix(rel, f.failOn) {
-		return errors.New("injected update failure")
+		return UpdateOutcome{}, errors.New("injected update failure")
 	}
 	return f.LocalFS.Update(root, rel, expected, data)
 }
@@ -931,10 +936,10 @@ func (f *failingUpdateFS) Update(root, rel string, expected, data []byte) error 
 // content was read, immediately before the atomic exchange.
 type replacingUpdateFS struct{ LocalFS }
 
-func (f *replacingUpdateFS) Update(root, rel string, expected, data []byte) error {
+func (f *replacingUpdateFS) Update(root, rel string, expected, data []byte) (UpdateOutcome, error) {
 	path := filepath.Join(root, filepath.FromSlash(rel))
 	if err := os.WriteFile(path, []byte("external"), 0o644); err != nil {
-		return err
+		return UpdateOutcome{}, err
 	}
 	return f.LocalFS.Update(root, rel, expected, data)
 }
@@ -948,7 +953,7 @@ func (f *failingOwnershipStore) RecordOwnership(context.Context, storage.Ownersh
 
 type failingRoundCommitStore struct{ *storage.Store }
 
-func (f *failingRoundCommitStore) CommitRound(context.Context, string, int64, time.Time) (storage.CommitResult, error) {
+func (f *failingRoundCommitStore) CommitRound(context.Context, string, int64, time.Time, storage.AdvanceSink) (storage.CommitResult, error) {
 	return storage.CommitResult{}, errors.New("injected round commit failure")
 }
 

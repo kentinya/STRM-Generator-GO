@@ -10,17 +10,26 @@ import (
 
 	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/pathmap"
+	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/storage"
 )
 
-// recordingSink collects facts in the order they occurred.
+// recordingSink collects facts in the order they occurred. Missing-count
+// advances arrive as provisional records while the commit transaction runs;
+// the commit and discard calls are tracked so tests can assert that an
+// uncommitted candidate is never published.
 type recordingSink struct {
-	facts []Fact
+	facts    []Fact
+	commits  int
+	discards int
 }
 
 func (r *recordingSink) Record(fact Fact) {
 	r.facts = append(r.facts, fact)
 }
+
+func (r *recordingSink) CommitStaged()  { r.commits++ }
+func (r *recordingSink) DiscardStaged() { r.discards++ }
 
 func (r *recordingSink) kinds() []FactKind {
 	out := make([]FactKind, 0, len(r.facts))
@@ -41,7 +50,7 @@ func factKindsOf(sink *recordingSink, kind FactKind) []Fact {
 }
 
 // runSourceWithSink runs one source with a fact sink attached.
-func runSourceWithSink(t *testing.T, lister *fakeLister, store *storage.Store, root string, opts Options, sink *recordingSink) *Report {
+func runSourceWithSink(t *testing.T, lister *fakeLister, store OwnershipStore, root string, opts Options, sink *recordingSink) *Report {
 	t.Helper()
 	opts.Facts = sink
 	report, err := New(lister, store, opts).Run(context.Background(), []Source{sourceFor(root)})
@@ -227,16 +236,36 @@ func TestFactsCaptureExcludedExtensionReason(t *testing.T) {
 	}
 }
 
-// commitReportStore wraps a real store and replaces only the commit result so
-// the committed-but-unclean window is deterministic.
+// commitReportStore wraps a real store and injects a post-commit cleanup
+// failure so the committed-but-unclean window is deterministic. The commit
+// itself and its advance facts stay real.
 type commitReportStore struct {
 	*storage.Store
-	result storage.CommitResult
-	err    error
+	failCleanup bool
 }
 
-func (f *commitReportStore) CommitRound(_ context.Context, _ string, _ int64, _ time.Time) (storage.CommitResult, error) {
-	return f.result, f.err
+func (f *commitReportStore) CommitRound(ctx context.Context, key string, epoch int64, at time.Time, advances storage.AdvanceSink) (storage.CommitResult, error) {
+	result, err := f.Store.CommitRound(ctx, key, epoch, at, advances)
+	if err == nil && f.failCleanup {
+		err = errors.New("injected workspace cleanup failure")
+	}
+	return result, err
+}
+
+// failingClearStore wraps a real store and fails the private scratch cleanup
+// of ClearMissing after the main-database clear succeeded, mirroring the real
+// storage behavior of returning the durable result together with the error.
+type failingClearStore struct {
+	*storage.Store
+	failOn string
+}
+
+func (f *failingClearStore) ClearMissing(ctx context.Context, key, rel string) (storage.ClearResult, error) {
+	result, err := f.Store.ClearMissing(ctx, key, rel)
+	if err == nil && rel == f.failOn {
+		err = errors.New("injected scratch cleanup failure")
+	}
+	return result, err
 }
 
 func TestFactsReportCommittedAdvancesWhenWorkspaceCleanupFails(t *testing.T) {
@@ -246,14 +275,15 @@ func TestFactsReportCommittedAdvancesWhenWorkspaceCleanupFails(t *testing.T) {
 	sink := &recordingSink{}
 	seedStandard(t, lister, realStore, root)
 
-	store := &commitReportStore{
-		Store: realStore,
-		result: storage.CommitResult{Committed: true, Advances: []storage.MissingAdvance{{
-			RelativePath: "Sample.strm", PriorCount: 1, NewCount: 2, Reason: storage.MissingReasonSourceTarget,
-		}}},
-		err: errors.New("scratch cleanup failed after commit"),
+	// One missing round commits normally: the count reaches 1.
+	removeRemote(lister, "NoHash.mp4")
+	if report := runSourceWithSink(t, lister, realStore, root, cleanupOptions(), sink); report.Sources[0].Partial {
+		t.Fatalf("first missing round: %+v", report.Sources[0])
 	}
 	sink.facts = nil
+
+	// The second round commits but its workspace cleanup fails afterwards.
+	store := &commitReportStore{Store: realStore, failCleanup: true}
 	opts := cleanupOptions()
 	opts.Facts = sink
 	report, err := New(lister, store, opts).Run(context.Background(), []Source{sourceFor(root)})
@@ -275,6 +305,167 @@ func TestFactsReportCommittedAdvancesWhenWorkspaceCleanupFails(t *testing.T) {
 	advances := factKindsOf(sink, FactMissingAdvanced)
 	if len(advances) != 1 || advances[0].PriorCount != 1 || advances[0].NewCount != 2 {
 		t.Fatalf("advance facts after commit: %+v", advances)
+	}
+	if got := countFor(t, realStore, "NoHash.strm"); got != 2 {
+		t.Fatalf("durable count after committed round = %d, want 2", got)
+	}
+}
+
+// B review B-02: a normal I/O failure after an owned update was already
+// published must keep the update fact and the new bytes; the round still
+// fails. This uses the existing LocalFS injection point.
+func TestUpdatePublishedBeforeFailureKeepsFactAndBytes(t *testing.T) {
+	lister := standardTree()
+	root := t.TempDir()
+	store := newStore(t)
+	seedStandard(t, lister, store, root)
+	entries := append([]openlist.Entry(nil), lister.dirs["/Movies"]...)
+	for i := range entries {
+		if entries[i].Name == "Sample.mkv" {
+			entries[i].SHA1 = strings.Repeat("c", 40)
+			entries[i].HasSHA = true
+		}
+	}
+	lister.dirs["/Movies"] = entries
+	sink := &recordingSink{}
+	opts := cleanupOptions()
+	opts.FS = LocalFS{afterUpdate: func(_ *securepath.Dir, _ string) error {
+		return errors.New("post-publish I/O failure")
+	}}
+	report := runSourceWithSink(t, lister, store, root, opts, sink)
+	raw, err := (LocalFS{}).ReadFile(root, "Sample.strm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), strings.Repeat("c", 40)) || !report.Sources[0].Partial {
+		t.Fatalf("failure window not reached: partial=%v", report.Sources[0].Partial)
+	}
+	if report.Sources[0].Updated != 1 || report.Sources[0].Errors == 0 {
+		t.Fatalf("published update must be counted and still fail: %+v", report.Sources[0])
+	}
+	facts := factKindsOf(sink, FactUpdated)
+	if len(facts) != 1 || facts[0].RelativePath != "Sample.strm" {
+		t.Fatalf("published update fact lost after post-publication failure: %+v", facts)
+	}
+	// A later normal round converges: the update is re-registered cleanly.
+	sink.facts = nil
+	opts.FS = LocalFS{}
+	report = runSourceWithSink(t, lister, store, root, opts, sink)
+	if report.Sources[0].Partial {
+		t.Fatalf("recovery round failed: %+v", report.Sources[0])
+	}
+	if _, ok, err := store.Lookup("/Movies", "Sample.strm"); err != nil || !ok {
+		t.Fatalf("ownership lost after recovery: ok=%v err=%v", ok, err)
+	}
+}
+
+// B review B-02: a directory-durability failure after Publish linked the new
+// target keeps the creation fact and the bytes; the round still fails.
+func TestPublishLinkedBeforeDirectoryFailureKeepsFact(t *testing.T) {
+	lister := standardTree()
+	root := t.TempDir()
+	store := newStore(t)
+	sink := &recordingSink{}
+	opts := cleanupOptions()
+	opts.FS = LocalFS{syncDir: func(_ *securepath.Dir) error {
+		return errors.New("post-link directory sync failure")
+	}}
+	report := runSourceWithSink(t, lister, store, root, opts, sink)
+	if !report.Sources[0].Partial || report.Sources[0].Errors == 0 {
+		t.Fatalf("failure not reported: %+v", report.Sources[0])
+	}
+	if report.Sources[0].Created != 4 {
+		t.Fatalf("published creations must be counted: %+v", report.Sources[0])
+	}
+	if facts := factKindsOf(sink, FactCreated); len(facts) != 4 {
+		t.Fatalf("created facts lost after directory failure: %d", len(facts))
+	}
+	raw, err := (LocalFS{}).ReadFile(root, "Sample.strm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) == 0 {
+		t.Fatal("published bytes missing")
+	}
+}
+
+// B review B-03: a committed N -> 0 reset stands on its own. When the private
+// scratch cleanup fails right after the durable clear, the fact must still be
+// reported and the round still fails; the same applies to every clear window.
+func TestClearFactSurvivesScratchFailureInEveryWindow(t *testing.T) {
+	buildWithCount := func(t *testing.T) (*fakeLister, *storage.Store, string, *recordingSink) {
+		lister := standardTree()
+		root := t.TempDir()
+		store := newStore(t)
+		seedStandard(t, lister, store, root)
+		removeRemote(lister, "NoHash.mp4")
+		sink := &recordingSink{}
+		runSourceWithSink(t, lister, store, root, cleanupOptions(), sink)
+		return lister, store, root, sink
+	}
+
+	// Window 1: noteObserved — the target is listed and read again.
+	lister, realStore, root, sink := buildWithCount(t)
+	sink.facts = nil
+	restore := append([]openlist.Entry(nil), standardTree().dirs["/Movies"]...)
+	lister.dirs["/Movies"] = restore
+	delete(lister.getErr, "/Movies/NoHash.mp4")
+	store := &failingClearStore{Store: realStore, failOn: "NoHash.strm"}
+	report := runSourceWithSink(t, lister, store, root, cleanupOptions(), sink)
+	if !report.Sources[0].Partial {
+		t.Fatalf("window 1 must still fail: %+v", report.Sources[0])
+	}
+	cleared := factKindsOf(sink, FactMissingCleared)
+	if len(cleared) != 1 || cleared[0].PriorCount != 1 {
+		t.Fatalf("window 1 clear facts: %+v", cleared)
+	}
+	if row, ok, err := realStore.Lookup("/Movies", "NoHash.strm"); err != nil || !ok || row.MissingCount != 0 {
+		t.Fatalf("window 1 durable count: %+v ok=%v err=%v", row, ok, err)
+	}
+
+	// Window 2: confirmMissing — the target is never observed because the
+	// listing entry is gone while the exact Get still reads a regular file.
+	lister, realStore, root, sink = buildWithCount(t)
+	sink.facts = nil
+	removeListing(lister, "/Movies", "NoHash.mkv")
+	delete(lister.getErr, "/Movies/NoHash.mp4")
+	lister.getFile = map[string]bool{"/Movies/NoHash.mp4": true}
+	store = &failingClearStore{Store: realStore, failOn: "NoHash.strm"}
+	report = runSourceWithSink(t, lister, store, root, cleanupOptions(), sink)
+	if !report.Sources[0].Partial {
+		t.Fatalf("window 2 must still fail: %+v", report.Sources[0])
+	}
+	cleared = factKindsOf(sink, FactMissingCleared)
+	if len(cleared) != 1 || cleared[0].PriorCount != 1 {
+		t.Fatalf("window 2 clear facts: %+v", cleared)
+	}
+	if row, ok, err := realStore.Lookup("/Movies", "NoHash.strm"); err != nil || !ok || row.MissingCount != 0 {
+		t.Fatalf("window 2 durable count: %+v ok=%v err=%v", row, ok, err)
+	}
+
+	// Window 3: deleteCandidate re-check — the committed count reached the
+	// threshold but the target reads again during the re-check.
+	lister, realStore, root, sink = buildWithCount(t)
+	runSourceWithSink(t, lister, realStore, root, cleanupOptions(), sink)
+	runSourceWithSink(t, lister, realStore, root, cleanupOptions(), sink)
+	if got := countFor(t, realStore, "NoHash.strm"); got != 3 {
+		t.Fatalf("threshold setup count = %d, want 3", got)
+	}
+	sink.facts = nil
+	removeListing(lister, "/Movies", "NoHash.mkv")
+	delete(lister.getErr, "/Movies/NoHash.mp4")
+	lister.getFile = map[string]bool{"/Movies/NoHash.mp4": true}
+	store = &failingClearStore{Store: realStore, failOn: "NoHash.strm"}
+	report = runSourceWithSink(t, lister, store, root, cleanupOptions(), sink)
+	if !report.Sources[0].Partial {
+		t.Fatalf("window 3 must still fail: %+v", report.Sources[0])
+	}
+	cleared = factKindsOf(sink, FactMissingCleared)
+	if len(cleared) != 1 || cleared[0].PriorCount != 3 {
+		t.Fatalf("window 3 clear facts: %+v", cleared)
+	}
+	if row, ok, err := realStore.Lookup("/Movies", "NoHash.strm"); err != nil || !ok || row.MissingCount != 0 {
+		t.Fatalf("window 3 durable count: %+v ok=%v err=%v", row, ok, err)
 	}
 }
 

@@ -639,12 +639,42 @@ def scenario_serve_notifications(h, results):
         check("未完成" in third["text"], f"failure body:\n{third['text']}")
         fail["on"] = False
 
-        # Phase E: the next tick recovers and sends again; SIGTERM then stops
-        # serve without extra notifications beyond the recovered round.
+        # Phase E: the next tick recovers and sends again.
         check(wait_for(lambda: receiver.count() == 4, 30, "post-failure message missing"),
               f"post-failure messages: {receiver.count()}")
-        code, _, _ = stop_serve(serve)
+
+        # Phase F: while a summary send is blocked at the receiver, the lock is
+        # already released (a parallel sync completes), serve neither re-enters
+        # nor queues, and SIGTERM stops it promptly during the send itself.
+        receiver.hold_next_request()
+        baseline_messages = receiver.count()
+        baseline_results = count_serve_results(stdout_path, "success")
+        check(wait_for(lambda: len(receiver.held_requests()) >= 1, 30,
+                       "no held summary request"),
+              "the serve summary never reached the receiver")
+        holder = subprocess.Popen([str(h.fault_binary or h.binary), "sync", "--config", str(cfg)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                  env={**os.environ, "OPENLIST_TOKEN": TOKEN,
+                                       "STRMGEN_TEST_TELEGRAM_API_BASE": receiver.url,
+                                       "TELEGRAM_BOT_TOKEN": "integration-token",
+                                       "TELEGRAM_CHAT_ID": "-10042"})
+        h.processes.append(holder)
+        holder_out, holder_err = holder.communicate(timeout=60)
+        check(holder.returncode == 0,
+              f"a parallel sync must complete while the serve send is blocked: "
+              f"{holder.returncode} {holder_err}")
+        check(wait_for(lambda: receiver.count() >= baseline_messages + 2, 30,
+                       "holder summary missing"),
+              f"holder summary missing during held send: {receiver.count()}")
+        check(len(receiver.held_requests()) == 1,
+              "serve re-entered or queued a second send while its send was blocked")
+        check(count_serve_results(stdout_path, "success") == baseline_results,
+              "serve scheduled a new round while its send was blocked")
+        # SIGTERM during the blocked send stops serve promptly; there is no
+        # dedicated exit notification and no separate end context.
+        code, _, _ = stop_serve(serve, timeout=30)
         check(code != 0, f"cancelled serve must be non-zero, got {code}")
+        receiver.release_held()
         check(notify_temp_dirs() - before_dirs == set(), "serve left temporary files")
     finally:
         receiver.close()

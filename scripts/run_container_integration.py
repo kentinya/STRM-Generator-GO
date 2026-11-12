@@ -691,9 +691,16 @@ notifications:
     policy: "all"
 """, encoding="utf-8")
         os.chmod(cfg, 0o444)
-        script = ("strmgen sync --config /etc/strmgen/config.yaml && "
+        # The first summary send is held at the receiver so the temporary
+        # listing provably exists while the process waits: the container then
+        # records the private permissions before the round finishes.
+        receiver.hold_next_request()
+        script = ("strmgen sync --config /etc/strmgen/config.yaml & SYNC=$!; "
+                  "sleep 3; "
+                  "stat -c '%a %n' /tmp/strmgen-notify-* /tmp/strmgen-notify-*/* > /tmp/perms.txt 2>&1; "
+                  "wait $SYNC && "
                   "strmgen sync --config /etc/strmgen/config.yaml && "
-                  "ls -a /tmp")
+                  "cat /tmp/perms.txt && echo '---LS---' && ls -a /tmp")
         args = h.common_run_args(cfg, f"notify-{h.run_id}")
         args += ["-e", "OPENLIST_TOKEN", "-e", "TELEGRAM_BOT_TOKEN", "-e", "TELEGRAM_CHAT_ID",
                  "-e", "STRMGEN_TEST_TELEGRAM_API_BASE",
@@ -705,7 +712,17 @@ notifications:
                     # through the host-gateway alias, never through loopback.
                     "STRMGEN_TEST_TELEGRAM_API_BASE":
                         receiver.url.replace("http://127.0.0.1", "http://host.docker.internal")})
-        run = docker(args, timeout=180, env=env)
+        proc = subprocess.Popen(["docker", *args], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=env)
+        check(wait_for(lambda: len(receiver.held_requests()) >= 1, 60,
+                       "no held summary request in the container"),
+              "the container summary never reached the receiver")
+        # The listing provably exists while the send is blocked; release only
+        # after the container recorded the temporary permissions.
+        time.sleep(6)
+        receiver.release_held()
+        run_out, run_err = proc.communicate(timeout=120)
+        run = subprocess.CompletedProcess(proc.args, proc.returncode, run_out, run_err)
         check(run.returncode == 0, f"container notification run failed: {run.stderr}")
         messages = receiver.messages()
         check(len(messages) == 2, f"messages = {len(messages)}, want one per sync round")
@@ -722,9 +739,21 @@ notifications:
         check("事件总数: 30" in listing, f"listing trailer missing:\n{listing[:300]}")
         for i in range(30):
             check(f"来源 0 新增 F{i:02d}.strm" in listing, f"listing misses F{i:02d}.strm")
+        stdout_lines = run.stdout.splitlines()
+        ls_index = stdout_lines.index("---LS---") if "---LS---" in stdout_lines else -1
+        check(ls_index >= 0, f"the final listing marker is missing: {run.stdout}")
         # The private /tmp tmpfs is shared by both rounds in the same container:
         # the final ls must not show any notification directory.
-        check("strmgen-notify-" not in run.stdout, f"temporary notification files remained: {run.stdout}")
+        final_ls = stdout_lines[ls_index + 1:]
+        check(not any("strmgen-notify-" in line for line in final_ls),
+              f"temporary notification files remained: {final_ls}")
+        # The private temporary artifacts keep their modes inside the private
+        # tmpfs: directory 0700, listing 0600 (AC-11).
+        perms_lines = [line for line in stdout_lines[:ls_index] if "strmgen-notify-" in line]
+        check(any(line.startswith("700 /tmp/strmgen-notify-") for line in perms_lines),
+              f"the notification temporary directory is not 0700: {perms_lines}")
+        check(any(line.startswith("600 ") and ".txt" in line for line in perms_lines),
+              f"the notification listing is not 0600: {perms_lines}")
     finally:
         receiver.close()
     results["notifications"] = {

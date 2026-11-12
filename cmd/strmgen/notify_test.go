@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,19 +97,28 @@ func TestSendRoundCleansTemporaryArtifacts(t *testing.T) {
 	}
 }
 
+// failingReceiver is a local transport that always rejects the summary, so
+// delivery-failure paths never touch the real network.
+func failingReceiver(t *testing.T) *notify.Sender {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	return notify.NewSenderWithBase("unit-token", "42", server.URL)
+}
+
 // TestSendRoundCleansUpAfterDeliveryFailure proves a failed transport still
 // cleans the listing and keeps the process side-effect free.
 func TestSendRoundCleansUpAfterDeliveryFailure(t *testing.T) {
 	n := testNotifier(t)
+	n.sender = failingReceiver(t)
 	before := notifyTempDirs(t)
 	collector := n.newCollector("sync")
 	if collector == nil {
 		t.Fatal("collector missing")
 	}
 	collector.Record(notify.Event{SourceIndex: 0, Kind: notify.KindCreated, RelativePath: "A.strm"})
-	// The default API base is unreachable in the unit environment and the
-	// transport never retries; the delivery must fail quickly or the context
-	// budget applies.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	n.sendRound(ctx, "sync", time.Now(), time.Second,
@@ -117,5 +128,38 @@ func TestSendRoundCleansUpAfterDeliveryFailure(t *testing.T) {
 		if !before[name] {
 			t.Fatalf("a failed delivery left %s behind", name)
 		}
+	}
+}
+
+// TestSendRoundWithoutCollectorStillSendsDegradedSummary proves that a detail
+// collection failure only degrades the notification: the summary is still
+// sent under the policy with an explicit unknown-progress note.
+func TestSendRoundWithoutCollectorStillSendsDegradedSummary(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(server.Close)
+	n := testNotifier(t)
+	n.sender = notify.NewSenderWithBase("unit-token", "42", server.URL)
+	n.sendRound(context.Background(), "sync", time.Now(), time.Second,
+		&reconciler.Report{Sources: []reconciler.SourceResult{{SourceIndex: 0, Skipped: 1}}}, scheduler.Result{}, nil)
+	if requests != 1 {
+		t.Fatalf("requests = %d, want exactly one degraded summary", requests)
+	}
+
+	// A change_or_error policy with no collector and no report change must
+	// stay silent; a failing round still sends.
+	n.policy = "change_or_error"
+	n.sendRound(context.Background(), "sync", time.Now(), time.Second,
+		&reconciler.Report{Sources: []reconciler.SourceResult{{SourceIndex: 0, Skipped: 1}}}, scheduler.Result{}, nil)
+	if requests != 1 {
+		t.Fatalf("requests = %d, an unchanged round without detail must stay silent", requests)
+	}
+	n.sendRound(context.Background(), "sync", time.Now(), time.Second,
+		&reconciler.Report{Sources: []reconciler.SourceResult{{SourceIndex: 0, Errors: 1, Partial: true}}}, scheduler.Result{}, nil)
+	if requests != 2 {
+		t.Fatalf("requests = %d, a failing round must send without detail", requests)
 	}
 }

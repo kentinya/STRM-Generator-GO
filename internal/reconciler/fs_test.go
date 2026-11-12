@@ -39,10 +39,10 @@ func TestPublishDoesNotOverwrite(t *testing.T) {
 	if err := fs.EnsureDir(root, "sub"); err != nil {
 		t.Fatalf("ensure dir: %v", err)
 	}
-	if err := fs.Publish(root, "sub/A.strm", []byte("first")); err != nil {
+	if _, err := fs.Publish(root, "sub/A.strm", []byte("first")); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	if err := fs.Publish(root, "sub/A.strm", []byte("second")); err == nil {
+	if _, err := fs.Publish(root, "sub/A.strm", []byte("second")); err == nil {
 		t.Fatal("publish must refuse to overwrite")
 	}
 	raw, err := os.ReadFile(filepath.Join(root, "sub", "A.strm"))
@@ -67,7 +67,7 @@ func TestPublishDoesNotOverwriteTargetAppearingAfterInitialCheck(t *testing.T) {
 		}
 		return f.Close()
 	}}
-	if err := fs.Publish(root, "A.strm", []byte("generator")); err == nil {
+	if _, err := fs.Publish(root, "A.strm", []byte("generator")); err == nil {
 		t.Fatal("a target appearing after the initial check must fail publication")
 	}
 	raw, err := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -94,7 +94,7 @@ func TestPublishRefusesSymlinkTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := LocalFS{}
-	if err := fs.Publish(root, "A.strm", []byte("x")); err == nil {
+	if _, err := fs.Publish(root, "A.strm", []byte("x")); err == nil {
 		t.Fatal("publish over a symlink must fail")
 	}
 	raw, _ := os.ReadFile(target)
@@ -111,10 +111,10 @@ func TestUpdateAtomicallyReplacesAndRemovesOldContent(t *testing.T) {
 	}
 	old := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
 	newer := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n# strm-probe-size:5\n")
-	if err := fs.Publish(root, "sub/A.strm", old); err != nil {
+	if _, err := fs.Publish(root, "sub/A.strm", old); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	if err := fs.Update(root, "sub/A.strm", old, newer); err != nil {
+	if _, err := fs.Update(root, "sub/A.strm", old, newer); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "sub", "A.strm"))
@@ -147,10 +147,10 @@ func TestUpdatePreservesExternallyReplacedTarget(t *testing.T) {
 		return f.Close()
 	}}
 	old := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
-	if err := fs.Publish(root, "A.strm", old); err != nil {
+	if _, err := fs.Publish(root, "A.strm", old); err != nil {
 		t.Fatal(err)
 	}
-	if err := fs.Update(root, "A.strm", old, []byte("replacement")); err == nil {
+	if _, err := fs.Update(root, "A.strm", old, []byte("replacement")); err == nil {
 		t.Fatal("external replacement must fail the update")
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -175,7 +175,7 @@ func TestUpdateRefusesSymlinkAndSpecialTargets(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "link.strm")); err != nil {
 		t.Fatal(err)
 	}
-	if err := (LocalFS{}).Update(root, "link.strm", nil, []byte("x")); err == nil {
+	if _, err := (LocalFS{}).Update(root, "link.strm", nil, []byte("x")); err == nil {
 		t.Fatal("update over a symlink must fail")
 	}
 	if raw, _ := os.ReadFile(outside); string(raw) != "sentinel" {
@@ -184,17 +184,17 @@ func TestUpdateRefusesSymlinkAndSpecialTargets(t *testing.T) {
 	if err := unix.Mkfifo(filepath.Join(root, "pipe.strm"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := (LocalFS{}).Update(root, "pipe.strm", nil, []byte("x")); err == nil {
+	if _, err := (LocalFS{}).Update(root, "pipe.strm", nil, []byte("x")); err == nil {
 		t.Fatal("update over a FIFO must fail")
 	}
 }
 
 func TestUpdateRejectsOversizedDocument(t *testing.T) {
 	root := t.TempDir()
-	if err := (LocalFS{}).Publish(root, "A.strm", []byte("old")); err != nil {
+	if _, err := (LocalFS{}).Publish(root, "A.strm", []byte("old")); err != nil {
 		t.Fatal(err)
 	}
-	if err := (LocalFS{}).Update(root, "A.strm", []byte("old"), make([]byte, strm.MaxSize+1)); err == nil {
+	if _, err := (LocalFS{}).Update(root, "A.strm", []byte("old"), make([]byte, strm.MaxSize+1)); err == nil {
 		t.Fatal("oversized update must be rejected before writing")
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -219,10 +219,10 @@ func TestUpdateFailureStagesPreserveTargetAndCleanTemp(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			old := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
-			if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+			if _, err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
 				t.Fatal(err)
 			}
-			if err := factory().Update(root, "A.strm", old, []byte("replacement")); err == nil {
+			if _, err := factory().Update(root, "A.strm", old, []byte("replacement")); err == nil {
 				t.Fatalf("%s failure must abort the update", name)
 			}
 			raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -372,7 +372,7 @@ func writeUpdateFixture(t *testing.T, root string) (old, newer []byte) {
 	t.Helper()
 	old = []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n")
 	newer = []byte("# strm-probe-version:1\n# strm-probe-size:5\nhttps://e.invalid/d/A.mkv\n")
-	if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+	if _, err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
 		t.Fatalf("publish fixture: %v", err)
 	}
 	return old, newer
@@ -436,7 +436,7 @@ func TestUpdateSecondReplacementBeforeRollbackPreservesBoth(t *testing.T) {
 			return replaceTargetBytes(dir, target, "external-B")
 		},
 	}
-	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrTargetChanged) {
+	if _, err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrTargetChanged) {
 		t.Fatalf("update = %v, want ErrTargetChanged", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -466,7 +466,7 @@ func TestUpdateRollbackFailurePreservesForeignResidual(t *testing.T) {
 			return errors.New("injected rollback failure")
 		},
 	}
-	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrTargetChanged) {
+	if _, err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrTargetChanged) {
 		t.Fatalf("update = %v, want ErrTargetChanged", err)
 	}
 	if got := residualBytes(t, root, "A.strm"); string(got) != "external" {
@@ -486,7 +486,7 @@ func TestUpdateForeignStagingReplacementIsNotPublished(t *testing.T) {
 	fs := LocalFS{beforeExchange: func(dir *securepath.Dir, _ string) error {
 		return replaceTargetBytes(dir, staging, "foreign-staging-object")
 	}}
-	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrStagingPresent) {
+	if _, err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrStagingPresent) {
 		t.Fatalf("update = %v, want ErrStagingPresent", err)
 	}
 	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(old) {
@@ -509,7 +509,7 @@ func TestUpdateForeignStagingSurvivesMissingTarget(t *testing.T) {
 		}
 		return dir.Remove(target)
 	}}
-	if err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrStagingPresent) {
+	if _, err := fs.Update(root, "A.strm", old, newer); !errors.Is(err, ErrStagingPresent) {
 		t.Fatalf("update = %v, want ErrStagingPresent", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "A.strm")); !errors.Is(err, os.ErrNotExist) {
@@ -526,7 +526,7 @@ func TestUpdatePublishExchangeFailurePreservesOldTarget(t *testing.T) {
 	fs := LocalFS{exchange: func(*securepath.Dir, string, string) error {
 		return errors.New("injected publish failure")
 	}}
-	if err := fs.Update(root, "A.strm", old, newer); err == nil {
+	if _, err := fs.Update(root, "A.strm", old, newer); err == nil {
 		t.Fatal("publish exchange failure must abort")
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -540,7 +540,7 @@ func TestUpdateTempWriteFailurePreservesOldTarget(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
 	fs := LocalFS{writeTemp: func(io.Writer, []byte) error { return errors.New("injected write failure") }}
-	if err := fs.Update(root, "A.strm", old, newer); err == nil {
+	if _, err := fs.Update(root, "A.strm", old, newer); err == nil {
 		t.Fatal("temporary write failure must abort")
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -554,7 +554,7 @@ func TestUpdateDirectorySyncFailureKeepsNewTargetWithoutStaging(t *testing.T) {
 	root := t.TempDir()
 	old, newer := writeUpdateFixture(t, root)
 	fs := LocalFS{syncDir: func(*securepath.Dir) error { return errors.New("injected dir sync failure") }}
-	if err := fs.Update(root, "A.strm", old, newer); err == nil {
+	if _, err := fs.Update(root, "A.strm", old, newer); err == nil {
 		t.Fatal("directory sync failure must surface as an error")
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, "A.strm"))
@@ -572,7 +572,7 @@ func TestUpdateInterruptedBeforeVerificationLeavesRecoverableState(t *testing.T)
 	crash := LocalFS{afterExchange: func(*securepath.Dir, string) error {
 		return errors.New("simulated interruption")
 	}}
-	if err := crash.Update(root, "A.strm", old, newer); err == nil {
+	if _, err := crash.Update(root, "A.strm", old, newer); err == nil {
 		t.Fatal("interruption must abort the update")
 	}
 	if raw, _ := os.ReadFile(filepath.Join(root, "A.strm")); string(raw) != string(newer) {

@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -306,13 +307,270 @@ func TestCollectorEventLineVocabulary(t *testing.T) {
 	}
 	content := string(data)
 	for _, want := range []string{
-		"1 来源 1 实际删除 M/A.strm 删除前计数 3/阈值 3 原因 源目标未读到",
-		"2 来源 1 归属回收 M/B.strm 原因 扩展名排除",
-		"3 来源 2 取消待删除 N/C.strm 计数 2→0/阈值 3",
-		"4 来源 2 缺失计数 N/D.strm 计数 1→2/阈值 3 原因 扩展名排除",
+		"1 来源 1 实际删除 M/A.strm 删除前计数 3/阈值 3 已实际删除 原因 源目标未读到",
+		"2 来源 1 归属回收 M/B.strm 本地目标此前已不存在，归属已移除 原因 扩展名排除",
+		"3 来源 2 取消待删除 N/C.strm 计数 2→0/阈值 3 已确认恢复条件，文件保留",
+		"4 来源 2 缺失计数 N/D.strm 计数 1→2/阈值 3 原因 扩展名排除；待删除计数推进，文件仍保留",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("listing missing %q:\n%s", want, content)
 		}
+	}
+}
+
+// B review B-07: every preview line carries its qualification reason and its
+// stage in the cleanup pipeline, including the threshold note that waiting for
+// the re-check is not the deletion itself.
+func TestPreviewLinesCarryReasonAndStage(t *testing.T) {
+	cases := []struct {
+		event Event
+		want  string
+	}{
+		{
+			Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "A.strm", PriorCount: 0, NewCount: 1, Reason: ReasonSourceTarget},
+			"缺失计数 来源 1 A.strm（计数 0→1/阈值 3，原因 源目标未读到，首次进入待删除，文件仍保留）",
+		},
+		{
+			Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "A.strm", PriorCount: 1, NewCount: 2, Reason: ReasonExcludedExtension},
+			"（计数 1→2/阈值 3，原因 扩展名排除，待删除计数推进，文件仍保留）",
+		},
+		{
+			Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "A.strm", PriorCount: 2, NewCount: 3, Reason: ReasonSourceTarget},
+			"（计数 2→3/阈值 3，原因 源目标未读到，达到阈值，等待后续清理重核，不等于已删除）",
+		},
+		{
+			Event{SourceIndex: 1, Kind: KindMissingCleared, RelativePath: "A.strm", PriorCount: 2},
+			"取消待删除 来源 1 A.strm（计数 2→0/阈值 3，已确认恢复条件，文件保留）",
+		},
+		{
+			Event{SourceIndex: 1, Kind: KindDeleted, RelativePath: "A.strm", PriorCount: 3, Reason: ReasonExcludedExtension},
+			"实际删除 来源 1 A.strm（删除前计数 3/阈值 3，已实际删除，原因 扩展名排除）",
+		},
+		{
+			Event{SourceIndex: 1, Kind: KindReclaimed, RelativePath: "A.strm"},
+			"归属回收 来源 1 A.strm（本地目标此前已不存在，归属已移除）",
+		},
+	}
+	for _, tc := range cases {
+		if got := previewLine(tc.event, 3); !strings.Contains(got, tc.want) {
+			t.Fatalf("preview line = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+// B review B-04: the whole body shares one budget. Many failed sources must
+// never push the body past the limit, and the omitted source details must go
+// into the same single attachment.
+func TestBuildMessageBoundsWholeBodyWithSourceOverflow(t *testing.T) {
+	var sources []SourceStatus
+	for i := 0; i < 60; i++ {
+		note := fmt.Sprintf("source root %d not readable as a directory; no round committed", i)
+		sources = append(sources, SourceStatus{
+			Index:       i,
+			Notes:       []string{note},
+			DetailNotes: []string{note},
+		})
+	}
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSourceFailure,
+		SourceCount: 60, IncompleteSources: 60, StatsAvailable: true,
+		Stats: Stats{Errors: 60}, Threshold: 3, Sources: sources,
+	}
+	c, err := NewCollector("sync overflow", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	text, attachment := BuildMessage(info, c)
+	if UTF16Len(text) > BodyMaxUTF16Units {
+		t.Fatalf("body = %d UTF-16 units, over the limit", UTF16Len(text))
+	}
+	if attachment == "" {
+		t.Fatal("source overflow must require the single attachment")
+	}
+	data, err := readFile(t, attachment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	// Every sampled source detail omitted from the body reaches the
+	// attachment with its full value.
+	bodyShown := strings.Count(text, "not readable as a directory")
+	count := strings.Count(content, "not readable as a directory")
+	if count != 60-bodyShown || count == 0 {
+		t.Fatalf("attachment carries %d source details, want %d:\n%s", count, 60-bodyShown, content)
+	}
+	if !strings.Contains(text, "来源明细：另有") {
+		t.Fatalf("body must note the omitted source details:\n%s", text)
+	}
+	if err := c.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// B review B-04: with zero file events, source overflow alone must still
+// produce the single attachment.
+func TestBuildMessageSourceOverflowWithoutEventsRequiresAttachment(t *testing.T) {
+	var sources []SourceStatus
+	for i := 0; i < 40; i++ {
+		note := fmt.Sprintf("ownership record %d lacks an exact remote mapping for the configured source root and is preserved; %s", i, strings.Repeat("x", 60))
+		sources = append(sources, SourceStatus{
+			Index:       i,
+			Completed:   true,
+			Retained:    1,
+			Notes:       []string{note},
+			DetailNotes: []string{note},
+		})
+	}
+	info := RunInfo{
+		InstanceName: "S", Mode: "serve", Outcome: OutcomeSuccess,
+		SourceCount: 40, CompletedSources: 40, StatsAvailable: true,
+		Stats: Stats{Retained: 40}, Threshold: 3, Sources: sources,
+	}
+	c, err := NewCollector("serve retained", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	text, attachment := BuildMessage(info, c)
+	if UTF16Len(text) > BodyMaxUTF16Units {
+		t.Fatalf("body = %d UTF-16 units", UTF16Len(text))
+	}
+	if attachment == "" {
+		t.Fatal("source overflow with zero events must still attach the listing")
+	}
+}
+
+// B review B-05: source diagnostics and the instance name are dynamic display
+// content and must be escaped like file paths.
+func TestBuildMessageEscapesNotesAndInstanceName(t *testing.T) {
+	info := RunInfo{
+		InstanceName: " evil\u202Ename", Mode: "sync", Outcome: OutcomeSourceFailure,
+		SourceCount: 1, IncompleteSources: 1, StatsAvailable: true,
+		Stats:   Stats{Conflicts: 1},
+		Sources: []SourceStatus{{Index: 0, Notes: []string{"existing file not owned by this source: evil\u202E.strm"}}},
+	}
+	text, _ := BuildMessage(info, nil)
+	if strings.Contains(text, "\u202E") {
+		t.Fatalf("a bidi control character must be escaped:\n%s", text)
+	}
+	if !strings.Contains(text, `evil\u202Ename`) || !strings.Contains(text, `evil\u202E.strm`) {
+		t.Fatalf("escaped values missing:\n%s", text)
+	}
+}
+
+// B review B-06: without a collector the summary still sends; the detail and
+// the missing-count progress are explicitly unknown, never zero.
+func TestBuildMessageWithoutCollectorMarksDetailUnavailable(t *testing.T) {
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Skipped: 1}, Threshold: 3, DetailUnavailable: true,
+	}
+	text, attachment := BuildMessage(info, nil)
+	if attachment != "" {
+		t.Fatal("no listing exists when collection was unavailable")
+	}
+	if !strings.Contains(text, "明细不完整：本轮明细收集不可用，文件事件与缺失计数进度未知。") {
+		t.Fatalf("detail-unavailable note missing:\n%s", text)
+	}
+	if strings.Contains(text, "本轮无新增、更新、删除或归属回收事件") {
+		t.Fatalf("an unknown detail must never read as zero events:\n%s", text)
+	}
+}
+
+// B review: an initialization failure keeps the configured source count while
+// the per-source completion stays unavailable.
+func TestBuildMessageInitFailureKeepsConfiguredSourceCount(t *testing.T) {
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeInitFailure,
+		SourceCount: 5, SyncDuration: time.Second,
+	}
+	text, _ := BuildMessage(info, nil)
+	if !strings.Contains(text, "来源总数：5（完成/未完成计数不可用）") {
+		t.Fatalf("configured source count lost:\n%s", text)
+	}
+	if !strings.Contains(text, "统计：不可用") {
+		t.Fatalf("counts must stay unavailable:\n%s", text)
+	}
+}
+
+// B review B-01: provisional advance records are removed when the commit
+// fails and kept when it succeeds.
+func TestCollectorProvisionalRecordsDiscardOnFailedCommit(t *testing.T) {
+	c, err := NewCollector("sync provisional", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	confirmed := Event{SourceIndex: 1, Kind: KindCreated, RelativePath: "A.strm"}
+	c.Record(confirmed)
+
+	c.RecordProvisional(Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "B.strm", PriorCount: 0, NewCount: 1, Reason: ReasonSourceTarget})
+	if c.TotalEvents() != 2 || len(c.Preview()) != 2 {
+		t.Fatalf("provisional records must be visible before the decision: %+v", c)
+	}
+	c.DiscardProvisional()
+	if c.TotalEvents() != 1 || len(c.Preview()) != 1 {
+		t.Fatalf("discarded records must be fully removed: total=%d preview=%d", c.TotalEvents(), len(c.Preview()))
+	}
+	if c.Degraded() {
+		t.Fatal("a clean discard must not degrade the listing")
+	}
+
+	// With nothing but provisional records, a discard must also revert the
+	// change flag: an uncommitted candidate never triggers change_or_error.
+	empty, err := NewCollector("sync provisional only", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer empty.Close()
+	empty.RecordProvisional(Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "C.strm", PriorCount: 0, NewCount: 1})
+	if !empty.HasChange() {
+		t.Fatal("a provisional record is observable before the decision")
+	}
+	empty.DiscardProvisional()
+	if empty.HasChange() || empty.TotalEvents() != 0 {
+		t.Fatal("a discarded advance must not count as a change")
+	}
+
+	// A second attempt that commits keeps the record permanently.
+	c.RecordProvisional(Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: "B.strm", PriorCount: 0, NewCount: 1, Reason: ReasonSourceTarget})
+	c.CommitProvisional()
+	if err := c.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	path, ok := c.AttachmentPath()
+	if !ok {
+		t.Fatal("listing missing")
+	}
+	data, err := readFile(t, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Count(content, "B.strm") != 1 {
+		t.Fatalf("listing must carry exactly the committed record:\n%s", content)
+	}
+	if !strings.Contains(content, "事件总数: 2") {
+		t.Fatalf("trailer totals:\n%s", content)
+	}
+}
+
+// A provisional record that hits the size cap is removed again by a discard
+// without falsely claiming an incomplete listing.
+func TestCollectorProvisionalDiscardRevertsLimit(t *testing.T) {
+	c, err := NewCollector("sync provisional cap", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	long := strings.Repeat("长", 4096)
+	for !c.LimitReached() {
+		c.RecordProvisional(Event{SourceIndex: 1, Kind: KindMissingAdvanced, RelativePath: long, PriorCount: 0, NewCount: 1})
+	}
+	c.DiscardProvisional()
+	if c.LimitReached() || c.Degraded() {
+		t.Fatal("the reverted records must not leave a degradation behind")
 	}
 }

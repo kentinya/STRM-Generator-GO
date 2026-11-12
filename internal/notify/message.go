@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// tailReserveUTF16Units reserves space for the bounded tail notes so the
+// omission and completeness notes are always fully included.
+const tailReserveUTF16Units = 220
+
 // Outcome classifies one round for the summary heading. The classification
 // only distinguishes what the product already knows: success, source-level
 // failure and initialization failure. A source with conflicts is never
@@ -39,14 +43,17 @@ type Stats struct {
 	Errors    int
 }
 
-// SourceStatus is one bounded per-source line for failed sources. Notes reuse
-// the existing redacted diagnostic vocabulary; notes are already sampled and
-// bounded by the caller.
+// SourceStatus is one bounded per-source line. Notes reuse the existing
+// redacted diagnostic vocabulary; they are already sampled and bounded by the
+// caller. DetailNotes carries the full sampled diagnostics for the attachment
+// listing when the body cannot show them.
 type SourceStatus struct {
-	Index     int
-	Completed bool
-	Notes     []string
-	NotesMore int
+	Index       int
+	Completed   bool
+	Retained    int
+	Notes       []string
+	NotesMore   int
+	DetailNotes []string
 }
 
 // RunInfo carries the summary inputs assembled from one round.
@@ -62,6 +69,10 @@ type RunInfo struct {
 	IncompleteSources int
 	Stats             Stats
 	StatsAvailable    bool // false: counts are unavailable (initialization failure)
+	// DetailUnavailable records that the detail collection could not be
+	// created this round: file events and missing-count progress are unknown
+	// and must never be reported as complete or zero.
+	DetailUnavailable bool
 	Threshold         int
 	Sources           []SourceStatus
 }
@@ -102,70 +113,125 @@ func outcomeLabel(info RunInfo) string {
 }
 
 // BuildMessage renders the Chinese plain-text summary body and decides whether
-// the single attachment listing is required. The body is bounded to
-// BodyMaxUTF16Units UTF-16 code units and at most PreviewMaxEvents preview
-// events; truncation never splits a Unicode character. An attachment is
-// required when the body cannot carry every event.
+// the single attachment listing is required. The whole body — heading, source
+// details, file event preview and tail notes — shares the BodyMaxUTF16Units
+// budget with at most PreviewMaxEvents preview events; truncation never splits
+// a Unicode character. Source details that do not fit the body are appended to
+// the same bounded attachment, so the single listing stays complete within its
+// own size cap.
 func BuildMessage(info RunInfo, c *Collector) (text string, attachmentPath string) {
 	head := buildHead(info)
+	units := buildSourceUnits(info)
 
-	// First pass: fit as many preview lines as possible while reserving space
-	// for the tail notes.
-	reserved := UTF16Len(head)
-	if info.Outcome != OutcomeInitFailure {
-		reserved += UTF16Len("\n文件事件：\n")
+	remaining := BodyMaxUTF16Units - UTF16Len(head) - tailReserveUTF16Units
+	if remaining < 0 {
+		remaining = 0
 	}
-	var lines []string
+
+	// Source units first: they explain why a round failed or what was
+	// preserved, before the individual file events. A unit is included whole
+	// or omitted whole, so the attachment stays a complete superset.
+	shownSources := 0
+	var bodyUnits [][]string
+	for _, unit := range units {
+		needed := 0
+		for _, line := range unit.bodyLines {
+			needed += UTF16Len(line)
+		}
+		if needed > remaining {
+			break
+		}
+		bodyUnits = append(bodyUnits, unit.bodyLines)
+		remaining -= needed
+		shownSources++
+	}
+
+	shownEvents := 0
+	var bodyEvents []string
 	if info.Outcome != OutcomeInitFailure {
-		budget := BodyMaxUTF16Units - reserved - 256
-		preview := c.Preview()
-		for _, event := range preview {
-			if len(lines) >= PreviewMaxEvents {
+		for _, event := range c.Preview() {
+			if shownEvents >= PreviewMaxEvents {
 				break
 			}
 			line := previewLine(event, info.Threshold)
 			units := UTF16Len(line)
-			if units > budget {
+			if units > remaining {
 				break
 			}
-			lines = append(lines, line)
-			budget -= units
+			bodyEvents = append(bodyEvents, line)
+			remaining -= units
+			shownEvents++
 		}
 	}
 
-	// Second pass: build the tail for the actual preview count and drop
-	// preview lines from the end until everything fits.
+	omittedSources := len(units) - shownSources
+	totalEvents := c.TotalEvents()
+	tail := buildTail(info, c, shownEvents, totalEvents, shownSources, omittedSources)
+
+	// Drop body lines from the end until everything fits; the tail is rebuilt
+	// so the omission notes always match what the body actually shows.
 	for {
-		tail := buildTail(info, c, len(lines))
 		total := UTF16Len(head)
-		if len(lines) > 0 {
-			total += UTF16Len("\n文件事件：\n")
+		for _, lines := range bodyUnits {
 			for _, line := range lines {
 				total += UTF16Len(line)
 			}
 		}
-		total += UTF16Len(tail)
-		if total <= BodyMaxUTF16Units || len(lines) == 0 {
-			body := &strings.Builder{}
-			body.WriteString(head)
-			if len(lines) > 0 {
-				body.WriteString("\n文件事件：\n")
-				for _, line := range lines {
-					body.WriteString(line)
-				}
+		if len(bodyEvents) > 0 {
+			total += UTF16Len("\n文件事件：\n")
+			for _, line := range bodyEvents {
+				total += UTF16Len(line)
 			}
-			body.WriteString(tail)
-			return body.String(), attachmentPathFor(info, c, len(lines))
 		}
-		lines = lines[:len(lines)-1]
+		total += UTF16Len(tail)
+		if total <= BodyMaxUTF16Units {
+			break
+		}
+		if len(bodyEvents) > 0 {
+			bodyEvents = bodyEvents[:len(bodyEvents)-1]
+			shownEvents--
+		} else if shownSources > 0 {
+			shownSources--
+			bodyUnits = bodyUnits[:len(bodyUnits)-1]
+		} else {
+			break
+		}
+		omittedSources = len(units) - shownSources
+		tail = buildTail(info, c, shownEvents, totalEvents, shownSources, omittedSources)
 	}
+
+	// Every source unit that did not fit the body goes into the same bounded
+	// attachment, in order, with its full escaped detail lines.
+	for _, unit := range units[shownSources:] {
+		for _, line := range unit.detailLines {
+			c.AppendSourceDetail(line)
+		}
+	}
+
+	body := &strings.Builder{}
+	body.WriteString(head)
+	for _, lines := range bodyUnits {
+		for _, line := range lines {
+			body.WriteString(line)
+		}
+	}
+	if len(bodyEvents) > 0 {
+		body.WriteString("\n文件事件：\n")
+		for _, line := range bodyEvents {
+			body.WriteString(line)
+		}
+	}
+	body.WriteString(tail)
+	return body.String(), attachmentPathFor(info, c, shownEvents, omittedSources)
 }
 
-// buildHead renders the fixed heading, result, timing, source and statistics
-// sections. Everything here uses the established report vocabulary.
+// buildHead renders the fixed heading, result, timing and statistics sections.
+// Every dynamic value is escaped so a crafted file name or instance name can
+// never inject lines or reorder the rendered text.
 func buildHead(info RunInfo) string {
+	instance := EscapeText(info.InstanceName)
 	b := &strings.Builder{}
-	fmt.Fprintf(b, "%s STRM 同步报告\n", info.InstanceName)
+	fmt.Fprintf(b, "%s STRM 同步报告\n", instance)
 	fmt.Fprintf(b, "运行方式：%s\n", info.Mode)
 	fmt.Fprintf(b, "结果：%s\n", outcomeLabel(info))
 	fmt.Fprintf(b, "完成时间：%s\n", timestamp(info.FinishedAt))
@@ -174,8 +240,14 @@ func buildHead(info RunInfo) string {
 		fmt.Fprintf(b, "开始时间：%s\n", timestamp(info.StartedAt))
 	}
 	if info.SourceCount > 0 {
-		fmt.Fprintf(b, "来源总数：%d（完成 %d / 未完成 %d）\n",
-			info.SourceCount, info.CompletedSources, info.IncompleteSources)
+		if info.Outcome == OutcomeInitFailure || !info.StatsAvailable {
+			// The configured source count is known even without a report;
+			// per-source completion is not.
+			fmt.Fprintf(b, "来源总数：%d（完成/未完成计数不可用）\n", info.SourceCount)
+		} else {
+			fmt.Fprintf(b, "来源总数：%d（完成 %d / 未完成 %d）\n",
+				info.SourceCount, info.CompletedSources, info.IncompleteSources)
+		}
 	}
 	if info.Outcome == OutcomeInitFailure || !info.StatsAvailable {
 		b.WriteString("统计：不可用\n")
@@ -184,26 +256,57 @@ func buildHead(info RunInfo) string {
 	s := info.Stats
 	fmt.Fprintf(b, "统计：新增 %d · 更新 %d · 未变化跳过 %d · 扩展名过滤 %d · 实际删除 %d · 归属回收 %d · 安全保留 %d · 冲突 %d · 处理错误 %d\n",
 		s.Created, s.Updated, s.Skipped, s.Filtered, s.Deleted, s.Reclaimed, s.Retained, s.Conflicts, s.Errors)
+	return b.String()
+}
+
+// buildSourceUnits renders the bounded per-source section. The body keeps the
+// established five-note sample per source; the attachment carries every
+// sampled diagnostic. All dynamic content is escaped.
+func buildSourceUnits(info RunInfo) []sourceUnit {
+	if info.Outcome == OutcomeInitFailure {
+		return nil
+	}
+	var units []sourceUnit
 	for _, src := range info.Sources {
+		var unit sourceUnit
+		var header string
 		if src.Completed {
-			fmt.Fprintf(b, "来源 %d：完成\n", src.Index)
-			continue
+			header = fmt.Sprintf("来源 %d：完成\n", src.Index)
+		} else {
+			header = fmt.Sprintf("来源 %d：未完成\n", src.Index)
 		}
-		fmt.Fprintf(b, "来源 %d：未完成\n", src.Index)
+		unit.bodyLines = append(unit.bodyLines, header)
+		unit.detailLines = append(unit.detailLines, header)
 		for i, note := range src.Notes {
 			if i >= 5 {
 				break
 			}
-			fmt.Fprintf(b, "  来源 %d：%s\n", src.Index, note)
+			unit.bodyLines = append(unit.bodyLines, fmt.Sprintf("  来源 %d：%s\n", src.Index, EscapeText(note)))
+		}
+		for _, note := range src.DetailNotes {
+			unit.detailLines = append(unit.detailLines, fmt.Sprintf("  来源 %d：%s\n", src.Index, EscapeText(note)))
 		}
 		if src.NotesMore > 0 {
-			fmt.Fprintf(b, "  来源 %d：（其余 %d 条诊断省略）\n", src.Index, src.NotesMore)
+			more := fmt.Sprintf("  来源 %d：（其余 %d 条诊断省略）\n", src.Index, src.NotesMore)
+			unit.bodyLines = append(unit.bodyLines, more)
+			unit.detailLines = append(unit.detailLines, more)
 		}
+		units = append(units, unit)
 	}
-	return b.String()
+	return units
 }
 
-// previewLine renders one bounded event line for the body preview.
+// sourceUnit is one bounded per-source block. bodyLines fit the message body
+// as a whole; detailLines are the attachment superset.
+type sourceUnit struct {
+	bodyLines   []string
+	detailLines []string
+}
+
+// previewLine renders one bounded event line for the body preview. Every
+// event carries its qualification reason and its stage in the cleanup
+// pipeline, so a single notification never hides why a file was counted,
+// cleared, kept or deleted.
 func previewLine(event Event, threshold int) string {
 	label := kindLabels[event.Kind]
 	if label == "" {
@@ -213,51 +316,69 @@ func previewLine(event Event, threshold int) string {
 	fmt.Fprintf(b, "  %s 来源 %d %s", label, event.SourceIndex, EscapeText(event.RelativePath))
 	switch event.Kind {
 	case KindDeleted:
-		fmt.Fprintf(b, "（删除前计数 %d/阈值 %d）", event.PriorCount, threshold)
+		fmt.Fprintf(b, "（删除前计数 %d/阈值 %d，已实际删除", event.PriorCount, threshold)
+		if reason, ok := reasonLabels[event.Reason]; ok {
+			fmt.Fprintf(b, "，原因 %s", reason)
+		}
+		b.WriteString("）")
+	case KindReclaimed:
+		b.WriteString("（本地目标此前已不存在，归属已移除）")
 	case KindMissingCleared:
-		fmt.Fprintf(b, "（计数 %d→0/阈值 %d）", event.PriorCount, threshold)
+		fmt.Fprintf(b, "（计数 %d→0/阈值 %d，已确认恢复条件，文件保留）", event.PriorCount, threshold)
 	case KindMissingAdvanced:
-		fmt.Fprintf(b, "（计数 %d→%d/阈值 %d）", event.PriorCount, event.NewCount, threshold)
+		fmt.Fprintf(b, "（计数 %d→%d/阈值 %d，", event.PriorCount, event.NewCount, threshold)
+		if reason, ok := reasonLabels[event.Reason]; ok {
+			fmt.Fprintf(b, "原因 %s，", reason)
+		}
+		fmt.Fprintf(b, "%s）", advanceStage(event.NewCount, threshold))
 	}
 	b.WriteString("\n")
 	return b.String()
 }
 
 // buildTail renders the omission and completeness notes. It is always short
-// and always fully included in the body. shown is the number of preview lines
-// actually kept in the body.
-func buildTail(info RunInfo, c *Collector, shown int) string {
+// and always fully included in the body.
+func buildTail(info RunInfo, c *Collector, shownEvents int, totalEvents int, shownSources int, omittedSources int) string {
 	b := &strings.Builder{}
 	if info.Outcome == OutcomeInitFailure {
 		b.WriteString("本轮同步初始化失败；未产出可报告的文件与计数事实。\n")
 		return b.String()
 	}
-	total := c.TotalEvents()
-	if total == 0 {
-		b.WriteString("文件事件：本轮无新增、更新、删除或归属回收事件。\n")
-	} else if total > shown {
-		b.WriteString(fmt.Sprintf("文件事件：正文仅预览前 %d 条，另有 %d 条未在正文展示。\n", shown, total-shown))
-	}
-	if c.Degraded() {
-		if c.LimitReached() {
-			b.WriteString("明细不完整：附件清单达到大小上限，未包含全部事件。\n")
+	if info.DetailUnavailable {
+		b.WriteString("明细不完整：本轮明细收集不可用，文件事件与缺失计数进度未知。\n")
+	} else {
+		if totalEvents == 0 {
+			b.WriteString("文件事件：本轮无新增、更新、删除或归属回收事件。\n")
+		} else if totalEvents > shownEvents {
+			b.WriteString(fmt.Sprintf("文件事件：正文仅预览前 %d 条，另有 %d 条未在正文展示。\n", shownEvents, totalEvents-shownEvents))
 		}
-		if c.WriteFailed() {
-			b.WriteString("明细不完整：本地明细收集写入失败，清单可能缺失。\n")
+		if omittedSources > 0 {
+			b.WriteString(fmt.Sprintf("来源明细：另有 %d 条未在正文展示，完整内容见附件清单。\n", omittedSources))
+		}
+		if c.Degraded() {
+			if c.LimitReached() {
+				b.WriteString("明细不完整：附件清单达到大小上限，未包含全部事件。\n")
+			}
+			if c.WriteFailed() {
+				b.WriteString("明细不完整：本地明细收集写入失败，清单可能缺失。\n")
+			}
 		}
 	}
 	return b.String()
 }
 
 // attachmentPathFor decides whether the single attachment is required. It is
-// required when the body preview cannot carry every event; the temporary
-// listing must then exist with usable content.
-func attachmentPathFor(info RunInfo, c *Collector, shown int) string {
+// required when the body cannot carry every file event or every source detail
+// line; the temporary listing must then exist with usable content.
+func attachmentPathFor(info RunInfo, c *Collector, shownEvents int, omittedSources int) string {
 	if info.Outcome == OutcomeInitFailure {
 		return ""
 	}
+	if info.DetailUnavailable {
+		return ""
+	}
 	total := c.TotalEvents()
-	if total == 0 || total <= shown {
+	if total <= shownEvents && omittedSources == 0 {
 		return ""
 	}
 	if c.WriteFailed() {

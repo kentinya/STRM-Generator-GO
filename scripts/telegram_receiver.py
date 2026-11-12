@@ -20,6 +20,11 @@ class TelegramReceiver:
     def __init__(self, host="127.0.0.1"):
         self._lock = threading.Lock()
         self.requests = []
+        # One-shot hold: the next request is accepted and recorded but its
+        # response is delayed until release_held(), so drivers can observe a
+        # product process while its notification send is blocked.
+        self._hold_next = False
+        self._release = threading.Event()
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -63,12 +68,24 @@ class TelegramReceiver:
                     record["text"] = values.get("text", [""])[0]
                 with outer._lock:
                     outer.requests.append(record)
+                    hold = outer._hold_next
+                    if hold:
+                        outer._hold_next = False
+                        outer._release.clear()
+                        record["held"] = True
+                if hold:
+                    outer._release.wait(timeout=60)
                 payload = json.dumps({"ok": True, "result": {"message_id": 1}}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):
+                    # The client may be gone (for example cancelled during a
+                    # held send); the request stays recorded.
+                    pass
 
             def log_message(self, *args):
                 pass
@@ -76,6 +93,19 @@ class TelegramReceiver:
         self._server = ThreadingHTTPServer((host, 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
+
+    def hold_next_request(self):
+        """Delay the response of the next request until release_held."""
+        with self._lock:
+            self._hold_next = True
+            self._release.clear()
+
+    def release_held(self):
+        self._release.set()
+
+    def held_requests(self):
+        with self._lock:
+            return [r for r in self.requests if r.get("held")]
 
     @property
     def url(self):

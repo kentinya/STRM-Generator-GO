@@ -449,10 +449,10 @@ func TestSyncNotificationReportsMissingProgressAndDeletion(t *testing.T) {
 	if len(messages) != 5 {
 		t.Fatalf("messages = %d", len(messages))
 	}
-	if !strings.Contains(messages[1].content, "缺失计数 来源 0 Gone.strm（计数 0→1/阈值 3）") {
+	if !strings.Contains(messages[1].content, "缺失计数 来源 0 Gone.strm（计数 0→1/阈值 3，原因 源目标未读到，首次进入待删除，文件仍保留）") {
 		t.Fatalf("first advance:\n%s", messages[1].content)
 	}
-	if !strings.Contains(messages[2].content, "计数 1→2/阈值 3") {
+	if !strings.Contains(messages[2].content, "计数 1→2/阈值 3，原因 源目标未读到，待删除计数推进，文件仍保留") {
 		t.Fatalf("second advance:\n%s", messages[2].content)
 	}
 	third := messages[3]
@@ -466,10 +466,57 @@ func TestSyncNotificationReportsMissingProgressAndDeletion(t *testing.T) {
 	if !strings.Contains(last.content, "实际删除 1") {
 		t.Fatalf("deletion summary:\n%s", last.content)
 	}
-	if !strings.Contains(last.content, "实际删除 来源 0 Gone.strm（删除前计数 3/阈值 3）") {
+	if !strings.Contains(last.content, "实际删除 来源 0 Gone.strm（删除前计数 3/阈值 3，已实际删除，原因 源目标未读到）") {
 		t.Fatalf("deleted event missing:\n%s", last.content)
 	}
 	if _, err := os.Stat(filepath.Join(root, "Gone.strm")); !os.IsNotExist(err) {
 		t.Fatal("qualified target was not removed")
+	}
+}
+
+// TestSyncNotificationDegradedWhenCollectionFails proves that a temporary
+// listing creation failure only degrades the notification: the synchronization
+// result and exit code stay unchanged and the summary still names the missing
+// detail instead of reporting zero events.
+func TestSyncNotificationDegradedWhenCollectionFails(t *testing.T) {
+	receiver := newTelegramReceiver(t)
+	api := startMultiFileAPI(t, 2)
+	base := t.TempDir()
+	root := filepath.Join(base, "out")
+	db := filepath.Join(base, "data", "strmgen.db")
+	setTelegramEnv(t, "test-token", "-10042")
+	t.Setenv("STRMGEN_TEST_TELEGRAM_API_BASE", receiver.server.URL)
+	configPath := writeNotifyConfig(t, api.URL, root, db, "all")
+
+	// The notification collector uses the system temporary directory; a
+	// nonexistent TMPDIR makes every creation fail while the synchronization
+	// targets stay under the test-controlled roots.
+	t.Setenv("TMPDIR", filepath.Join(base, "missing-tmp"))
+
+	stderr := &strings.Builder{}
+	code := run([]string{"sync", "--config", configPath}, io.Discard, stderr)
+	if code != 0 {
+		t.Fatalf("sync exit = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "detail collection is unavailable") {
+		t.Fatalf("degradation warning missing: %s", stderr.String())
+	}
+	messages := receiver.sentMessages()
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d, want exactly one degraded summary", len(messages))
+	}
+	if !strings.Contains(messages[0].content, "明细不完整：本轮明细收集不可用") {
+		t.Fatalf("summary must mark the unknown detail:\n%s", messages[0].content)
+	}
+	if strings.Contains(messages[0].content, "本轮无新增、更新、删除或归属回收事件") {
+		t.Fatalf("unknown detail must never read as zero events:\n%s", messages[0].content)
+	}
+	if !strings.Contains(messages[0].content, "新增 2") {
+		t.Fatalf("report counters must still be summarized:\n%s", messages[0].content)
+	}
+	for _, name := range []string{"F00.strm", "F01.strm"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			t.Fatalf("%s missing after the degraded notification: %v", name, err)
+		}
 	}
 }

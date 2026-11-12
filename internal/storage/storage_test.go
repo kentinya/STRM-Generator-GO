@@ -171,7 +171,7 @@ func TestReadOnlyRejectsWrites(t *testing.T) {
 	if err := ro.RecordOwnership(context.Background(), Ownership{SourceKey: "/Movies", RelativePath: "A.strm", AbsolutePath: "/out/A.strm"}, 1); err == nil {
 		t.Fatal("read-only store must refuse writes")
 	}
-	if _, err := ro.CommitRound(context.Background(), "/Movies", 1, time.Now()); err == nil {
+	if _, err := ro.CommitRound(context.Background(), "/Movies", 1, time.Now(), nil); err == nil {
 		t.Fatal("read-only store must refuse round commits")
 	}
 }

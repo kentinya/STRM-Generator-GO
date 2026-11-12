@@ -24,44 +24,6 @@ import (
 	"strm-generator-go/internal/storage"
 )
 
-// factSinkAdapter forwards reconciler facts to the notify collector without
-// coupling the reconciler or the collector to each other.
-type factSinkAdapter struct {
-	collector *notify.Collector
-}
-
-func (a factSinkAdapter) Record(fact reconciler.Fact) {
-	a.collector.Record(notify.Event{
-		SourceIndex:  fact.SourceIndex,
-		Kind:         notifyEventKind(fact.Kind),
-		RelativePath: fact.RelativePath,
-		PriorCount:   fact.PriorCount,
-		NewCount:     fact.NewCount,
-		Reason:       fact.Reason,
-	})
-}
-
-// notifyEventKind maps the reconciler fact vocabulary onto the notify event
-// vocabulary. The two packages stay independent by design.
-func notifyEventKind(kind reconciler.FactKind) notify.Kind {
-	switch kind {
-	case reconciler.FactCreated:
-		return notify.KindCreated
-	case reconciler.FactUpdated:
-		return notify.KindUpdated
-	case reconciler.FactDeleted:
-		return notify.KindDeleted
-	case reconciler.FactReclaimed:
-		return notify.KindReclaimed
-	case reconciler.FactMissingCleared:
-		return notify.KindMissingCleared
-	case reconciler.FactMissingAdvanced:
-		return notify.KindMissingAdvanced
-	default:
-		return ""
-	}
-}
-
 // Exit codes are part of the CLI contract.
 const (
 	exitOK      = 0

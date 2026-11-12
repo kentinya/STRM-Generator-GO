@@ -80,7 +80,7 @@ func TestInterruptedPartialStagingRecoveryConverges(t *testing.T) {
 							t.Fatal("expected simulated process interruption")
 						}
 					}()
-					_ = fs.Update(root, "A.strm", []byte(oldRaw), data)
+					_, _ = fs.Update(root, "A.strm", []byte(oldRaw), data)
 				}()
 
 				if got := mustRead(t, filepath.Join(root, "A.strm")); got != oldRaw {
@@ -212,10 +212,10 @@ func TestRecoverDetectsResidualOnNonFirstTargetInPreparedRoot(t *testing.T) {
 	oldB := []byte("# strm-probe-version:1\nhttps://e.invalid/d/B.mkv\n")
 	newA := []byte("# strm-probe-version:1\nhttps://e.invalid/d/A.mkv\n# strm-probe-size:1\n")
 	newB := []byte("# strm-probe-version:1\nhttps://e.invalid/d/B.mkv\n# strm-probe-size:1\n")
-	if err := fs.Publish(root, "A.strm", oldA); err != nil {
+	if _, err := fs.Publish(root, "A.strm", oldA); err != nil {
 		t.Fatalf("publish A: %v", err)
 	}
-	if err := fs.Publish(root, "B.strm", oldB); err != nil {
+	if _, err := fs.Publish(root, "B.strm", oldB); err != nil {
 		t.Fatalf("publish B: %v", err)
 	}
 	// A residual that matches the deterministic prefix/suffix but does not carry
@@ -345,7 +345,7 @@ func TestRecoverDetectsResidualsAcrossPreparedTargetsAndSources(t *testing.T) {
 		{rootB, "D.strm"},
 	}
 	for i, tc := range cases {
-		if err := fs.Publish(tc.root, tc.rel, old); err != nil {
+		if _, err := fs.Publish(tc.root, tc.rel, old); err != nil {
 			t.Fatalf("publish %s: %v", tc.rel, err)
 		}
 		if i == len(cases)-1 {
@@ -374,7 +374,7 @@ func TestRecoverDryRunThenRealConverges(t *testing.T) {
 	root := t.TempDir()
 	old := []byte("old-owned")
 	staged := []byte("staged-new")
-	if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+	if _, err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old, staged)), staged, 0o644); err != nil {
@@ -404,7 +404,7 @@ func TestRecoverConvergesAfterExchangeWhenDesiredChanges(t *testing.T) {
 	old := []byte("old-owned")
 	published := []byte("published-new")
 	later := []byte("later-remote")
-	if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+	if _, err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "A.strm"), published, 0o644); err != nil {
@@ -429,7 +429,7 @@ func TestRecoverConvergesBeforeExchangeWhenDesiredChanges(t *testing.T) {
 	old := []byte("old-owned")
 	staged := []byte("staged-new")
 	later := []byte("later-remote")
-	if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+	if _, err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old, staged)), staged, 0o644); err != nil {
@@ -449,7 +449,7 @@ func TestRecoverConvergesBeforeExchangeWhenDesiredChanges(t *testing.T) {
 func TestRecoverDropsDisplacedOldWhenTargetAbsent(t *testing.T) {
 	root := t.TempDir()
 	old := []byte("old-owned")
-	if err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
+	if _, err := (LocalFS{}).Publish(root, "A.strm", old); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, newStagingName("A.strm", old, old)), old, 0o644); err != nil {

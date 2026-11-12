@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/securepath"
@@ -110,6 +109,31 @@ type Telegram struct {
 	BotTokenEnv *string `yaml:"bot_token_env"`
 	ChatIDEnv   *string `yaml:"chat_id_env"`
 	Policy      *string `yaml:"policy"`
+}
+
+// UnmarshalYAML decodes the telegram block. A non-string scalar for
+// instance_name is rejected instead of being silently converted, and the
+// known-field set is enforced manually because Node.Decode does not carry the
+// strict KnownFields flag of the outer decoder.
+func (t *Telegram) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return fmt.Errorf("field notifications.telegram must be a mapping")
+	}
+	allowed := map[string]bool{
+		"enabled": true, "instance_name": true, "bot_token_env": true,
+		"chat_id_env": true, "policy": true,
+	}
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		key, val := value.Content[i], value.Content[i+1]
+		if !allowed[key.Value] {
+			return fmt.Errorf("field %s not found in type notifications.telegram", key.Value)
+		}
+		if key.Value == "instance_name" && val.Tag != "!!str" && val.Tag != "!!null" {
+			return fmt.Errorf("notifications.telegram.instance_name: must be a string")
+		}
+	}
+	type plainTelegram Telegram
+	return value.Decode((*plainTelegram)(t))
 }
 
 // Notifications is the optional notifications block.
@@ -531,15 +555,16 @@ func validateBaseURL(raw, field string) (string, error) {
 
 // resolveNotifications applies the notification defaults and validation. An
 // omitted notifications or notifications.telegram block keeps notifications
-// disabled, matching historical configurations byte for byte.
+// disabled, matching historical configurations byte for byte. Provided fields
+// are validated even when notifications stay disabled, so an invalid value can
+// never hide behind enabled: false; validation never reads credentials and
+// never creates any file.
 func resolveNotifications(block Notifications) (NotificationConfig, error) {
 	if block.Telegram == nil {
 		return NotificationConfig{}, nil
 	}
 	tg := block.Telegram
-	if tg.Enabled == nil || !*tg.Enabled {
-		return NotificationConfig{}, nil
-	}
+	enabled := tg.Enabled != nil && *tg.Enabled
 	resolved := TelegramNotification{
 		InstanceName: DefaultTelegramInstanceName,
 		BotTokenEnv:  DefaultTelegramBotTokenEnv,
@@ -551,11 +576,10 @@ func resolveNotifications(block Notifications) (NotificationConfig, error) {
 		if name == "" {
 			return NotificationConfig{}, errors.New("notifications.telegram.instance_name must not be empty")
 		}
+		// The contract fixes a non-empty single-line string without a length
+		// cap beyond what the message body can escape and render.
 		if strings.ContainsAny(name, "\n\r\x00") || strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 			return NotificationConfig{}, errors.New("notifications.telegram.instance_name must be a single-line string")
-		}
-		if utf8.RuneCountInString(name) > 64 {
-			return NotificationConfig{}, errors.New("notifications.telegram.instance_name is too long")
 		}
 		resolved.InstanceName = name
 	}
@@ -578,6 +602,9 @@ func resolveNotifications(block Notifications) (NotificationConfig, error) {
 		default:
 			return NotificationConfig{}, errors.New("notifications.telegram.policy must be one of all, change_or_error or error")
 		}
+	}
+	if !enabled {
+		return NotificationConfig{}, nil
 	}
 	return NotificationConfig{Enabled: true, Telegram: resolved}, nil
 }

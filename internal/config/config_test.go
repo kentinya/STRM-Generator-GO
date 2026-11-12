@@ -642,3 +642,39 @@ func TestNotificationsFieldDiagnosticsUseKnownNames(t *testing.T) {
 		}
 	}
 }
+
+// B review B-08: provided notification fields are validated even when
+// notifications stay disabled, and the instance name must be a real YAML
+// string. Validation never reads credentials and never creates a file.
+func TestNotificationsValidateProvidedFieldsWhenDisabled(t *testing.T) {
+	cases := map[string]string{
+		"disabled bad policy":     "notifications:\n  telegram:\n    enabled: false\n    policy: \"sometimes\"\n",
+		"disabled bad token env":  "notifications:\n  telegram:\n    enabled: false\n    bot_token_env: \"1BAD\"\n",
+		"disabled bad chat env":   "notifications:\n  telegram:\n    enabled: false\n    chat_id_env: \"WITH SPACE\"\n",
+		"disabled empty name":     "notifications:\n  telegram:\n    enabled: false\n    instance_name: \"\"\n",
+		"disabled multiline name": "notifications:\n  telegram:\n    enabled: false\n    instance_name: \"a\\nb\"\n",
+		"enabled numeric name":    "notifications:\n  telegram:\n    enabled: true\n    instance_name: 123\n",
+		"disabled numeric name":   "notifications:\n  telegram:\n    enabled: false\n    instance_name: 123\n",
+		"bool name":               "notifications:\n  telegram:\n    enabled: true\n    instance_name: true\n",
+	}
+	for name, extra := range cases {
+		path := write(t, validBase+extra)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("%s must be rejected", name)
+		}
+	}
+}
+
+// The contract fixes a non-empty single-line instance name without a length
+// cap; a long valid name is accepted.
+func TestNotificationsAcceptsLongInstanceName(t *testing.T) {
+	long := strings.Repeat("长", 200)
+	path := write(t, validBase+"notifications:\n  telegram:\n    enabled: true\n    instance_name: \""+long+"\"\n")
+	r, err := Load(path)
+	if err != nil {
+		t.Fatalf("long instance name must be accepted: %v", err)
+	}
+	if r.Notifications.Telegram.InstanceName != long {
+		t.Fatalf("instance name changed: %+v", r.Notifications.Telegram)
+	}
+}

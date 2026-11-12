@@ -17,10 +17,27 @@ func stageMissing(t *testing.T, ctx context.Context, s *Store, sourceKey, rel st
 	}
 }
 
+// recordingAdvances is a test AdvanceSink that separates provisional records
+// from committed ones so tests can assert the publish and discard protocol.
+type recordingAdvances struct {
+	staged    []MissingAdvance
+	committed []MissingAdvance
+	commits   int
+	discards  int
+}
+
+func (r *recordingAdvances) StageAdvance(a MissingAdvance) { r.staged = append(r.staged, a) }
+func (r *recordingAdvances) CommitAdvances() {
+	r.committed = append(r.committed, r.staged...)
+	r.staged = nil
+	r.commits++
+}
+func (r *recordingAdvances) DiscardAdvances() { r.staged = nil; r.discards++ }
+
 // commitRound commits one test round and fails the test on an error.
 func commitRound(t *testing.T, ctx context.Context, s *Store, sourceKey string, epoch int64, at time.Time) {
 	t.Helper()
-	if _, err := s.CommitRound(ctx, sourceKey, epoch, at); err != nil {
+	if _, err := s.CommitRound(ctx, sourceKey, epoch, at, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -307,7 +324,7 @@ func TestReadOnlyLegacyDatabaseCannotUseCleanup(t *testing.T) {
 	if _, err := ro.ClearMissing(context.Background(), "source", "A.strm"); err == nil {
 		t.Fatal("read-only store must refuse a count change")
 	}
-	if _, err := ro.CommitRound(context.Background(), "source", 4, time.Now()); err == nil {
+	if _, err := ro.CommitRound(context.Background(), "source", 4, time.Now(), nil); err == nil {
 		t.Fatal("read-only store must refuse a round commit")
 	}
 }
@@ -359,33 +376,97 @@ func TestCommitRoundReportsCommittedAdvances(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0))
+	advances := &recordingAdvances{}
+	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0), advances)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.Committed {
 		t.Fatal("committed round must report the commit fact")
 	}
-	if len(result.Advances) != 2 {
-		t.Fatalf("advances: %+v", result.Advances)
+	if len(advances.committed) != 2 {
+		t.Fatalf("committed advances: %+v", advances.committed)
 	}
 	want := map[string]MissingAdvance{
 		"A.strm": {RelativePath: "A.strm", PriorCount: 0, NewCount: 1, Reason: MissingReasonSourceTarget},
 		"B.strm": {RelativePath: "B.strm", PriorCount: 0, NewCount: 1, Reason: MissingReasonExcludedExtension},
 	}
-	for _, got := range result.Advances {
+	for _, got := range advances.committed {
 		if want[got.RelativePath] != got {
 			t.Fatalf("advance mismatch: got %+v want %+v", got, want[got.RelativePath])
 		}
 	}
 	// A repeated commit of the same epoch reports no new advances.
 	stageMissing(t, ctx, s, "source", "A.strm")
-	result, err = s.CommitRound(ctx, "source", 1, time.Unix(1, 0))
+	advances = &recordingAdvances{}
+	result, err = s.CommitRound(ctx, "source", 1, time.Unix(1, 0), advances)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Committed || len(result.Advances) != 0 {
-		t.Fatalf("duplicate epoch: committed=%v advances=%+v", result.Committed, result.Advances)
+	if !result.Committed || len(advances.committed) != 0 || len(advances.staged) != 0 {
+		t.Fatalf("duplicate epoch: committed=%v advances=%+v", result.Committed, advances)
+	}
+}
+
+// B review B-01: the advance sink receives records provisionally while the
+// transaction runs; a failed or rolled-back commit must discard them so an
+// uncommitted candidate can never be published as progress.
+func TestCommitRoundDiscardsAdvancesWhenTransactionFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "A.strm", AbsolutePath: "/out/A.strm", RemotePath: "/remote/A.mkv",
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	// Fail the main transaction after the pending rows are staged.
+	if _, err := s.db.Exec(`PRAGMA query_only = true`); err != nil {
+		t.Fatal(err)
+	}
+	advances := &recordingAdvances{}
+	if _, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0), advances); err == nil {
+		t.Fatal("a failed main transaction must be reported")
+	}
+	if len(advances.committed) != 0 || len(advances.staged) != 0 || advances.commits != 0 {
+		t.Fatalf("uncommitted candidates were published: %+v", advances)
+	}
+	if advances.discards == 0 {
+		t.Fatal("a failed commit must discard the provisional records")
+	}
+	o, _, err := s.Lookup("source", "A.strm")
+	if err != nil || o.MissingCount != 0 {
+		t.Fatalf("a failed commit must not change the count: %+v err=%v", o, err)
+	}
+}
+
+// B review B-01: with no sink attached, the commit stays correct and collects
+// nothing; the durable counts still advance exactly once per epoch.
+func TestCommitRoundWithoutSinkKeepsCountSemantics(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "A.strm", AbsolutePath: "/out/A.strm", RemotePath: "/remote/A.mkv",
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	stageMissing(t, ctx, s, "source", "A.strm")
+	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0), nil)
+	if err != nil || !result.Committed {
+		t.Fatalf("nil-sink commit: %+v err=%v", result, err)
+	}
+	if o, _, err := s.Lookup("source", "A.strm"); err != nil || o.MissingCount != 1 {
+		t.Fatalf("nil-sink count: %+v err=%v", o, err)
 	}
 }
 
@@ -409,15 +490,16 @@ func TestCommitRoundReportsCommitWhenScratchCleanupFails(t *testing.T) {
 	if _, err := s.scratch.Exec(`PRAGMA query_only = true`); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0))
+	advances := &recordingAdvances{}
+	result, err := s.CommitRound(ctx, "source", 1, time.Unix(0, 0), advances)
 	if err == nil {
 		t.Fatal("scratch cleanup failure must be reported")
 	}
 	if !result.Committed {
 		t.Fatal("a failed scratch cleanup must not hide the committed round")
 	}
-	if len(result.Advances) != 1 || result.Advances[0].NewCount != 1 {
-		t.Fatalf("advances: %+v", result.Advances)
+	if len(advances.committed) != 1 || advances.committed[0].NewCount != 1 || advances.commits != 1 {
+		t.Fatalf("advances: %+v", advances)
 	}
 	o, ok, err := s.Lookup("source", "A.strm")
 	if err != nil || !ok || o.MissingCount != 1 {
@@ -462,5 +544,37 @@ func TestClearMissingReportsPriorCommittedCount(t *testing.T) {
 	cleared, err = s.ClearMissing(ctx, "source", "C.strm")
 	if err != nil || cleared.RowFound || cleared.PriorMissing != 0 {
 		t.Fatalf("clear result for absent row: %+v err=%v", cleared, err)
+	}
+}
+
+// B review B-03: when the main-database clear already succeeded and only the
+// private scratch cleanup failed, the durable N -> 0 fact must be returned
+// together with the error so no caller can miss it.
+func TestClearMissingReportsDurableClearAfterScratchFailure(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "review.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{SourceKey: "source", RelativePath: "A.strm", AbsolutePath: "/out/A.strm", RemotePath: "/remote/A.mkv"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE ownership SET missing_count = 2, missing_round = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.scratch.Exec(`PRAGMA query_only = true`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.ClearMissing(ctx, "source", "A.strm")
+	if err == nil {
+		t.Fatal("scratch cleanup failure must be reported")
+	}
+	if !result.RowFound || result.PriorMissing != 2 {
+		t.Fatalf("durable 2 -> 0 fact lost after scratch failure: %+v", result)
+	}
+	row, ok, err := s.Lookup("source", "A.strm")
+	if err != nil || !ok || row.MissingCount != 0 {
+		t.Fatalf("durable count after clear: %+v ok=%v err=%v", row, ok, err)
 	}
 }

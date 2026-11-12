@@ -2978,9 +2978,15 @@ def scenario_notifications_cleanup(h, results):
             run = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
             check(run.returncode == 0, f"round {round_index} exit {run.returncode}: {run.stderr}")
             body = receiver.messages()[0]["text"]
-            check(f"A.strm（计数 {round_index - 1}→{round_index}/阈值 3）" in body,
+            check(f"A.strm（计数 {round_index - 1}→{round_index}/阈值 3，原因 源目标未读到，"
+                  + ("达到阈值，等待后续清理重核，不等于已删除" if round_index == 3
+                     else ("首次进入待删除，文件仍保留" if round_index == 1
+                           else "待删除计数推进，文件仍保留")) + "）" in body,
                   f"round {round_index} A advance missing:\n{body}")
-            check(f"B.strm（计数 {round_index - 1}→{round_index}/阈值 3）" in body,
+            check(f"B.strm（计数 {round_index - 1}→{round_index}/阈值 3，原因 源目标未读到，"
+                  + ("达到阈值，等待后续清理重核，不等于已删除" if round_index == 3
+                     else ("首次进入待删除，文件仍保留" if round_index == 1
+                           else "待删除计数推进，文件仍保留")) + "）" in body,
                   f"round {round_index} B advance missing:\n{body}")
             check("实际删除 1" not in body, "round three must not delete yet")
             details = ownership_details(db)
@@ -3001,9 +3007,9 @@ def scenario_notifications_cleanup(h, results):
         fourth = h.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
         check(fourth.returncode == 0, f"fourth round exit {fourth.returncode}: {fourth.stderr}")
         body = receiver.messages()[0]["text"]
-        check("实际删除 来源 0 A.strm（删除前计数 3/阈值 3）" in body,
+        check("实际删除 来源 0 A.strm（删除前计数 3/阈值 3，已实际删除，原因 源目标未读到）" in body,
               f"deletion event missing:\n{body}")
-        check("取消待删除 来源 0 B.strm（计数 3→0/阈值 3）" in body,
+        check("取消待删除 来源 0 B.strm（计数 3→0/阈值 3，已确认恢复条件，文件保留）" in body,
               f"restore clear missing:\n{body}")
         check("实际删除 1" in body, f"deletion summary:\n{body}")
         check(not (root / "A.strm").exists(), "A.strm was not deleted")

@@ -122,13 +122,26 @@ type MissingAdvance struct {
 	Reason       string
 }
 
+// AdvanceSink receives one missing-count increment while it is applied inside
+// the commit transaction, before the commit outcome is known. Records are
+// provisional: CommitAdvances turns them into valid progress only after the
+// transaction committed, and DiscardAdvances removes them after a failed or
+// rolled-back commit attempt, so an uncommitted candidate can never be
+// published as progress. A nil sink collects nothing; the commit never
+// depends on the sink and a sink failure cannot fail the commit.
+type AdvanceSink interface {
+	StageAdvance(MissingAdvance)
+	CommitAdvances()
+	DiscardAdvances()
+}
+
 // CommitResult reports what CommitRound actually made durable. Committed is
 // true when the main-database transaction committed, even when a later scratch
-// cleanup step failed; Advances lists every count increment applied by this
-// commit in pending order.
+// cleanup step failed. The per-file advance facts are delivered through the
+// optional AdvanceSink in bounded batches while the transaction runs; the
+// result never accumulates the whole source.
 type CommitResult struct {
 	Committed bool
-	Advances  []MissingAdvance
 }
 
 // ClearResult reports the committed missing state observed immediately before
@@ -738,6 +751,9 @@ func (s *Store) RecordOwnership(ctx context.Context, o Ownership, epoch int64) e
 // deletion re-check reads the target as present. The returned result carries
 // the committed count observed immediately before the clear so a caller can
 // report a durable N -> 0 reset without re-reading the database afterwards.
+// When the main-database update already succeeded and only the private scratch
+// cleanup failed, the error is returned together with the durable result: the
+// clear is a committed fact that must be reported even though the round fails.
 func (s *Store) ClearMissing(ctx context.Context, sourceKey, relativePath string) (ClearResult, error) {
 	if s.readOnly {
 		return ClearResult{}, errors.New("store is read-only")
@@ -765,7 +781,9 @@ func (s *Store) ClearMissing(ctx context.Context, sourceKey, relativePath string
 		if _, err := s.scratch.ExecContext(ctx,
 			`DELETE FROM missing WHERE source_key = ? AND relative_path = ?`,
 			sourceKey, relativePath); err != nil {
-			return ClearResult{}, err
+			// The main-database clear already succeeded; report the durable
+			// fact together with the cleanup failure.
+			return result, err
 		}
 	}
 	return result, nil
@@ -964,20 +982,27 @@ func (s *Store) NextEpoch(sourceKey string) (int64, error) {
 // the staged missing observations in the same transaction. Every target gains
 // at most one count per distinct complete epoch; a repeated commit of the same
 // epoch is a no-op and an older epoch can never overwrite a newer round. The
-// returned result reports the actual commit fact and every durable count
-// increment; advances are reported only when the transaction committed, so an
-// uncommitted candidate can never be published as valid progress.
-func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time) (CommitResult, error) {
+// advance facts are handed to the optional sink one bounded batch at a time
+// while the transaction runs and are confirmed only after the commit, so
+// memory stays bounded to one batch regardless of the source size and nothing
+// uncommitted is ever published as progress. A nil sink collects nothing.
+func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time, advances AdvanceSink) (result CommitResult, err error) {
 	if s.readOnly {
 		return CommitResult{}, errors.New("store is read-only")
 	}
+	// Provisional advance records are discarded unless the transaction
+	// commits; the commit itself never depends on the sink.
+	defer func() {
+		if advances != nil && !result.Committed {
+			advances.DiscardAdvances()
+		}
+	}()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return CommitResult{}, err
 	}
 	defer tx.Rollback()
 
-	var advances []MissingAdvance
 	after := ""
 	for {
 		paths, err := s.pendingBatch(ctx, sourceKey, after, 200)
@@ -1014,12 +1039,16 @@ func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, 
 			} else {
 				newCount = maxInt64
 			}
-			advances = append(advances, MissingAdvance{
+			advance := MissingAdvance{
 				RelativePath: entry.RelativePath,
 				PriorCount:   prior,
 				NewCount:     newCount,
 				Reason:       entry.Reason,
-			})
+			}
+			if advances != nil {
+				// Provisional until the transaction commits.
+				advances.StageAdvance(advance)
+			}
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE ownership
 				 SET missing_count = CASE WHEN missing_count < ? THEN missing_count + 1 ELSE ? END,
@@ -1045,7 +1074,12 @@ func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, 
 	if err := tx.Commit(); err != nil {
 		return CommitResult{}, err
 	}
-	result := CommitResult{Committed: true, Advances: advances}
+	if advances != nil {
+		// The round and its counts are durable; the provisional records are
+		// now valid progress.
+		advances.CommitAdvances()
+	}
+	result = CommitResult{Committed: true}
 	if s.scratch != nil {
 		if _, err := s.scratch.ExecContext(ctx, `DELETE FROM missing WHERE source_key = ?`, sourceKey); err != nil {
 			// The durable round and counts are committed; the stale scratch

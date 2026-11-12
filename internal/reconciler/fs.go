@@ -54,8 +54,8 @@ type FileSystem interface {
 	EnsureDir(root, relDir string) error
 	ReadFile(root, relFile string) ([]byte, error)
 	Lstat(root, relFile string) (os.FileInfo, error)
-	Publish(root, relFile string, data []byte) error
-	Update(root, relFile string, expected, data []byte) error
+	Publish(root, relFile string, data []byte) (PublishOutcome, error)
+	Update(root, relFile string, expected, data []byte) (UpdateOutcome, error)
 	// Recover reconciles any staging file left by an interrupted atomic update
 	// before the reconciler compares the target. It only removes bytes that are
 	// provably the content this run would write; any other residual is restored
@@ -75,6 +75,22 @@ type FileSystem interface {
 	// Removed is true and the error is returned so the caller stops cleanup
 	// without claiming durable removal.
 	DeleteOwned(ctx context.Context, root, relFile string) (DeleteOutcome, error)
+}
+
+// PublishOutcome reports what one Publish call actually did. Published
+// records that the target now holds exactly the bytes of this call, even when
+// a later directory-durability step failed; the caller reports the fact and
+// the error separately instead of losing the operation.
+type PublishOutcome struct {
+	Published bool
+}
+
+// UpdateOutcome reports what one Update call actually did. Replaced records
+// that the target now holds exactly the new bytes of this call, even when a
+// later durability step (staging removal, post-update hook or directory
+// metadata flush) failed.
+type UpdateOutcome struct {
+	Replaced bool
 }
 
 // LocalFS implements FileSystem using descriptor-relative operations. The
@@ -256,51 +272,53 @@ func (fs LocalFS) Lstat(root, relFile string) (os.FileInfo, error) {
 // into place. Linkat fails if another actor created the target, so this never
 // overwrites an unowned file. All operations stay relative to an already-open
 // parent directory.
-func (fs LocalFS) Publish(root, relFile string, data []byte) error {
+func (fs LocalFS) Publish(root, relFile string, data []byte) (PublishOutcome, error) {
 	if len(data) > strm.MaxSize {
-		return errors.New("new STRM exceeds protocol size limit")
+		return PublishOutcome{}, errors.New("new STRM exceeds protocol size limit")
 	}
 	dir, base, err := fs.openParent(root, relFile, false)
 	if err != nil {
-		return err
+		return PublishOutcome{}, err
 	}
 	defer dir.Close()
 	if info, err := dir.Lstat(base); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("target is a symlink")
+			return PublishOutcome{}, errors.New("target is a symlink")
 		}
-		return errors.New("target already exists")
+		return PublishOutcome{}, errors.New("target already exists")
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return PublishOutcome{}, err
 	}
 
 	tmpName, tmp, err := createTempFile(dir)
 	if err != nil {
-		return err
+		return PublishOutcome{}, err
 	}
 	defer func() { _ = dir.Remove(tmpName) }()
 	if err := writeAll(tmp, data); err != nil {
 		_ = tmp.Close()
-		return err
+		return PublishOutcome{}, err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return err
+		return PublishOutcome{}, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return PublishOutcome{}, err
 	}
 	if fs.beforeLink != nil {
 		if err := fs.beforeLink(dir, base); err != nil {
-			return err
+			return PublishOutcome{}, err
 		}
 	} else if err := beforePublishLink(dir, base); err != nil {
-		return err
+		return PublishOutcome{}, err
 	}
 	if err := dir.Link(tmpName, base); err != nil {
-		return err
+		return PublishOutcome{}, err
 	}
-	return dir.Sync()
+	// The target now holds exactly the new bytes; only the directory
+	// durability flush can still fail. The published fact stands even then.
+	return PublishOutcome{Published: true}, fs.syncDirectory(dir)
 }
 
 // Update atomically replaces an already-owned STRM with new bytes. It never
@@ -313,13 +331,13 @@ func (fs LocalFS) Publish(root, relFile string, data []byte) error {
 // rather than published or deleted. The deterministic staging name encodes
 // the previous content hash so crash recovery can distinguish the displaced
 // old content from foreign bytes.
-func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
+func (fs LocalFS) Update(root, relFile string, expected, data []byte) (UpdateOutcome, error) {
 	if len(data) > strm.MaxSize {
-		return errors.New("updated STRM exceeds protocol size limit")
+		return UpdateOutcome{}, errors.New("updated STRM exceeds protocol size limit")
 	}
 	dir, base, err := fs.openParent(root, relFile, false)
 	if err != nil {
-		return err
+		return UpdateOutcome{}, err
 	}
 	defer dir.Close()
 
@@ -329,126 +347,129 @@ func (fs LocalFS) Update(root, relFile string, expected, data []byte) error {
 	info, err := dir.Lstat(base)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return ErrTargetChanged
+			return UpdateOutcome{}, ErrTargetChanged
 		}
-		return err
+		return UpdateOutcome{}, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return ErrTargetChanged
+		return UpdateOutcome{}, ErrTargetChanged
 	}
 	oldID, haveOld := identityOf(info)
 	baseRaw, err := readRegularAt(dir, base)
 	if err != nil || !bytes.Equal(baseRaw, expected) {
-		return ErrTargetChanged
+		return UpdateOutcome{}, ErrTargetChanged
 	}
 
 	staging := newStagingName(base, expected, data)
 	if _, err := dir.Lstat(staging); err == nil {
 		// A staging file from an earlier interrupted update is still present.
 		// Never overwrite unknown content; recovery must run first.
-		return ErrStagingPresent
+		return UpdateOutcome{}, ErrStagingPresent
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return UpdateOutcome{}, err
 	}
 
 	tmp, err := dir.OpenFile(staging, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
-		return err
+		return UpdateOutcome{}, err
 	}
 	tmpInfo, err := tmp.Stat()
 	if err != nil {
 		_ = tmp.Close()
 		// The staging object was just created, but without a trustworthy
 		// identity it must be left rather than removed by name.
-		return err
+		return UpdateOutcome{}, err
 	}
 	tmpID, haveID := identityOf(tmpInfo)
 
 	if err := beforeStagingWrite(dir, base); err != nil {
 		_ = tmp.Close()
 		fs.removeIfIdentity(dir, staging, tmpID, haveID)
-		return err
+		return UpdateOutcome{}, err
 	}
 	if err := fs.writeTempFile(tmp, data); err != nil {
 		_ = tmp.Close()
 		fs.removeIfIdentity(dir, staging, tmpID, haveID)
-		return err
+		return UpdateOutcome{}, err
 	}
 	if err := afterStagingWrite(dir, base); err != nil {
 		_ = tmp.Close()
 		fs.removeIfIdentity(dir, staging, tmpID, haveID)
-		return err
+		return UpdateOutcome{}, err
 	}
 	if err := fs.syncTempFile(tmp); err != nil {
 		_ = tmp.Close()
 		fs.removeIfIdentity(dir, staging, tmpID, haveID)
-		return err
+		return UpdateOutcome{}, err
 	}
 	if err := fs.closeTempFile(tmp); err != nil {
 		fs.removeIfIdentity(dir, staging, tmpID, haveID)
-		return err
+		return UpdateOutcome{}, err
 	}
 
 	// Bind the object written above to the staging name before publishing. A
 	// foreign object parked at the deterministic name must never be exchanged
 	// into the target or removed by the failure cleanup.
 	if !entryMatches(dir, staging, tmpID, haveID, data) {
-		return ErrStagingPresent
+		return UpdateOutcome{}, ErrStagingPresent
 	}
 
 	if fs.beforeExchange != nil {
 		if err := fs.beforeExchange(dir, base); err != nil {
 			fs.removeIfMatches(dir, staging, tmpID, haveID, data)
-			return err
+			return UpdateOutcome{}, err
 		}
 	} else if err := beforeUpdateExchange(dir, base); err != nil {
 		fs.removeIfMatches(dir, staging, tmpID, haveID, data)
-		return err
+		return UpdateOutcome{}, err
 	}
 	// The pre-exchange hook may pause while an external writer replaces the
 	// staging object; re-confirm it is still ours before the swap.
 	if !entryMatches(dir, staging, tmpID, haveID, data) {
-		return ErrStagingPresent
+		return UpdateOutcome{}, ErrStagingPresent
 	}
 
 	if err := fs.exchangeNames(dir, staging, base); err != nil {
 		fs.removeIfMatches(dir, staging, tmpID, haveID, data)
-		return err
+		return UpdateOutcome{}, err
 	}
 
 	if fs.afterExchange != nil {
 		if err := fs.afterExchange(dir, base); err != nil {
-			return err
+			return UpdateOutcome{}, err
 		}
 	} else if err := afterUpdateExchange(dir, base); err != nil {
-		return err
+		return UpdateOutcome{}, err
 	}
 
 	// base must hold exactly the object this call published; the content check
 	// guards against a reused inode number after an external replacement.
 	if !entryMatches(dir, base, tmpID, haveID, data) {
 		fs.undoExchange(dir, staging, base, tmpID, haveID, data)
-		return ErrTargetChanged
+		return UpdateOutcome{}, ErrTargetChanged
 	}
 	// staging must hold exactly the previously owned object.
 	if !entryMatches(dir, staging, oldID, haveOld, expected) {
 		fs.undoExchange(dir, staging, base, tmpID, haveID, data)
-		return ErrTargetChanged
+		return UpdateOutcome{}, ErrTargetChanged
 	}
 
 	// Proven: base is the new object and staging is the displaced old owned
-	// object. Drop the old content and flush the directory metadata.
+	// object. Drop the old content and flush the directory metadata. From
+	// here the target provably holds the new bytes even when a later
+	// durability step fails.
+	outcome := UpdateOutcome{Replaced: true}
 	if err := fs.removeFile(dir, staging); err != nil {
-		return err
+		return outcome, err
 	}
 	if fs.afterUpdate != nil {
 		if err := fs.afterUpdate(dir, base); err != nil {
-			return err
+			return outcome, err
 		}
 	} else if err := afterUpdatePublish(dir, base); err != nil {
-		return err
+		return outcome, err
 	}
-	return fs.syncDirectory(dir)
+	return outcome, fs.syncDirectory(dir)
 }
 
 // undoExchange restores a displaced entry to the target after a failed

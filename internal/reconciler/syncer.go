@@ -51,7 +51,7 @@ type OwnershipStore interface {
 	IsObserved(ctx context.Context, sourceKey, relativePath string) (bool, error)
 	AddPendingMissing(ctx context.Context, sourceKey string, entries []storage.PendingMissingEntry) error
 	NextEpoch(sourceKey string) (int64, error)
-	CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time) (storage.CommitResult, error)
+	CommitRound(ctx context.Context, sourceKey string, epoch int64, at time.Time, advances storage.AdvanceSink) (storage.CommitResult, error)
 }
 
 // FactKind classifies one structured operation fact captured inside the
@@ -108,6 +108,52 @@ type Fact struct {
 // alter the round outcome.
 type FactSink interface {
 	Record(fact Fact)
+}
+
+// stagedFactSink is the optional capability of a FactSink that can hold
+// missing-count advances as provisional until the round commit is decided.
+// Missing-count advances are captured inside the original commit transaction
+// window; the sink must discard them when the commit failed so an uncommitted
+// candidate can never be published as valid progress.
+type stagedFactSink interface {
+	FactSink
+	CommitStaged()
+	DiscardStaged()
+}
+
+// commitAdvanceSink adapts a staged fact sink to the storage.AdvanceSink
+// protocol. It translates committed-count records into missing-advance facts
+// in the original commit window without buffering the whole source.
+type commitAdvanceSink struct {
+	src    Source
+	staged stagedFactSink
+}
+
+func (f *commitAdvanceSink) StageAdvance(advance storage.MissingAdvance) {
+	f.staged.Record(Fact{
+		SourceIndex:  f.src.Index,
+		Kind:         FactMissingAdvanced,
+		RelativePath: advance.RelativePath,
+		PriorCount:   advance.PriorCount,
+		NewCount:     advance.NewCount,
+		Reason:       advance.Reason,
+	})
+}
+
+func (f *commitAdvanceSink) CommitAdvances()  { f.staged.CommitStaged() }
+func (f *commitAdvanceSink) DiscardAdvances() { f.staged.DiscardStaged() }
+
+// advanceSink returns the storage sink for committed-count facts when the
+// configured fact sink supports the staged protocol. A plain sink or no sink
+// collects nothing; the commit is never changed by the notification detail.
+func (s *Syncer) advanceSink(src Source) storage.AdvanceSink {
+	if s.opts.Facts == nil {
+		return nil
+	}
+	if staged, ok := s.opts.Facts.(stagedFactSink); ok {
+		return &commitAdvanceSink{src: src, staged: staged}
+	}
+	return nil
 }
 
 // Source is one resolved source to synchronize.
@@ -363,7 +409,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		}
 	}
 	if s.store != nil {
-		cr, err := s.store.CommitRound(ctx, src.Key, epoch, s.opts.Now())
+		cr, err := s.store.CommitRound(ctx, src.Key, epoch, s.opts.Now(), s.advanceSink(src))
 		if err != nil {
 			res.Err = err
 			res.Partial = true
@@ -375,18 +421,6 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 				res.addDiagnostic("round committed; the round workspace could not be cleared")
 			} else {
 				res.addDiagnostic("round commit failed; source round not committed")
-			}
-		}
-		if cr.Committed {
-			for _, advance := range cr.Advances {
-				s.emitFact(Fact{
-					SourceIndex:  src.Index,
-					Kind:         FactMissingAdvanced,
-					RelativePath: advance.RelativePath,
-					PriorCount:   advance.PriorCount,
-					NewCount:     advance.NewCount,
-					Reason:       advance.Reason,
-				})
 			}
 		}
 	}
@@ -416,18 +450,19 @@ func (s *Syncer) noteObserved(ctx context.Context, src Source, rel string) error
 		return nil
 	}
 	cleared, err := s.store.ClearMissing(ctx, src.Key, rel)
-	if err != nil {
-		return err
-	}
+	// A committed N -> 0 reset stands on its own: the durable clear already
+	// happened, even when the private workspace cleanup or a later step of
+	// this round failed.
 	if cleared.RowFound && cleared.PriorMissing > 0 {
-		// A committed count was independently reset to zero here, before and
-		// regardless of whether the rest of this round succeeds.
 		s.emitFact(Fact{
 			SourceIndex:  src.Index,
 			Kind:         FactMissingCleared,
 			RelativePath: rel,
 			PriorCount:   cleared.PriorMissing,
 		})
+	}
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -602,13 +637,18 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 				res.addDiagnostic(fmt.Sprintf("would update %s", rel))
 				return nil
 			}
-			if err := s.opts.FS.Update(src.Output, rel, raw, desired.Bytes()); err != nil {
+			outcome, uerr := s.opts.FS.Update(src.Output, rel, raw, desired.Bytes())
+			if outcome.Replaced {
+				// The target provably holds the new bytes even when a later
+				// durability step failed; the update fact stands.
+				res.Updated++
+				s.emitFact(Fact{SourceIndex: src.Index, Kind: FactUpdated, RelativePath: rel})
+			}
+			if uerr != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("update failed for %s", rel))
 				return nil
 			}
-			res.Updated++
-			s.emitFact(Fact{SourceIndex: src.Index, Kind: FactUpdated, RelativePath: rel})
 			if err := refreshOwnership(); err != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
@@ -628,13 +668,18 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		res.addDiagnostic(fmt.Sprintf("cannot create directory for %s", rel))
 		return nil
 	}
-	if err := s.opts.FS.Publish(src.Output, rel, desired.Bytes()); err != nil {
+	outcome, perr := s.opts.FS.Publish(src.Output, rel, desired.Bytes())
+	if outcome.Published {
+		// The target provably holds the new bytes even when the directory
+		// durability flush failed; the creation fact stands.
+		res.Created++
+		s.emitFact(Fact{SourceIndex: src.Index, Kind: FactCreated, RelativePath: rel})
+	}
+	if perr != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("publish failed for %s", rel))
 		return nil
 	}
-	res.Created++
-	s.emitFact(Fact{SourceIndex: src.Index, Kind: FactCreated, RelativePath: rel})
 	if s.store != nil {
 		if err := refreshOwnership(); err != nil {
 			// The file stays on disk but is not owned; a later run must treat
@@ -790,12 +835,9 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 			switch current.result.Status {
 			case openlist.AbsencePresent:
 				cleared, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath)
-				if err != nil {
-					return err
-				}
-				if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
-					return err
-				}
+				// A committed N -> 0 reset stands on its own: the durable clear
+				// already happened, even when the private workspace cleanup or
+				// a later step of this round failed.
 				if cleared.RowFound && cleared.PriorMissing > 0 {
 					s.emitFact(Fact{
 						SourceIndex:  src.Index,
@@ -803,6 +845,12 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 						RelativePath: row.RelativePath,
 						PriorCount:   cleared.PriorMissing,
 					})
+				}
+				if err != nil {
+					return err
+				}
+				if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
+					return err
 				}
 				if current.result.Reason == openlist.ReasonTargetTypeConflict {
 					res.Retained++
@@ -893,12 +941,9 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	switch current.result.Status {
 	case openlist.AbsencePresent:
 		cleared, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath)
-		if err != nil {
-			return err
-		}
-		if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
-			return err
-		}
+		// A committed N -> 0 reset stands on its own: the durable clear already
+		// happened, even when the private workspace cleanup or a later step of
+		// this round failed.
 		if cleared.RowFound && cleared.PriorMissing > 0 {
 			s.emitFact(Fact{
 				SourceIndex:  src.Index,
@@ -906,6 +951,12 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 				RelativePath: row.RelativePath,
 				PriorCount:   cleared.PriorMissing,
 			})
+		}
+		if err != nil {
+			return err
+		}
+		if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
+			return err
 		}
 		if current.result.Reason == openlist.ReasonTargetTypeConflict {
 			res.Retained++
