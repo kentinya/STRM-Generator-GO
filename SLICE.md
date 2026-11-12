@@ -187,11 +187,11 @@ B 基于本合同和真实代码提交可独立验证完整成功／失败／恢
 ```text
 A Contract Date: 2026-11-12
 A Contract Revision: 2026-11-12 user-requested simplification; Base unchanged
-B Task: NOT CREATED
+B Task: 6.1 / PLANNED
 B Product Review: PENDING
 A Final Review: PENDING
 Decision: PENDING
 Implementation Evidence: NOT RUN
 Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: Slice planning complete; awaiting B Task before implementation
+Remaining Authorized Work: Task 6.1 planned; implementation and validation not started
 ```
