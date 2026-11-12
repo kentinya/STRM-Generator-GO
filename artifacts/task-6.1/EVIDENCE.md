@@ -56,3 +56,35 @@
 - 真实 OpenList／Jellyfin／插件链路：本 Task 未涉及，历史结论不变。
 - 附件 8 MiB 上限在容器内的极端数据集（8 MiB 事件）未在容器层复现；
   上限行为由单元测试与二进制层驱动覆盖。
+
+---
+
+## 修正轮（B-01..B-08，2026-11-12）
+
+独立 B 审查后在本 Task 范围内修正全部八项，并补齐此前缺失的断言。
+命令、输入 SHA、二进制摘要与原始日志见
+[artifacts/validation-evidence/task6.1-fix-20261112/metadata.json](../validation-evidence/task6.1-fix-20261112/metadata.json)。
+
+| 项 | 修正与证据 |
+|---|---|
+| B-01 | `Store.CommitRound` 改为可选 `AdvanceSink` 暂存协议：推进记录在原事务窗口内有界批次捕获，提交成功后才 `CommitAdvances` 发布，事务失败 `DiscardAdvances` 丢弃；无 sink 时不构造任何明细。测试：`TestCommitRoundDiscardsAdvancesWhenTransactionFails`、`TestCommitRoundWithoutSinkKeepsCountSemantics`、`TestCommitRoundReportsCommittedAdvances`（sink 版）及 scratch 失败窗口；race 全部包 PASS |
+| B-02 | `LocalFS.Publish`／`Update` 返回 `PublishOutcome.Published`／`UpdateOutcome.Replaced`，表达链接／交换完成后的实际字节事实；后续持久化失败仍计入并保留事实。测试：`TestUpdatePublishedBeforeFailureKeepsFactAndBytes`、`TestPublishLinkedBeforeDirectoryFailureKeepsFact`（复用既有 LocalFS 注入点与恢复收敛） |
+| B-03 | `ClearMissing` 主库清零成功而 scratch 清理失败时返回持久事实 + 错误；三个清零窗口（noteObserved、confirmMissing、deleteCandidate 重核）均在检查错误前发布 N→0 事实。测试：`TestClearMissingReportsDurableClearAfterScratchFailure`、`TestClearFactSurvivesScratchFailureInEveryWindow` |
+| B-04 | `BuildMessage` 整个正文（含来源明细）共享 3500 UTF-16 预算；来源明细溢出进入同一 8 MiB 附件；初始化失败保留配置来源总数。测试：`TestBuildMessageBoundsWholeBodyWithSourceOverflow`、`TestBuildMessageSourceOverflowWithoutEventsRequiresAttachment`、`TestBuildMessageInitFailureKeepsConfiguredSourceCount` |
+| B-05 | 来源诊断、实例名等全部动态展示内容统一 `EscapeText`（含 U+202E）；预览与附件一致。测试：`TestBuildMessageEscapesNotesAndInstanceName`、既有事件路径转义 |
+| B-06 | 清单创建失败不再静默：`sendRound` 在无 collector 时按策略发送降级摘要，正文标注“明细不完整、进度未知”，change_or_error 回退报告计数、不猜测缺失进度。测试：`TestSendRoundWithoutCollectorStillSendsDegradedSummary`（本地 transport）、CLI `TestSyncNotificationDegradedWhenCollectionFails`（不可用 TMPDIR 入口） |
+| B-07 | 正文预览与附件逐事件携带原因与阶段（首次进入待删除、计数推进、达到阈值等待重核、已确认恢复条件清零、已实际删除、归属回收说明）；成功来源的安全保留诊断进入来源区。测试：`TestPreviewLinesCarryReasonAndStage`、CLI `TestSyncNotificationReportsMissingProgressAndDeletion`、驱动 `notifications_cleanup`（0→1→2→3→删除／恢复全闭环文字断言） |
+| B-08 | `resolveNotifications` 在 enabled: false 下仍校验已提供字段；`instance_name` 拒绝非字符串标量（自定义 `UnmarshalYAML`，并手工维护未知字段拒绝）；移除合同外 64 字符上限。测试：`TestNotificationsValidateProvidedFieldsWhenDisabled`、`TestNotificationsAcceptsLongInstanceName`、CLI dry-run 拒绝路径 |
+
+补齐的证据缺口：`TestSendRoundCleansUpAfterDeliveryFailure` 改用本地失败 transport
+（不再依赖真实官方地址不可达）；AC-8 附件失败分支 `TestSendAttachmentFailureAfterSuccessfulSummary`；
+AC-10 serve 驱动 Phase F（接收端 hold：阻塞发送期间并行 sync 完成证明锁已释放、
+不重入不积压、SIGTERM 发送中及时取消）；AC-11 容器 notifications 场景在发送阻塞窗口
+实测临时目录 0700／清单 0600。
+
+最终候选结果：quality PASS；race 全部包与 tagged CLI PASS；sync 集成 14/14、
+serve 8/8（含 Phase F）、容器 6/6（含权限断言）PASS；Compose `--no-interpolate`
+无值透传通过。首次失败日志保留（metadata.json first_failures_preserved）。
+
+仍然 NOT RUN：真实 Telegram 文本／附件送达（无授权测试目标）；真实 OpenList／
+Jellyfin／插件链路；ARM64 原生实机；容器内 8 MiB 级数据集附件。
