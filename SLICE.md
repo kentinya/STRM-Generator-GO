@@ -5,7 +5,7 @@ Slice ID: 6
 Owner: A
 Status: ACTIVE
 Base SHA: 20677f1906837428324d58885e719ed385a07258
-Implementation Head: 7c54baf660150ced9ac87e41d34dc4631f923fa1
+Implementation Head: 757b082855974c43498ff7e3f5896b31d657a4ea
 ```
 
 ## 用户结果与授权
@@ -187,13 +187,14 @@ B 基于本合同和真实代码提交可独立验证完整成功／失败／恢
 ```text
 A Contract Date: 2026-11-12
 A Contract Revision: 2026-11-12 user-requested simplification; Base unchanged
-B Task: 6.1 / PASS (local scope)
-B Product Review: PASS (2026-11-12 final re-review; full Task Base..7c54baf; one non-blocking P2)
+B Task: 6.1 / READY FOR B REVIEW (P2 follow-up; prior local PASS retained)
+B Product Review: PASS through 7c54baf; P2 follow-up at 757b082 independent review PENDING
 A Final Review: PENDING
-Decision: ACTIVE (local Task B PASS; real delivery and A final decision PENDING)
+Decision: ACTIVE (prior local B PASS; P2 follow-up, real delivery and A final decision PENDING)
 Implementation Evidence: 7c54baf660150ced9ac87e41d34dc4631f923fa1; independent quality/full race/prior failures/notification CLI/serve 8 of 8 PASS; Developer full sync 14 of 14 and container 6 of 6 evidence reviewed
+P2 Implementation Evidence: 757b082855974c43498ff7e3f5896b31d657a4ea; quality and affected-package serial race passed; independent review PENDING
 Real Telegram Evidence: NOT RUN
-Remaining Authorized Work: A handoff and remaining-outcome planning; real Telegram execution requires separate explicit authorization
+Remaining Authorized Work: independent P2 follow-up review, then A handoff; real Telegram execution requires separate explicit authorization
 ```
 
 独立 B 最终复审完整 `1bfac55136dc4d3137d9ee9d470ec5c6ba840749..7c54baf660150ced9ac87e41d34dc4631f923fa1`，
@@ -201,6 +202,8 @@ Remaining Authorized Work: A handoff and remaining-outcome planning; real Telegr
 B-R1..B-R3 已闭合，RO-1..4 本地通过；RO-5 核心通过，保留明细写失败缺少专用本地警告的非阻塞 P2。
 RO-6 本地文档／部署证据通过，真实 Telegram 文本／附件仍 NOT RUN；RO-7 的 Task B 审查完成，
 A 最终决定仍 PENDING。详情与证据见 [Task 6.1 最终 B 复审](TASK.md#独立-b-最终复审2026-11-12)。
+用户随后要求补齐 P2，已在 `757b082` 实现固定脱敏警告并完成实施自测；
+新增修复独立复核 PENDING，详见 [P2 修复记录](TASK.md#p2-日志补充修复2026-11-12)。
 本 Slice 保持 ACTIVE，不能将本地通过改写为真实送达或 Slice 关闭。前两轮失败审查保留在 TASK 中。
 以上覆盖本页激活时“等待 B／尚未实现”的历史规划时态；合同能力正文与 Base 不变，
 不将开发者汇总的通过场景等同于合同已验收。
