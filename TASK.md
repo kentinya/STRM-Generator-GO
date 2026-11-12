@@ -1,8 +1,8 @@
-# NO ACTIVE IMPLEMENTATION TASK
+# Task FIX-TG-01 — Telegram 通知排版与图标
 
 Slice 1–6 均已 PASS / CLOSED，历史结论见 [Slice 6 Closure Packet](SLICE.md#closure-packet)。
-当前已规划独立小版本修复 `FIX-TG-01`，尚未进入实施；本轮只编写计划，不改产品代码、
-不发送真实通知。顶部标记表示无正在实施的任务，不表示下述计划已验收。
+独立小版本修复 `FIX-TG-01` 已按用户要求激活，状态为 IN PROGRESS。
+本轮完成独立任务治理接入与检查点固定；通知产品实现尚未开始，真实通知未发送。
 
 ## 独立修复 Task FIX-TG-01 — Telegram 通知排版与图标
 
@@ -11,9 +11,9 @@ Task ID: FIX-TG-01
 Task Type: standalone-fix
 Parent Slice: NONE
 Related Slice: 6
-Status: PLANNED
+Status: IN PROGRESS
 Task Base: 959451530efbfe8a646f80ce325b4f789f85e770
-Contract Checkpoint: NOT SET
+Contract Checkpoint: e1f7bb5de5c61953bda42c58721530842f982a94
 Implementation Head: NOT SET
 Difficulty: Medium
 Test Level: T3
@@ -199,7 +199,30 @@ Base 固定为规划前真实 HEAD；Contract Checkpoint 指向已提交的本�
 
 ## Task Report
 
-待激活；产品实现与新版通知验证未开始。
+### 激活记录（2026-11-12）
+
+用户明确要求激活本 Task。计划检查点为 `e1f7bb5de5c61953bda42c58721530842f982a94`，
+Task Base 保持不变；独立任务校验与流程已接入，状态进入 IN PROGRESS。
+本轮只完成激活前置工作，Implementation Head 仍为 NOT SET；通知格式、发送器和同步逻辑
+未改，TG-1..6 产品验证未运行，TG-7 的独立 B 审查保持 PENDING。
+Slice 1–6 的状态、历史合同、实现 Head 和验收决定保持原样。
+
+验证证据位于 `artifacts/validation-evidence/fix-tg-activation-0757z5nc/`：
+
+- Python 回归按全部七个测试模块执行，合计 **125/125** 通过，其中治理 **31/31**；
+  命令、逐模块数量与退出码见 `python-summary.json`，原始输出见各 `test_*.log`。
+  所有临时夹具均位于本仓库 artifacts 内。目录边界用例的正／负夹具要求不同，
+  OpenList 驱动单元使用 artifacts 内的非证据临时目录，其余模块使用本轮证据目录。
+- 首次治理运行 `governance-tests.log` 有一项失败：无 HEAD 夹具位于仓库下时向上发现父库；
+  已在该用例显式初始化空仓库，保留原断言后通过。首次全套
+  `python-regressions.log` 和再次全套 `python-regressions-rerun.log` 分别有一项失败、
+  三项错误，原因均为统一 TMPDIR 与既有目录边界夹具的假设冲突；改为上述分模块目录后
+  所有用例通过，未删除、跳过测试或放松产品目录边界。
+- 计划提交前治理、文档链接、Python 语法及补丁空白检查通过；激活提交后的检查与
+  实际提交身份记录在 `activation-checks.log`／`activation-evidence.json`。
+- Go 产品回归、CLI／serve 产品集成、race、真实 Telegram、OpenList、Jellyfin、
+  插件与容器运行本轮 NOT RUN；Python 中模拟的缺服务诊断不是实际服务运行结果。
+  激活检查不代替本计划的 T3 产品验证或独立 B 审查。
 
 ## 已完成 Task 6.1
 

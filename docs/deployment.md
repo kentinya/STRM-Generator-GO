@@ -2,7 +2,7 @@
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
 Slice 1–6 均 PASS / CLOSED；Telegram 通知的本地实现与真实文本／附件送达已验收，
-当前无活动实施任务。分层验收入口见[路线图](roadmap.md)。
+当前独立修复范围与进度见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
 
 基础容器实测来自 Slice 3，通知增量另有 Slice 6 的 amd64 容器证据；arm64 仅有
 交叉构建、OCI manifest／digest 与 ELF 架构核对，未做原生实机验收。

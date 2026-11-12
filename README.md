@@ -219,4 +219,4 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-Slice 1–6 均已 PASS / CLOSED，当前无活动产品实施任务。
+Slice 1–6 均已 PASS / CLOSED；独立修复 FIX-TG-01 已激活，范围与进度见 [TASK](TASK.md)。
