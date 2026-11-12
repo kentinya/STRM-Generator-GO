@@ -4,9 +4,21 @@
 Slice 1–6 均 PASS / CLOSED；Telegram 通知的本地实现与真实文本／附件送达已验收，
 当前无活动实施任务。分层验收入口见[路线图](roadmap.md)。
 
-容器实测来自 Slice 3：本机 amd64 运行通过，arm64 只核对 OCI manifest／digest 与 ELF
-架构；ARM64 原生实机和正式发布验收为 NOT RUN。Slice 5 未改容器装配、未重跑容器验收，
-其合成 CLI 结果不扩展上述历史结论。已有发布工作流见下节。
+基础容器实测来自 Slice 3，通知增量另有 Slice 6 的 amd64 容器证据；arm64 仅有
+交叉构建、OCI manifest／digest 与 ELF 架构核对，未做原生实机验收。
+二进制发布和部署环境验收分别记录，不能相互替代。
+
+## 下载与升级
+
+[GitHub Releases](https://github.com/kentinya/STRM-Generator-GO/releases) 提供正式版本的
+Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
+`config.example.yaml`，无需运行时 Go SDK；下载、校验和初次配置见
+[README](../README.md#下载二进制)。
+
+v1.2.0 增加可选 Telegram 通知，兼容 v1.1.0 配置，默认不发送。
+升级前停止生成器，备份输出、配置与完整状态目录；替换程序或镜像时保留这些目录和
+共享锁挂载，先执行 dry-run 再恢复运行。Compose 修改镜像或环境变量后需重新创建容器。
+不要用安装包里的示例覆盖现有配置，不要删除数据库来升级。
 
 ## 自动发布工作流
 
@@ -145,12 +157,14 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
 
 ## 边界与 NOT RUN
 
-Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启；这些历史验收不代表发布工作流已成功运行。
+Slice 3 已接受镜像构建、最小隔离运行、挂载与停止／重启；Slice 6 另有通知容器验收。
+v1.0.0、v1.1.0 的二进制 Release 和对应 main 镜像工作流已有成功记录；
+后续发布状态以该版本的 GitHub Actions／Release 为准，不把历史验收当作新版本发布成功。
 Slice 4 的外部服务／固定万文件证据见[已关闭记录](roadmap.md#slice-4-已关闭记录)，
 由独立 B 验收及 A 最终接受。Compose 的 `mem_limit: 512m` 是部署配置，
 不是 512 MB 性能验收门槛；客户端播放、代理及更高规模压力不在验收范围。
 
-ARM64 原生实机、正式发布、Kubernetes／systemd 专属控制器、health／metrics、配置热
+ARM64 原生实机、Kubernetes／systemd 专属控制器、health／metrics、配置热
 重载和自动备份未验收且不属于当前合同。真实服务仅使用 artifacts 下的专用隔离实例，
 不得以交叉构建、环境 smoke 或合成夹具替代实际证据。
 

@@ -5,6 +5,10 @@ V4.4、自定义扩展名与 Telegram 通知增量均已交付，Slice 1–6 PAS
 [当前 Slice](../SLICE.md#closure-packet)，计划与审查历史见
 [固定 Git 检查点](development-workflow.md#历史记录)。
 
+软件分发版本见 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases)：
+v1.0.0 为基础功能发布，v1.1.0 增加自定义扩展名，v1.2.0 对应已验收的 Telegram 通知。
+软件版本与 V4.4 需求合同版本分别维护；具体发布结果以 Release 与 Actions 记录为准。
+
 | Slice | 名称 | Status | 依赖 | 结果与范围 |
 |---|---|---|---|---|
 | 1 | 安全单轮生成 | PASS / CLOSED | 开发基线 | 配置／API／V1／稳定 URL、原子写入、归属、正常恢复、dry-run／互斥 |
@@ -58,7 +62,7 @@ RO-1..5 全部 PASS，无阻塞项；原最终审查位于 `4ee49b872dba0964de1c
 既有隔离环境、媒体原件和三个辅助脚本按[资产清单](https://github.com/kentinya/STRM-Generator-GO/blob/4d16846722f31aa9615494b90df715cf4b5bb6df/docs/slice-4-assets.md)保留，
 不因文档清理重建或删除；历史授权不用于新环境操作。旧 4.1–4.3 计划与修复清单从 Git 查看。
 探测启动不等于探测成功；客户端播放、代理和更高规模压力不在合同内。
-ARM64 实机及正式发布仍 NOT RUN，不作为必须继续的下一 Slice。
+当时 ARM64 实机及正式发布为 NOT RUN，不回写历史验收；后续发布状态见本页顶部。
 
 ## Slice 1–3 历史入口
 
