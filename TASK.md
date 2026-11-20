@@ -4,11 +4,11 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Implementation Head: eefbef028b60eabaad29e75c9f94e2eee8ee518d
-Independent B Review: PENDING
+Independent B Review: FIX REQUIRED
 Difficulty: High
 Test Level: T4
 ```
@@ -178,9 +178,67 @@ STRM、同轮下载匹配名字幕的样片，在该视频的字幕轨列表查�
 
 ## Independent B Review
 
-PENDING。收到实施 Head 后，B 审查完整 Task Base..Head，核对产品补丁、实际入口和原始证据，
-逐项重评 RO-1..6，给出 PASS 或 FIX REQUIRED。若有阻塞，按用户具体操作、实际结果与
-应有结果记录复现和原因。B 通过后将完整 Slice Base..Head、RO、证据和限制交 A 最终审查。
+### 2026-11-20 · FIX REQUIRED
+
+B 已审查 `e59af5280f11c0d69e735d4cbc951cf0f521bedb..eefbef028b60eabaad29e75c9f94e2eee8ee518d`
+的完整差异，并核对后续报告提交 `adbb8d050604913255bcd78ac4f3846edb741198`。
+从干净的报告提交构建两个复核二进制。该提交与实施 Head 的差异只有 TASK 报告。
+
+| RO | B 复核结果 |
+|---|---|
+| RO-1 | FIX REQUIRED。关闭默认值、白名单和入口复用已有本地证据。配置里把 `enabled` 写成字符串时，退出 2，但诊断缺少应修正的字段。见 B-04。 |
+| RO-2 | FIX REQUIRED。合格目录补齐、嵌套目录与稳定重跑已验证。视频 STRM 归属登记失败仍触发字幕下载。见 B-02。 |
+| RO-3 | FIX REQUIRED。稳定地址、无 API 凭证、限额和正常原子发布有本地证据。实际错误正文可被当作字幕发布。见 B-01。 |
+| RO-4 | FIX REQUIRED。三轮、下一轮重核、重现清零、dry-run 和部分故障恢复有本地证据。错误正文使同步报告成功，远端恢复后也无法补齐。见 B-01。 |
+| RO-5 | FIX REQUIRED。正常字幕计数和 CLI 成功路径通过。定时摘要漏报字幕失败，路径未转义，字幕重新出现会触发 STRM 通知。见 B-03、B-04。 |
+| RO-6 | BLOCKED。示例配置和使用说明已交付。真实 OpenList 字幕生命周期和 Jellyfin 原生外部字幕轨仍为 NOT RUN，本轮没有明确授权的专用隔离源和媒体库。见 B-05。 |
+
+#### 阻塞项与 Developer 修正指导
+
+**B-01 · 错误正文被登记成字幕。** 用户启用字幕并同步 `Movie.mkv` 和 `Movie.zh.srt`。
+OpenList 下载链路返回 HTTP 200，正文是 JSON 错误，响应头写成 `text/plain`。
+CLI 退出 0，报告下载 1 份并登记文件归属。下载服务恢复后，第二轮直接跳过已有文件，错误正文仍在。
+`readSubtitleBody` 只看 Content-Type。用现有下载夹具补上普通 Content-Type 下的 HTML／JSON
+错误正文用例，在临时文件发布前识别错误正文，继续流式保存有效字幕原字节。复跑错误及恢复两轮，
+确认首轮标为不完整且无字幕成品、归属或新缺失证据，恢复轮成功补下载。
+
+**B-02 · 视频未成功登记也会取得目录下载资格。** 首次同步时让状态库拒绝唯一视频
+`Movie.strm` 的归属登记，CLI 报同步失败，但仍请求并发布旁边的 `Movie.zh.srt`。
+重启后，原 STRM 按未归属文件报告冲突。原因是 `handleFile` 在新建归属失败时仍返回可用，
+更新和发布分支也用已发生的文件动作充当成功结果。让目录资格取已成功完成的创建、更新或有效
+归属确认，继续按实际结果记录已发生的 STRM 动作。复用现有 CLI 归属失败夹具，核对唯一视频
+未完成时字幕内容请求为零，并保留同目录有另一部成功视频时的正常下载行为。
+
+**B-03 · 字幕恢复误触发 STRM 通知。** 用户启用 `change_or_error`，同步一部影片，
+暂时移走字幕再放回。缺失轮字幕计数为 1，恢复轮正确清零且 STRM 没有变化，但仍收到
+一条含 `Movie.zh.srt` 恢复事件的 STRM 通知。字幕列表观察调用通用 `noteObserved`，
+绕过了其他清理路径的类型筛选。按归属类型决定清零事件是否进入事实流。复用现有 Telegram
+合成接收器，验证字幕列表重现清零时无消息，同样操作 STRM 仍发正常恢复消息。
+
+**B-04 · 失败摘要和诊断未满足命令契约。** 用户用 `serve` 启动首轮，字幕地址返回
+404，轮次报告失败，摘要却没有 `subtitle_failed`。同名链接冲突和字幕发布后归属登记
+失败也未加这项计数。让摘要汇总失败数，保持实际发布与后续登记失败两项事实各自可见。
+用户预览含方向控制字符的字幕文件名时，路径里的控制字符原样进入终端输出。统一转义字幕诊断的
+相对路径，文件名继续原样保存。把 YAML 中 `enabled` 误写成 `"true"` 时，启动只报
+`invalid configuration`。在严格配置解析入口返回固定的字段名，复用 CLI 的退出码和脱敏断言。
+
+**B-05 · 真实服务验收缺少运行条件。** 在经明确授权的隔离 OpenList 源中，用发布 CLI
+下载含中文或空格的匹配名字幕和一份任意名字幕，核对原始字节、重跑跳过和删除前的逐轮结果。
+在获授权的隔离 Jellyfin 库中扫描同轮产物，从视频详情确认外部字幕轨。这两段证据分别提交。
+
+#### 验证记录
+
+- B 独立运行 10 包 Go 测试、CLI 的 `subtitles`、`subtitles_cleanup`、
+  `notifications_cleanup` 和 `serve_subtitles`，均通过。另复用相同 CLI、合成
+  OpenList／Telegram 接收器和现有 SQLite 故障夹具，复现 B-01 至 B-04。命令、候选身份、
+  输出和计时保存在 `artifacts/validation-evidence/task-7.1-b-GexFje/`。
+- Developer 的 sync 16/16、serve 9/9 原始摘要与现存二进制 SHA-256 相符。两份二进制的
+  Go 构建信息标为 `66b768b8b35adf46d680704f9f1df7686af836b7` 且 `vcs.modified=true`，
+  与报告所称提交后构建不符。七份容器场景摘要有镜像 ID 和场景结果。下次提供全量回归及适用
+  打包的候选源码身份和命令日志。补齐现有计划内的在途读体取消、超时，以及同轮冻结已达阈值
+  的字幕和 STRM 的证据。现有取消用例在发请求前取消，时限用例只核对常量。
+- B 本轮测试及构建按各命令时长相加约 31 秒，少于本轮复核耗时的一半。完整容器复跑、
+  真实 OpenList 和 Jellyfin 扫描为 NOT RUN。
 
 ## 已关闭任务索引
 
