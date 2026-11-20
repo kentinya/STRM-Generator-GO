@@ -4,8 +4,9 @@ V4.4 为基础业务合同，本文件同时维护已验收的扩展名与通知
 软件发布版本与安装入口见 [README](../README.md)，不与需求合同版本混用。
 自定义扩展名增量需求已由 Slice 5 验收并 PASS / CLOSED，见下节与
 [A 最终审查](https://github.com/kentinya/STRM-Generator-GO/blob/4ee49b872dba0964de1c62ec11d63b1717221b7a/SLICE.md#closure-packet)。
-[Slice 6](../SLICE.md#closure-packet) 的 Telegram 通知增量已通过 A 最终审查并 PASS / CLOSED；
-Task 6.1 本地范围已独立 B PASS，真实送达及用户提供的截图／接收附件已核对，业务规则见 R-14。
+Telegram 通知增量已通过 A 最终审查并 PASS / CLOSED。Task 6.1 本地范围已独立 B PASS，
+真实送达及用户提供的截图／接收附件已核对，业务规则见 R-14。见
+[Slice 6](https://github.com/kentinya/STRM-Generator-GO/blob/03e9e94f431bcf1367e6c65bec13829db43a09ee/SLICE.md#closure-packet)。
 任务状态见 [TASK](../TASK.md)。
 
 | ID | 要求与验收含义 |
