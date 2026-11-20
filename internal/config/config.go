@@ -90,16 +90,19 @@ func (e strictFieldError) Error() string { return e.message }
 // UnmarshalYAML decodes the sync.subtitles block. The known-field set is
 // enforced manually because Node.Decode does not carry the strict KnownFields
 // flag of the outer decoder, and enabled must be a YAML boolean (or null) so
-// the parse entry can name sync.subtitles.enabled for a mistyped value.
+// the parse entry can name sync.subtitles.enabled for a mistyped value. A
+// block that is not a mapping or carries an unknown key names the fixed
+// sync.subtitles field instead, so the CLI points at the block to fix.
+// Neither message echoes a configured value.
 func (s *Subtitles) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.MappingNode {
-		return strictFieldError{message: "field sync.subtitles must be a mapping"}
+		return strictFieldError{message: "sync.subtitles: must be a mapping"}
 	}
 	allowed := map[string]bool{"enabled": true, "extensions": true}
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		key, val := value.Content[i], value.Content[i+1]
 		if !allowed[key.Value] {
-			return strictFieldError{message: fmt.Sprintf("field %s not found in type sync.subtitles", key.Value)}
+			return strictFieldError{message: "sync.subtitles: unknown field"}
 		}
 		if key.Value == "enabled" && val.Tag != "!!bool" && val.Tag != "!!null" {
 			return strictFieldError{message: "sync.subtitles.enabled: must be a boolean"}
@@ -340,6 +343,7 @@ func safeFieldFromError(message string) string {
 		"openlist.api_url", "openlist.public_url", "openlist.token_env",
 		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged", "sync.mirror",
 		"sync.media_extensions", "sync.subtitles.enabled", "sync.subtitles.extensions",
+		"sync.subtitles",
 		"cleanup.enabled", "cleanup.missing_confirmations", "database.path",
 		"notifications.telegram.enabled", "notifications.telegram.instance_name",
 		"notifications.telegram.bot_token_env", "notifications.telegram.chat_id_env",

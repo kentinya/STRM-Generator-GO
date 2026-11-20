@@ -3354,6 +3354,51 @@ def scenario_subtitles(h, results):
     observed["plain_error_body_recovery"] = True
     hh.cleanup()
 
+    # The same lifecycle with a UTF-8 byte order mark: an error page saved
+    # with a BOM is refused like any other, while a BOM'd valid subtitle is
+    # published with its exact bytes, and the recovered address completes the
+    # round without re-fetching what already exists.
+    bom = b"\xef\xbb\xbf"
+    bom_body = bom + b"1\n00:00:01,000 --> 00:00:02,000\nBOM track\n"
+    bom_files = {
+        "/Movies/Movie.zh.srt": bom_body,
+        "/Movies/中 文.srt": SUBTITLE_BODIES["/Movies/中 文.srt"],
+        "/Movies/Broken.srt": {"body": bom + b"<!DOCTYPE html><html>502 bad gateway</html>",
+                               "content_type": "text/plain"},
+    }
+    hh, api, dirs, root, db, cfg = setup("bom-error-body", files=bom_files)
+    dirs["/Movies"].append({"name": "Broken.srt", "is_dir": False, "size": 30,
+                            "hash_info": None})
+    bom_broken = hh.run(cfg)
+    check(bom_broken.returncode == 1,
+          f"a BOM'd error body must exit 1: {bom_broken.stdout} {bom_broken.stderr}")
+    check("subtitle_failed=1" in bom_broken.stdout and "partial=true" in bom_broken.stdout,
+          f"BOM error counters: {bom_broken.stdout}")
+    check(not (root / "Broken.srt").exists(), "the BOM'd error page was published")
+    check((root / "Movie.zh.srt").read_bytes() == bom_body,
+          "the BOM'd subtitle bytes changed")
+    bom_details = ownership_details(db)
+    check("Broken.srt" not in bom_details, f"the BOM'd error page was owned: {bom_details}")
+    check(all(row[3] == 0 for row in read_db(db)["ownership"]),
+          "the failed BOM round committed missing evidence")
+    check(read_db(db)["rounds"] == [], "the failed BOM round committed a round")
+    check(len(hh.download_calls()) == 3, f"BOM first download set: {hh.download_calls()}")
+    # The address recovers: only the missing subtitle is fetched again.
+    bom_files["/Movies/Broken.srt"] = "1\n00:00:01,000 --> 00:00:02,000\nrecovered\n"
+    bom_ok = hh.run(cfg)
+    check(bom_ok.returncode == 0, f"BOM recovery round: {bom_ok.stdout} {bom_ok.stderr}")
+    check("subtitle_downloaded=1" in bom_ok.stdout and "subtitle_failed=0" in bom_ok.stdout,
+          f"BOM recovery counters: {bom_ok.stdout}")
+    check((root / "Broken.srt").read_bytes()
+          == b"1\n00:00:01,000 --> 00:00:02,000\nrecovered\n",
+          "the recovered subtitle bytes changed")
+    check((root / "Movie.zh.srt").read_bytes() == bom_body,
+          "the BOM'd subtitle changed on recovery")
+    check(len(hh.download_calls()) == 4, f"BOM recovery download set: {hh.download_calls()}")
+    check(len(read_db(db)["rounds"]) == 1, "the BOM recovery round must commit")
+    observed["bom_error_body_recovery"] = True
+    hh.cleanup()
+
     # A directory whose only video never completes its ownership record must
     # not fetch the subtitle beside it.
     hh, api, dirs, root, db, cfg = setup("ownership-blocked", entries=[

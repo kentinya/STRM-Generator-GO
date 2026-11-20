@@ -30,9 +30,10 @@ const (
 	SubtitleMaxBytes = int64(8 << 20)
 	// errorPageSniffBytes is the leading window of a streamed body inspected
 	// when the response content type claims something harmless. Subtitle
-	// formats never start with '<' or '{'; a '[' body is only an error page
-	// when the complete response is valid JSON, because an ASS subtitle starts
-	// with a section header.
+	// formats never start with '<' or '{' (a UTF-8 mark and blanks are
+	// skipped first); a '[' body is only an error page when the complete
+	// response is valid JSON, because an ASS subtitle starts with a section
+	// header.
 	errorPageSniffBytes = 512
 )
 
@@ -244,23 +245,56 @@ func (s *sniffWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// sniffSignature returns the first non-space byte of the window and reports
-// whether the window already settles the signature: either a non-blank byte
-// was found or the window is full of blanks.
+// utf8BOM is the UTF-8 byte order mark. An error page saved by a text editor
+// may carry one and so may a legal subtitle, so the mark is skipped while
+// classifying a body and never removed from the stored bytes.
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// stripBodyPrefix removes leading blanks and every complete UTF-8 mark from a
+// body prefix so classification looks at the first meaningful byte. An
+// incomplete mark at the end of the prefix is left untouched: the caller
+// decides with the bytes it already has.
+func stripBodyPrefix(b []byte) []byte {
+	for {
+		b = bytes.TrimLeft(b, " \t\r\n")
+		if bytes.HasPrefix(b, utf8BOM) {
+			b = b[len(utf8BOM):]
+			continue
+		}
+		return b
+	}
+}
+
+// sniffSignature returns the first meaningful byte of the window and reports
+// whether the window already settles the signature: a non-blank byte after
+// the blanks and marks, or a window that is full of blanks. A window that
+// ends inside a byte order mark settles nothing, because the next bytes
+// decide whether the mark is complete.
 func sniffSignature(window []byte) (byte, bool) {
-	if trimmed := bytes.TrimLeft(window, " \t\r\n"); len(trimmed) > 0 {
+	for {
+		trimmed := bytes.TrimLeft(window, " \t\r\n")
+		if bytes.HasPrefix(trimmed, utf8BOM) {
+			window = trimmed[len(utf8BOM):]
+			continue
+		}
+		if len(trimmed) == 0 {
+			if len(window) >= errorPageSniffBytes {
+				return 0, true
+			}
+			return 0, false
+		}
+		if len(trimmed) < len(utf8BOM) && bytes.HasPrefix(utf8BOM, trimmed) {
+			return 0, false
+		}
 		return trimmed[0], true
 	}
-	if len(window) >= errorPageSniffBytes {
-		return 0, true
-	}
-	return 0, false
 }
 
 // isErrorPage reports whether the streamed body is an HTML or JSON error
-// page. '<' and '{' can only be error documents in the subtitle whitelist;
-// a '[' body must be a complete JSON document to count, since a legal ASS
-// file starts with a section header.
+// page. Blanks and a UTF-8 mark are skipped first, so a BOM'd error page is
+// classified like any other; '<' and '{' can only be error documents in the
+// subtitle whitelist, and a '[' body must be a complete JSON document to
+// count, since a legal ASS file starts with a section header.
 func (s *sniffWriter) isErrorPage() bool {
 	body := s.prefix
 	if s.mirror != nil {
@@ -268,7 +302,7 @@ func (s *sniffWriter) isErrorPage() bool {
 		body = append(body, s.prefix...)
 		body = append(body, s.mirror.Bytes()...)
 	}
-	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	trimmed := stripBodyPrefix(body)
 	if len(trimmed) == 0 {
 		return false
 	}
@@ -276,7 +310,7 @@ func (s *sniffWriter) isErrorPage() bool {
 	case '<', '{':
 		return true
 	case '[':
-		return json.Valid(body)
+		return json.Valid(trimmed)
 	}
 	return false
 }

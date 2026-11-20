@@ -839,3 +839,28 @@ func TestSubtitlesEnabledTypeDiagnosticNamesField(t *testing.T) {
 		}
 	}
 }
+
+// The whole sync.subtitles block is checked before anything else runs: a
+// shorthand scalar instead of the block, a sequence value or a misspelled key
+// must name the block itself, so the CLI points at the configuration to fix
+// instead of a bare syntax failure.
+func TestSubtitlesBlockDiagnosticNamesField(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"scalar block", strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles: true\ncleanup:\n", 1)},
+		{"string block", strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles: \"true\"\ncleanup:\n", 1)},
+		{"sequence block", strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles: [\"enabled\"]\ncleanup:\n", 1)},
+		{"unknown key", strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles:\n    enable: true\ncleanup:\n", 1)},
+	} {
+		name, body := tc.name, tc.body
+		_, err := Load(write(t, body))
+		if err == nil {
+			t.Fatalf("%s must be rejected", name)
+		}
+		if diag := SafeDiagnostic(err); diag != "invalid sync.subtitles" {
+			t.Fatalf("%s diagnostic = %q", name, diag)
+		}
+	}
+}

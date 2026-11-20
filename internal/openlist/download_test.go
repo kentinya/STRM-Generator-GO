@@ -453,3 +453,86 @@ func TestSubtitleDownloadBudgetStopsStalledBody(t *testing.T) {
 		t.Fatalf("failed after %v, the budget did not bound the body read", elapsed)
 	}
 }
+
+// TestSubtitleFetchRejectsBOMErrorPages covers an error page saved with a
+// UTF-8 byte order mark and answered with a harmless content type: the mark
+// is skipped for classification, never stripped from stored bytes, so a BOM'd
+// HTML or JSON body can never reach a published subtitle.
+func TestSubtitleFetchRejectsBOMErrorPages(t *testing.T) {
+	bom := string([]byte{0xEF, 0xBB, 0xBF})
+	longArray := "[" + strings.Repeat(`{"code":500},`, 80) + `{"code":500}]`
+	cases := map[string]string{
+		"bom html":              bom + "<!DOCTYPE html><html><body>502 bad gateway</body></html>",
+		"bom html after blank":  "\n \t" + bom + "<html>not found</html>",
+		"bom json object":       bom + `{"code":500,"message":"fixture error"}`,
+		"bom json array":        bom + `[{"code":500}]`,
+		"bom json array window": bom + longArray,
+	}
+	for name, body := range cases {
+		for _, contentType := range []string{"text/plain", "application/octet-stream", ""} {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if contentType != "" {
+					w.Header().Set("Content-Type", contentType)
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			d := newTestDownloader(ts.URL)
+			err := d.Fetch(context.Background(), "/Movies/a.srt", io.Discard)
+			ts.Close()
+			if !errors.Is(err, errSubtitleErrorPage) {
+				t.Fatalf("%s (%q): error = %v, want an error page refusal", name, contentType, err)
+			}
+		}
+	}
+}
+
+// TestSubtitleFetchRejectsBOMErrorPageSplitAcrossReads delivers the mark in
+// its own flushed chunk, the way a chunked response can split it: the
+// classification must wait for the bytes after the mark instead of settling
+// on the first byte of an incomplete mark.
+func TestSubtitleFetchRejectsBOMErrorPageSplitAcrossReads(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+		w.(http.Flusher).Flush()
+		// Hold the rest long enough for the client to consume the first
+		// chunk on its own, which is what splits the mark across reads.
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write([]byte("<html>502 bad gateway</html>"))
+	}))
+	defer ts.Close()
+	d := newTestDownloader(ts.URL)
+	err := d.Fetch(context.Background(), "/Movies/a.srt", io.Discard)
+	if !errors.Is(err, errSubtitleErrorPage) {
+		t.Fatalf("split-mark error page error = %v", err)
+	}
+}
+
+// TestSubtitleFetchAcceptsBOMSubtitles keeps the other side honest: a legal
+// subtitle saved with a UTF-8 mark, including an ASS file whose section
+// header shares the ambiguous '[' prefix, is published with its exact bytes.
+func TestSubtitleFetchAcceptsBOMSubtitles(t *testing.T) {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	srt := append(append([]byte{}, bom...),
+		[]byte("1\n00:00:01,000 --> 00:00:02,000\nbom track\n")...)
+	ass := append(append([]byte{}, bom...), []byte("[Script Info]\nTitle: fixture\n")...)
+	for len(ass) < errorPageSniffBytes*2 {
+		ass = append(ass, []byte("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello\n")...)
+	}
+	for name, body := range map[string][]byte{"srt": srt, "ass": ass} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write(body)
+		}))
+		d := newTestDownloader(ts.URL)
+		var out strings.Builder
+		err := d.Fetch(context.Background(), "/Movies/a.srt", &out)
+		ts.Close()
+		if err != nil {
+			t.Fatalf("%s body: %v", name, err)
+		}
+		if out.String() != string(body) {
+			t.Fatalf("%s bytes changed", name)
+		}
+	}
+}

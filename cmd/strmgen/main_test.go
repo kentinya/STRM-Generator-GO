@@ -803,3 +803,44 @@ func TestDiagnosticLinesEscapeControlCharacters(t *testing.T) {
 		t.Fatalf("serve diagnostics are not escaped: %q", serveErr.String())
 	}
 }
+
+// A whole-block mistake in sync.subtitles must name the block itself from the
+// strict parse entry on every command, with the same exit code, redaction and
+// no-side-effect guarantees the field-level errors already have.
+func TestSubtitleBlockTypeErrorFailsBeforeAnyRound(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := filepath.Join(t.TempDir(), "out-marker")
+	db := filepath.Join(t.TempDir(), "db-marker", "strmgen.db")
+
+	for _, tc := range []struct {
+		name  string
+		block string
+	}{
+		{"scalar block", "  subtitles: true"},
+		{"string block", "  subtitles: \"true\""},
+		{"unknown key", "  subtitles:\n    enable: true"},
+	} {
+		name, block := tc.name, tc.block
+		cfg := subtitleConfig(t, ts.URL, root, db, block)
+		for _, command := range [][]string{
+			{"sync", "--config", cfg},
+			{"sync", "--dry-run", "--config", cfg},
+			{"serve", "--config", cfg},
+		} {
+			var out, errBuf bytes.Buffer
+			if code := run(command, &out, &errBuf); code != exitUsage {
+				t.Fatalf("%s %v exit = %d, want 2 (stderr=%s)", name, command, code, errBuf.String())
+			}
+			if !strings.Contains(errBuf.String(), "configuration error: invalid sync.subtitles\n") {
+				t.Fatalf("%s %v diagnostic = %q", name, command, errBuf.String())
+			}
+			if _, err := os.Stat(root); err == nil {
+				t.Fatalf("%s %v created output before the configuration was rejected", name, command)
+			}
+			if _, err := os.Stat(db); err == nil {
+				t.Fatalf("%s %v created the database before the configuration was rejected", name, command)
+			}
+		}
+	}
+}
