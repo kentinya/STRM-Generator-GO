@@ -146,3 +146,55 @@ func TestMediaSetsDoNotPolluteEachOther(t *testing.T) {
 		t.Fatal("an explicit instance set fell back to defaults")
 	}
 }
+
+func TestSubtitleExtensionsWhitelistIsStable(t *testing.T) {
+	got := SubtitleExtensions()
+	want := []string{".srt", ".ass", ".ssa", ".vtt"}
+	if len(got) != len(want) {
+		t.Fatalf("subtitle whitelist = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("subtitle whitelist = %v, want %v", got, want)
+		}
+	}
+	got[0] = ".zzz"
+	if again := SubtitleExtensions(); again[0] != ".srt" {
+		t.Fatal("the shared whitelist was mutated through a returned copy")
+	}
+}
+
+func TestSubtitleRelativeKeepsOriginalName(t *testing.T) {
+	cases := []struct {
+		relDir, name, want string
+	}{
+		{"", "Movie.zh.srt", "Movie.zh.srt"},
+		{"", "中文.srt", "中文.srt"},
+		{"科幻", "A #100%.ass", "科幻/A #100%.ass"},
+		{"a/b", "x.vtt", "a/b/x.vtt"},
+	}
+	for _, tc := range cases {
+		got, err := SubtitleRelative(tc.relDir, tc.name)
+		if err != nil || got != tc.want {
+			t.Fatalf("SubtitleRelative(%q, %q) = %q, %v; want %q", tc.relDir, tc.name, got, err, tc.want)
+		}
+	}
+}
+
+func TestSubtitleRelativeRejectsUnsafeNames(t *testing.T) {
+	bad := []string{"", ".", "..", "a/b", "a\\b", "x\x00y", "x\x01y"}
+	for _, name := range bad {
+		if _, err := SubtitleRelative("dir", name); err == nil {
+			t.Fatalf("SubtitleRelative must reject %q", name)
+		}
+		if _, err := SubtitleRelative("", name); err == nil {
+			t.Fatalf("SubtitleRelative must reject %q at the root", name)
+		}
+	}
+	if _, err := SubtitleRelative("", strings.Repeat("x", MaxRelativePathBytes+1)); err == nil {
+		t.Fatal("an over-length name must be rejected")
+	}
+	if _, err := SubtitleRelative(strings.Repeat("d/", 2000), strings.Repeat("x", 100)); err == nil {
+		t.Fatal("an over-length combined path must be rejected")
+	}
+}

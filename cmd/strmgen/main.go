@@ -93,6 +93,10 @@ type roundDeps struct {
 	// set for every tick, so editing the configuration file never changes a
 	// running process; a restart is required.
 	media *pathmap.MediaSet
+	// subtitles is the subtitle extension set resolved once at startup next to
+	// the media set; the feature switch itself also comes from the same
+	// validated configuration. serve keeps both fixed for its lifetime.
+	subtitles *pathmap.MediaSet
 	// facts is the optional per-round notification fact sink. A nil value
 	// collects nothing and changes no behavior.
 	facts reconciler.FactSink
@@ -148,6 +152,10 @@ func runRound(ctx context.Context, deps roundDeps, first bool) (*reconciler.Repo
 	if store != nil {
 		ownership = store
 	}
+	var subtitleFetcher reconciler.SubtitleFetcher
+	if deps.resolved.SubtitlesEnabled {
+		subtitleFetcher = openlist.NewSubtitleDownloader(deps.resolved.PublicPrefix)
+	}
 	syncer := reconciler.New(client, ownership, reconciler.Options{
 		DryRun:               deps.dryRun,
 		PublicPrefix:         deps.resolved.PublicPrefix,
@@ -157,6 +165,9 @@ func runRound(ctx context.Context, deps roundDeps, first bool) (*reconciler.Repo
 		MissingConfirmations: deps.resolved.MissingConfirmations,
 		MediaExtensions:      deps.media,
 		Facts:                deps.facts,
+		SubtitlesEnabled:     deps.resolved.SubtitlesEnabled,
+		SubtitleExtensions:   deps.subtitles,
+		SubtitleFetcher:      subtitleFetcher,
 	})
 
 	report, runErr := syncer.Run(ctx, sources)
@@ -215,7 +226,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	if notifications.enabled {
 		collector = notifications.newCollector("sync")
 	}
-	deps := roundDeps{resolved: resolved, dryRun: *dryRun, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved)}
+	deps := roundDeps{resolved: resolved, dryRun: *dryRun, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved), subtitles: subtitleMediaSet(resolved)}
 	if collector != nil {
 		deps.facts = factSinkAdapter{collector}
 	}
@@ -285,7 +296,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	deps := roundDeps{resolved: resolved, dryRun: false, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved)}
+	deps := roundDeps{resolved: resolved, dryRun: false, stdout: stdout, stderr: stderr, token: token, media: mediaSet(resolved), subtitles: subtitleMediaSet(resolved)}
 	var lastReport *reconciler.Report
 	round := func(roundCtx context.Context, first bool) scheduler.Result {
 		lastReport = nil
@@ -328,6 +339,13 @@ func mediaSet(resolved *config.Resolved) *pathmap.MediaSet {
 	return pathmap.NewMediaSet(resolved.MediaExtensions)
 }
 
+// subtitleMediaSet builds the instance-owned subtitle extension set with the
+// same lifecycle as the media set: one construction per entry point, fixed
+// for the process lifetime so serve restarts to pick up configuration edits.
+func subtitleMediaSet(resolved *config.Resolved) *pathmap.MediaSet {
+	return pathmap.NewMediaSet(resolved.SubtitleExtensions)
+}
+
 // openStore returns nil for a dry-run without a database so the syncer treats
 // every path as unowned without creating any file.
 func openStore(resolved *config.Resolved, dryRun bool) (*storage.Store, error) {
@@ -355,9 +373,10 @@ func printReport(stdout, stderr io.Writer, report *reconciler.Report, dryRun boo
 	}
 	fmt.Fprintf(stdout, "mode: %s\n", mode)
 	for _, src := range report.Sources {
-		fmt.Fprintf(stdout, "source %d: created=%d updated=%d skipped=%d conflicts=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d deleted=%d missing=%d reclaimed=%d retained=%d candidates=%d\n",
+		fmt.Fprintf(stdout, "source %d: created=%d updated=%d skipped=%d conflicts=%d filtered=%d errors=%d partial=%t diagnostics_omitted=%d deleted=%d missing=%d reclaimed=%d retained=%d candidates=%d subtitle_downloaded=%d subtitle_skipped=%d subtitle_failed=%d subtitle_deleted=%d subtitle_reclaimed=%d subtitle_candidates=%d\n",
 			src.SourceIndex, src.Created, src.Updated, src.Skipped, src.Conflicts, src.Filtered, src.Errors, src.Partial, src.DiagnosticsOmitted,
-			src.Deleted, src.ConfirmedMissing, src.Reclaimed, src.Retained, src.Candidates)
+			src.Deleted, src.ConfirmedMissing, src.Reclaimed, src.Retained, src.Candidates,
+			src.SubtitlesDownloaded, src.SubtitlesSkipped, src.SubtitlesFailed, src.SubtitlesDeleted, src.SubtitlesReclaimed, src.SubtitlesCandidates)
 		diagnostics := append([]string(nil), src.Diagnostics...)
 		sort.Strings(diagnostics)
 		for _, d := range diagnostics {
@@ -376,6 +395,12 @@ type serveSummary struct {
 	skipped   int
 	deleted   int
 	reclaimed int
+	// subtitle counters stay separate from the STRM counters so the summary
+	// line can distinguish the two pipelines.
+	subtitleDownloaded int
+	subtitleSkipped    int
+	subtitleDeleted    int
+	subtitleReclaimed  int
 }
 
 func summarize(report *reconciler.Report) serveSummary {
@@ -389,6 +414,10 @@ func summarize(report *reconciler.Report) serveSummary {
 		s.skipped += src.Skipped
 		s.deleted += src.Deleted
 		s.reclaimed += src.Reclaimed
+		s.subtitleDownloaded += src.SubtitlesDownloaded
+		s.subtitleSkipped += src.SubtitlesSkipped
+		s.subtitleDeleted += src.SubtitlesDeleted
+		s.subtitleReclaimed += src.SubtitlesReclaimed
 	}
 	return s
 }
@@ -403,8 +432,9 @@ func printServeSummary(stdout, stderr io.Writer, event scheduler.Event, report *
 	if !event.Next.IsZero() {
 		next = event.Next.Format(time.RFC3339)
 	}
-	fmt.Fprintf(stdout, "mode: serve result: %s created=%d updated=%d skipped=%d cleanup=%d deleted=%d reclaimed=%d next=%s\n",
-		event.Kind, s.created, s.updated, s.skipped, cleanup, s.deleted, s.reclaimed, next)
+	fmt.Fprintf(stdout, "mode: serve result: %s created=%d updated=%d skipped=%d cleanup=%d deleted=%d reclaimed=%d subtitle_downloaded=%d subtitle_skipped=%d subtitle_deleted=%d subtitle_reclaimed=%d next=%s\n",
+		event.Kind, s.created, s.updated, s.skipped, cleanup, s.deleted, s.reclaimed,
+		s.subtitleDownloaded, s.subtitleSkipped, s.subtitleDeleted, s.subtitleReclaimed, next)
 	if event.Err != nil && event.Kind != scheduler.Cancelled {
 		fmt.Fprintf(stderr, "serve %s: %s\n", event.Kind, event.Err)
 	}

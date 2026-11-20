@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -343,7 +344,9 @@ func TestReadOnlyRejectsUnknownColumns(t *testing.T) {
 	if _, err := db.Exec(`ALTER TABLE ownership ADD COLUMN unexpected TEXT DEFAULT ''`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`PRAGMA user_version = 3`); err != nil {
+	// One version above the schema this build understands: the upgrade and the
+	// read-only path must both refuse it.
+	if _, err := db.Exec(`PRAGMA user_version = ` + strconv.Itoa(schemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -578,3 +581,182 @@ func TestClearMissingReportsDurableClearAfterScratchFailure(t *testing.T) {
 		t.Fatalf("durable count after clear: %+v ok=%v err=%v", row, ok, err)
 	}
 }
+
+// preSubtitleSchema is the schema this build wrote before the ownership file
+// type existed. Its rows are STRM rows by definition.
+const preSubtitleSchema = `
+CREATE TABLE ownership (
+	source_key     TEXT    NOT NULL,
+	relative_path  TEXT    NOT NULL,
+	absolute_path  TEXT    NOT NULL,
+	remote_path    TEXT    NOT NULL DEFAULT '',
+	created_round  INTEGER NOT NULL,
+	missing_count  INTEGER NOT NULL DEFAULT 0,
+	missing_round  INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (source_key, relative_path)
+);
+CREATE TABLE rounds (
+	source_key   TEXT    NOT NULL PRIMARY KEY,
+	epoch        INTEGER NOT NULL,
+	committed_at TEXT    NOT NULL
+);
+`
+
+func createPreSubtitleDatabase(t *testing.T, path, script string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(preSubtitleSchema); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 2`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if script != "" {
+		if _, err := db.Exec(script); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpgradeAddsFileTypeAndPreservesRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	createPreSubtitleDatabase(t, path,
+		`INSERT INTO ownership VALUES ('source', 'A.strm', '/out/A.strm', '/Movies/A.mkv', 4, 3, 9);
+		 INSERT INTO rounds VALUES ('source', 4, 'legacy');`)
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("upgrade open: %v", err)
+	}
+	defer s.Close()
+	o, ok, err := s.Lookup("source", "A.strm")
+	if err != nil || !ok {
+		t.Fatalf("lookup after upgrade: ok=%v err=%v", ok, err)
+	}
+	if o.FileType != FileSTRM {
+		t.Fatalf("a pre-subtitle row must keep the STRM type: %+v", o)
+	}
+	if o.MissingCount != 3 || o.MissingRound != 9 || o.RemotePath != "/Movies/A.mkv" || o.AbsolutePath != "/out/A.strm" {
+		t.Fatalf("upgrade changed existing facts: %+v", o)
+	}
+	if epoch, err := s.NextEpoch("source"); err != nil || epoch != 5 {
+		t.Fatalf("round not preserved: epoch=%d err=%v", epoch, err)
+	}
+	eligible, err := s.ListEligibleAfter(context.Background(), "source", "", 3, 10)
+	if err != nil || len(eligible) != 1 {
+		t.Fatalf("eligibility changed by the upgrade: %v %v", eligible, err)
+	}
+}
+
+func TestReadOnlyPreSubtitleDatabaseReadsRowsAsSTRM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	createPreSubtitleDatabase(t, path,
+		`INSERT INTO ownership VALUES ('source', 'A.strm', '/out/A.strm', '/Movies/A.mkv', 4, 1, 3);`)
+	s, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatalf("read-only pre-subtitle open: %v", err)
+	}
+	defer s.Close()
+	if !s.PreciseMappingAvailable() {
+		t.Fatal("a pre-subtitle database still has its precise mapping")
+	}
+	o, ok, err := s.Lookup("source", "A.strm")
+	if err != nil || !ok {
+		t.Fatalf("read-only lookup: ok=%v err=%v", ok, err)
+	}
+	if o.FileType != FileSTRM {
+		t.Fatalf("a row without the file_type column must read as STRM: %+v", o)
+	}
+	if o.MissingCount != 1 || o.RemotePath != "/Movies/A.mkv" {
+		t.Fatalf("read-only row changed: %+v", o)
+	}
+}
+
+func TestSubtitleOwnershipRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "dir/中文.srt", AbsolutePath: "/out/dir/中文.srt",
+		RemotePath: "/Movies/dir/中文.srt", FileType: FileSubtitle,
+	}, 1); err != nil {
+		t.Fatalf("record subtitle: %v", err)
+	}
+	o, ok, err := s.Lookup("source", "dir/中文.srt")
+	if err != nil || !ok || o.FileType != FileSubtitle {
+		t.Fatalf("subtitle lookup: %+v ok=%v err=%v", o, ok, err)
+	}
+	rows, err := s.ListOwnershipAfter(ctx, "source", "", 10)
+	if err != nil || len(rows) != 1 || rows[0].FileType != FileSubtitle {
+		t.Fatalf("subtitle enumeration: %v %v", rows, err)
+	}
+	// Re-registering the same subtitle keeps its type and clears counts.
+	if _, err := s.ClearMissing(ctx, "source", "dir/中文.srt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "dir/中文.srt", AbsolutePath: "/out/dir/中文.srt",
+		RemotePath: "/Movies/dir/中文.srt", FileType: FileSubtitle,
+	}, 2); err != nil {
+		t.Fatalf("re-record subtitle: %v", err)
+	}
+	o, _, _ = s.Lookup("source", "dir/中文.srt")
+	if o.FileType != FileSubtitle {
+		t.Fatalf("subtitle type lost on refresh: %+v", o)
+	}
+}
+
+func TestPendingMissingCarriesFileTypeIntoAdvances(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.RecordOwnership(ctx, Ownership{
+		SourceKey: "source", RelativePath: "a.srt", AbsolutePath: "/out/a.srt",
+		RemotePath: "/Movies/a.srt", FileType: FileSubtitle,
+	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddPendingMissing(ctx, "source", []PendingMissingEntry{{
+		RelativePath: "a.srt", Reason: MissingReasonSourceTarget, FileType: FileSubtitle,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	sink := &captureAdvanceSink{}
+	if _, err := s.CommitRound(ctx, "source", 2, time.Unix(0, 0), sink); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	o, ok, err := s.Lookup("source", "a.srt")
+	if err != nil || !ok || o.MissingCount != 1 {
+		t.Fatalf("subtitle count after commit: %+v ok=%v err=%v", o, ok, err)
+	}
+	if len(sink.advances) != 1 || sink.advances[0].FileType != FileSubtitle {
+		t.Fatalf("advance lost its file type: %+v", sink.advances)
+	}
+}
+
+type captureAdvanceSink struct{ advances []MissingAdvance }
+
+func (c *captureAdvanceSink) StageAdvance(advance MissingAdvance) {
+	c.advances = append(c.advances, advance)
+}
+func (c *captureAdvanceSink) CommitAdvances()  {}
+func (c *captureAdvanceSink) DiscardAdvances() {}

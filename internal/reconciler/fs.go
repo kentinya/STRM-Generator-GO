@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/strm"
 )
@@ -75,6 +76,14 @@ type FileSystem interface {
 	// Removed is true and the error is returned so the caller stops cleanup
 	// without claiming durable removal.
 	DeleteOwned(ctx context.Context, root, relFile string) (DeleteOutcome, error)
+	// PublishSubtitle atomically publishes one downloaded subtitle whose
+	// bytes arrive through write. The content streams into a same-directory
+	// temporary file under the subtitle byte ceiling, is synced, and is linked
+	// into place with the same no-overwrite primitive and parent-directory
+	// order as Publish. A symlink or existing target is refused without being
+	// touched, and an unpublished temporary file is removed on every failure
+	// path.
+	PublishSubtitle(root, relFile string, write func(io.Writer) error) (PublishOutcome, error)
 }
 
 // PublishOutcome reports what one Publish call actually did. Published
@@ -266,6 +275,92 @@ func (fs LocalFS) Lstat(root, relFile string) (os.FileInfo, error) {
 	}
 	defer dir.Close()
 	return dir.Lstat(base)
+}
+
+// PublishSubtitle publishes one downloaded subtitle. The bytes are produced
+// by write streaming into a same-directory temporary file bounded by the
+// subtitle byte ceiling; the publication reuses the no-overwrite Link and
+// parent-directory sync order of Publish. A symlink or existing target is a
+// conflict, never an overwrite. On any failure the temporary file of this
+// attempt is removed, so no partial subtitle is ever linked into place.
+func (fs LocalFS) PublishSubtitle(root, relFile string, write func(io.Writer) error) (PublishOutcome, error) {
+	dir, base, err := fs.openParent(root, relFile, false)
+	if err != nil {
+		return PublishOutcome{}, err
+	}
+	defer dir.Close()
+	if info, err := dir.Lstat(base); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return PublishOutcome{}, errors.New("target is a symlink")
+		}
+		return PublishOutcome{}, errors.New("target already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return PublishOutcome{}, err
+	}
+
+	tmpName, tmp, err := createTempFile(dir)
+	if err != nil {
+		return PublishOutcome{}, err
+	}
+	// Every failure path below leaves no unpublished temporary file behind.
+	defer func() { _ = dir.Remove(tmpName) }()
+	if err := write(&subtitleLimitWriter{w: tmp, remaining: openlist.SubtitleMaxBytes + 1}); err != nil {
+		_ = tmp.Close()
+		return PublishOutcome{}, err
+	}
+	if err := fs.syncTempFile(tmp); err != nil {
+		_ = tmp.Close()
+		return PublishOutcome{}, err
+	}
+	if err := fs.closeTempFile(tmp); err != nil {
+		return PublishOutcome{}, err
+	}
+	if fs.beforeLink != nil {
+		if err := fs.beforeLink(dir, base); err != nil {
+			return PublishOutcome{}, err
+		}
+	} else if err := beforePublishLink(dir, base); err != nil {
+		return PublishOutcome{}, err
+	}
+	if err := dir.Link(tmpName, base); err != nil {
+		return PublishOutcome{}, err
+	}
+	// The target now holds exactly the downloaded bytes; only the directory
+	// durability flush can still fail. The published fact stands even then.
+	return PublishOutcome{Published: true}, fs.syncDirectory(dir)
+}
+
+// errSubtitleByteLimit signals that a write wanted to store more bytes than
+// the subtitle ceiling admits. The writer refuses instead of silently cutting,
+// so no truncated body can be published as a complete subtitle.
+var errSubtitleByteLimit = errors.New("subtitle byte limit reached")
+
+// subtitleLimitWriter bounds the bytes handed to one subtitle temporary file.
+// The ceiling is the subtitle contract limit; one extra byte is admitted so an
+// oversized body is detected instead of silently cut, and a write that wants
+// to cross the ceiling fails explicitly.
+type subtitleLimitWriter struct {
+	w         io.Writer
+	remaining int64
+}
+
+func (c *subtitleLimitWriter) Write(p []byte) (int, error) {
+	if c.remaining <= 0 {
+		return 0, errSubtitleByteLimit
+	}
+	original := len(p)
+	if int64(original) > c.remaining {
+		p = p[:c.remaining]
+	}
+	n, err := c.w.Write(p)
+	c.remaining -= int64(n)
+	if err != nil {
+		return n, err
+	}
+	if n < len(p) || original > len(p) {
+		return n, errSubtitleByteLimit
+	}
+	return n, nil
 }
 
 // Publish writes to a same-directory temporary file and atomically links it

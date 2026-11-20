@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -130,6 +132,11 @@ type commitAdvanceSink struct {
 }
 
 func (f *commitAdvanceSink) StageAdvance(advance storage.MissingAdvance) {
+	if advance.FileType != storage.FileSTRM {
+		// The fact stream carries STRM events. Subtitle counting stays inside
+		// the command statistics and never reaches a notification detail.
+		return
+	}
 	f.staged.Record(Fact{
 		SourceIndex:  f.src.Index,
 		Kind:         FactMissingAdvanced,
@@ -186,6 +193,25 @@ type Options struct {
 	// Facts is an optional sink for structured operation facts. A nil sink
 	// collects nothing and changes no behavior.
 	Facts FactSink
+	// SubtitlesEnabled turns on the subtitle pipeline: per-directory download
+	// eligibility, subtitle ownership and the subtitle cleanup rules. The zero
+	// value keeps the historical STRM-only behaviour.
+	SubtitlesEnabled bool
+	// SubtitleExtensions is the instance-owned subtitle extension set. A nil
+	// value keeps the four-entry whitelist, so an existing caller that enables
+	// subtitles without a list behaves like the documented default.
+	SubtitleExtensions *pathmap.MediaSet
+	// SubtitleFetcher downloads one subtitle file into a writer. It is required
+	// whenever SubtitlesEnabled is true; the configuration layer guarantees the
+	// public prefix exists for every command.
+	SubtitleFetcher SubtitleFetcher
+}
+
+// SubtitleFetcher streams exactly one remote file into w. The implementation
+// owns the transport contract: the stable /d/ address, the 30-second budget,
+// the redirect limit and the byte ceiling.
+type SubtitleFetcher interface {
+	Fetch(ctx context.Context, remotePath string, w io.Writer) error
 }
 
 // SourceResult summarizes one source round.
@@ -216,6 +242,24 @@ type SourceResult struct {
 	// Candidates counts dry-run cleanup candidates that satisfied the current
 	// committed threshold, the current remote rule and the local checks.
 	Candidates int
+	// SubtitlesDownloaded counts subtitle files actually published in this
+	// round; in dry-run it counts the planned downloads.
+	SubtitlesDownloaded int
+	// SubtitlesSkipped counts subtitle targets that already exist as plain
+	// local files and keep their original bytes and mtime.
+	SubtitlesSkipped int
+	// SubtitlesFailed counts subtitle downloads or publications that failed in
+	// this round. Every failure also freezes the source round.
+	SubtitlesFailed int
+	// SubtitlesDeleted counts subtitle files actually unlinked by cleanup.
+	SubtitlesDeleted int
+	// SubtitlesReclaimed counts subtitle ownership rows dropped for targets
+	// that were already gone locally before the round.
+	SubtitlesReclaimed int
+	// SubtitlesCandidates counts dry-run subtitle cleanup candidates that
+	// satisfied the current committed threshold, the current remote rule and
+	// the local checks.
+	SubtitlesCandidates int
 }
 
 const maxDiagnosticSamples = 100
@@ -245,6 +289,10 @@ type Syncer struct {
 	opts      Options
 	confirmer Confirmer
 	media     *pathmap.MediaSet
+	// subtitles is the instance-owned subtitle extension set, used both for
+	// the directory candidate filter and for the cleanup eligibility of
+	// subtitle ownership rows.
+	subtitles *pathmap.MediaSet
 }
 
 // New builds a Syncer.
@@ -262,6 +310,10 @@ func New(lister Lister, store OwnershipStore, opts Options) *Syncer {
 	if media == nil {
 		media = pathmap.NewMediaSet(pathmap.DefaultExtensions())
 	}
+	subtitles := opts.SubtitleExtensions
+	if subtitles == nil {
+		subtitles = pathmap.NewMediaSet(pathmap.SubtitleExtensions())
+	}
 	confirmer := opts.Confirmer
 	if confirmer == nil && lister != nil {
 		// The default confirmer answers the extension question with the same
@@ -269,7 +321,7 @@ func New(lister Lister, store OwnershipStore, opts Options) *Syncer {
 		// must keep IsMedia consistent with the resolved configuration.
 		confirmer = openlist.NewConfirmer(lister).WithMediaSet(media)
 	}
-	return &Syncer{lister: lister, store: store, opts: opts, confirmer: confirmer, media: media}
+	return &Syncer{lister: lister, store: store, opts: opts, confirmer: confirmer, media: media, subtitles: subtitles}
 }
 
 // Run synchronizes every source. It returns a report even when a source
@@ -407,6 +459,18 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 			res.addDiagnostic("cleanup stopped; source round not committed")
 			return res
 		}
+	} else if s.store != nil && s.opts.SubtitlesEnabled {
+		// With cleanup disabled the subtitle feature still keeps its appearance
+		// path: an owned subtitle that no listing observed this round is re-read
+		// by its exact remote path and a confirmed reappearance clears the old
+		// count. No missing observation is staged and nothing is deleted.
+		if err := s.confirmSubtitlePresence(ctx, src); err != nil {
+			res.Err = err
+			res.Partial = true
+			res.Errors++
+			res.addDiagnostic("subtitle presence confirmation stopped; source round not committed")
+			return res
+		}
 	}
 	if s.store != nil {
 		cr, err := s.store.CommitRound(ctx, src.Key, epoch, s.opts.Now(), s.advanceSink(src))
@@ -507,30 +571,76 @@ func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir st
 		}
 	}
 
+	usable := 0
 	for _, c := range candidates {
 		if conflicted[c.rel] {
 			continue
 		}
-		if err := s.handleFile(ctx, src, dir, relDir, c.entry, epoch, res); err != nil {
+		ok, err := s.handleFile(ctx, src, dir, relDir, c.entry, epoch, res)
+		if err != nil {
+			return err
+		}
+		if ok {
+			usable++
+		}
+	}
+	if !s.opts.SubtitlesEnabled {
+		return nil
+	}
+	return s.handleDirectorySubtitles(ctx, src, dir, relDir, entries, usable > 0, epoch, res)
+}
+
+// handleDirectorySubtitles observes every selected subtitle entry of one
+// directory listing and, when the directory is download-eligible, fetches the
+// missing ones. The observation is independent of the eligibility: an owned
+// subtitle that reappears clears its committed missing evidence even when no
+// usable video STRM exists in the directory this round. Only one subtitle is
+// in flight at a time and the candidates come from the same completed listing
+// the video walk used.
+func (s *Syncer) handleDirectorySubtitles(ctx context.Context, src Source, dir, relDir string, entries []openlist.Entry, eligible bool, epoch int64, res *SourceResult) error {
+	for _, entry := range entries {
+		if entry.IsDir || !s.subtitles.IsMedia(entry.Name) {
+			continue
+		}
+		rel, err := pathmap.SubtitleRelative(relDir, entry.Name)
+		if err != nil {
+			res.Errors++
+			res.addDiagnostic("invalid subtitle name skipped")
+			continue
+		}
+		if err := s.noteObserved(ctx, src, rel); err != nil {
+			return err
+		}
+		if !eligible {
+			continue
+		}
+		if err := s.handleSubtitle(ctx, src, dir, entry, rel, epoch, res); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string, entry openlist.Entry, epoch int64, res *SourceResult) error {
+// handleFile reconciles one media candidate. The boolean return reports a
+// usable result for this round: the target was newly published, updated, or
+// confirmed as a valid and reliably owned unchanged file. A dry-run reports
+// the same expected usability from its preview decisions. The counters of an
+// action that already happened keep standing even when a later directory or
+// ownership step fails, so the subtitle eligibility consumes the successful
+// result, not the round state.
+func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string, entry openlist.Entry, epoch int64, res *SourceResult) (bool, error) {
 	rel, err := pathmap.LocalRelative(relDir, entry.Name)
 	if err != nil {
 		res.Errors++
 		res.addDiagnostic("invalid file name skipped")
-		return nil
+		return false, nil
 	}
 	remotePath := config.JoinRemote(dir, entry.Name)
 	url, err := pathmap.StableURL(s.opts.PublicPrefix, remotePath)
 	if err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("cannot build URL for %s", rel))
-		return nil
+		return false, nil
 	}
 	desired := &strm.Document{URL: url}
 	if entry.HasSHA {
@@ -542,7 +652,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if err := desired.Validate(); err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("invalid metadata for %s", rel))
-		return nil
+		return false, nil
 	}
 	if entry.Anomaly != "" {
 		res.addDiagnostic(fmt.Sprintf("%s: %s", rel, entry.Anomaly))
@@ -553,7 +663,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if s.store != nil {
 		o, ok, err := s.store.Lookup(src.Key, rel)
 		if err != nil {
-			return err
+			return false, err
 		}
 		owned = ok && o.AbsolutePath == targetAbs
 	}
@@ -563,12 +673,12 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("cannot stat %s", rel))
-		return nil
+		return false, nil
 	}
 	if exists && info.Mode()&os.ModeSymlink != 0 {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("refusing symlink target %s", rel))
-		return nil
+		return false, nil
 	}
 
 	// Reconcile any deterministic staging file left by an interrupted atomic
@@ -577,13 +687,13 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if recErr := s.opts.FS.Recover(src.Output, rel, desired.Bytes(), owned, s.opts.DryRun); recErr != nil {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("unresolved interrupted update for %s", rel))
-		return nil
+		return false, nil
 	}
 
 	if exists && !owned {
 		res.Conflicts++
 		res.addDiagnostic(fmt.Sprintf("existing file not owned by this source: %s", rel))
-		return nil
+		return false, nil
 	}
 
 	refreshOwnership := func() error {
@@ -603,19 +713,19 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		if err != nil {
 			res.Conflicts++
 			res.addDiagnostic(fmt.Sprintf("cannot read owned file %s", rel))
-			return nil
+			return false, nil
 		}
 		existing, perr := strm.Parse(raw)
 		if perr != nil {
 			res.Conflicts++
 			res.addDiagnostic(fmt.Sprintf("owned file is not a valid STRM: %s", rel))
-			return nil
+			return false, nil
 		}
 		result, cerr := strm.Compare(existing, desired)
 		if cerr != nil {
 			res.Conflicts++
 			res.addDiagnostic(fmt.Sprintf("owned file is not comparable: %s", rel))
-			return nil
+			return false, nil
 		}
 		switch result.Decision {
 		case strm.Unchanged:
@@ -627,7 +737,8 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
 			}
-			return nil
+			// A valid, reliably owned, unchanged target is a usable result.
+			return true, nil
 		default:
 			// A trusted owned target requires new content. In dry-run this is a
 			// preview; otherwise the target is atomically replaced while
@@ -635,7 +746,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			if s.opts.DryRun {
 				res.Updated++
 				res.addDiagnostic(fmt.Sprintf("would update %s", rel))
-				return nil
+				return true, nil
 			}
 			outcome, uerr := s.opts.FS.Update(src.Output, rel, raw, desired.Bytes())
 			if outcome.Replaced {
@@ -647,13 +758,13 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			if uerr != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("update failed for %s", rel))
-				return nil
+				return outcome.Replaced, nil
 			}
 			if err := refreshOwnership(); err != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
 			}
-			return nil
+			return true, nil
 		}
 	}
 
@@ -661,12 +772,12 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if s.opts.DryRun {
 		res.Created++
 		res.addDiagnostic(fmt.Sprintf("would create %s", rel))
-		return nil
+		return true, nil
 	}
 	if err := s.opts.FS.EnsureDir(src.Output, parentDir(rel)); err != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("cannot create directory for %s", rel))
-		return nil
+		return false, nil
 	}
 	outcome, perr := s.opts.FS.Publish(src.Output, rel, desired.Bytes())
 	if outcome.Published {
@@ -678,7 +789,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if perr != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("publish failed for %s", rel))
-		return nil
+		return outcome.Published, nil
 	}
 	if s.store != nil {
 		if err := refreshOwnership(); err != nil {
@@ -686,7 +797,7 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			// it as an unowned conflict.
 			res.Errors++
 			res.addDiagnostic(fmt.Sprintf("published but ownership not recorded: %s", rel))
-			return nil
+			return true, nil
 		}
 		// afterOwnershipRecord is inert in release builds. The optional
 		// strmgen_testhooks build can stop deterministically at exactly this
@@ -694,22 +805,112 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 		// verification without a timing race.
 		afterOwnershipRecord(rel)
 	}
+	return true, nil
+}
+
+// handleSubtitle fetches one missing subtitle of an eligible directory. An
+// existing plain local file is kept with its original bytes and mtime; a
+// symlink or non-regular target is a conflict that freezes the source round.
+// The published file is registered as subtitle ownership right after the
+// atomic publication, so an interruption between the two windows leaves an
+// unowned file that a later run skips instead of claiming.
+func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, entry openlist.Entry, rel string, epoch int64, res *SourceResult) error {
+	if s.opts.SubtitleFetcher == nil {
+		res.Errors++
+		res.SubtitlesFailed++
+		res.addDiagnostic("subtitle download transport is unavailable")
+		return nil
+	}
+	remotePath := config.JoinRemote(dir, entry.Name)
+	info, statErr := s.opts.FS.Lstat(src.Output, rel)
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		res.Errors++
+		res.SubtitlesFailed++
+		res.addDiagnostic(fmt.Sprintf("cannot stat subtitle %s", rel))
+		return nil
+	}
+	if statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			res.Conflicts++
+			res.addDiagnostic(fmt.Sprintf("refusing subtitle target %s", rel))
+			return nil
+		}
+		// An existing plain file keeps its original bytes and mtime; the
+		// feature only fills gaps.
+		res.SubtitlesSkipped++
+		return nil
+	}
+	if s.opts.DryRun {
+		res.SubtitlesDownloaded++
+		res.addDiagnostic(fmt.Sprintf("would download subtitle %s", rel))
+		return nil
+	}
+	if err := s.opts.FS.EnsureDir(src.Output, parentDir(rel)); err != nil {
+		res.Errors++
+		res.SubtitlesFailed++
+		res.addDiagnostic(fmt.Sprintf("cannot create directory for subtitle %s", rel))
+		return nil
+	}
+	// The fetch error is captured separately from the publication error so a
+	// failure keeps one fixed reason instead of a free-form transport text.
+	var fetchErr error
+	write := func(w io.Writer) error {
+		fetchErr = s.opts.SubtitleFetcher.Fetch(ctx, remotePath, w)
+		return fetchErr
+	}
+	outcome, perr := s.opts.FS.PublishSubtitle(src.Output, rel, write)
+	if outcome.Published {
+		res.SubtitlesDownloaded++
+	}
+	if perr != nil {
+		res.Errors++
+		res.SubtitlesFailed++
+		if fetchErr != nil {
+			res.addDiagnostic(fmt.Sprintf("subtitle download failed for %s", rel))
+		} else {
+			res.addDiagnostic(fmt.Sprintf("subtitle publish failed for %s", rel))
+		}
+		return nil
+	}
+	if s.store != nil {
+		targetAbs := filepath.Join(src.Output, filepath.FromSlash(rel))
+		// The testhooks build can stop exactly in the window between the
+		// durable publication and the ownership registration.
+		afterSubtitlePublish(rel)
+		if err := s.store.RecordOwnership(ctx, storage.Ownership{
+			SourceKey:    src.Key,
+			RelativePath: rel,
+			AbsolutePath: targetAbs,
+			RemotePath:   remotePath,
+			FileType:     storage.FileSubtitle,
+		}, epoch); err != nil {
+			res.Errors++
+			res.addDiagnostic(fmt.Sprintf("subtitle ownership not recorded: %s", rel))
+			return nil
+		}
+		afterOwnershipRecord(rel)
+	}
 	return nil
 }
 
 // expectedTarget returns the local absolute path the configured source root
-// implies for one relative path, and validates the relative path shape.
-func expectedTarget(output, rel string) (string, bool) {
-	if !validOwnedRelative(rel) {
+// implies for one relative path, and validates the relative path shape for the
+// row's ownership type.
+func expectedTarget(output, rel string, fileType storage.FileType) (string, bool) {
+	if !validOwnedRelative(rel, fileType) {
 		return "", false
 	}
 	return filepath.Join(output, filepath.FromSlash(rel)), true
 }
 
-// validOwnedRelative accepts only the generated STRM shape: clean forward-slash
-// relative path segments with a .strm suffix.
-func validOwnedRelative(rel string) bool {
-	if rel == "" || len(rel) > pathmap.MaxRelativePathBytes || !strings.HasSuffix(rel, ".strm") {
+// validOwnedRelative accepts only clean forward-slash relative path segments.
+// A STRM row must end in .strm; a subtitle row keeps the exact published name,
+// which the subtitle extension whitelist already restricts.
+func validOwnedRelative(rel string, fileType storage.FileType) bool {
+	if rel == "" || len(rel) > pathmap.MaxRelativePathBytes {
+		return false
+	}
+	if fileType == storage.FileSTRM && !strings.HasSuffix(rel, ".strm") {
 		return false
 	}
 	for _, part := range strings.Split(rel, "/") {
@@ -718,6 +919,28 @@ func validOwnedRelative(rel string) bool {
 		}
 	}
 	return true
+}
+
+// rowJudged reports whether the counting and cleanup rules may judge this
+// ownership row at all. A subtitle row requires the subtitle feature to be
+// enabled: while the feature is closed its files and committed counts are
+// preserved without a single remote read.
+func (s *Syncer) rowJudged(row storage.Ownership) bool {
+	if row.FileType == storage.FileSubtitle {
+		return s.opts.SubtitlesEnabled
+	}
+	return true
+}
+
+// rowSelected reports whether the row's exact remote path is still selected by
+// the extension list in force for its ownership type. A subtitle whose
+// extension left the current subtitle list is excluded exactly like a media
+// file whose extension left the media list.
+func (s *Syncer) rowSelected(row storage.Ownership) bool {
+	if row.FileType == storage.FileSubtitle {
+		return s.subtitles.IsMedia(path.Base(row.RemotePath))
+	}
+	return s.confirmer.IsMedia(row.RemotePath)
 }
 
 var errRootUnavailable = errors.New("source root became unreadable during confirmation")
@@ -741,8 +964,8 @@ type presentResult struct {
 // This function only classifies. The caller still decides whether the row may be
 // judged at all (ownership boundary, exact remote path and context) and whether
 // a deletion is currently allowed.
-func (s *Syncer) currentTarget(ctx context.Context, src Source, remotePath string) presentResult {
-	result := s.confirmer.Confirm(ctx, src.Remote, remotePath)
+func (s *Syncer) currentTarget(ctx context.Context, src Source, row storage.Ownership) presentResult {
+	result := s.confirmer.Confirm(ctx, src.Remote, row.RemotePath)
 	if result.Status != openlist.AbsencePresent {
 		return presentResult{result: result}
 	}
@@ -751,7 +974,7 @@ func (s *Syncer) currentTarget(ctx context.Context, src Source, remotePath strin
 	if result.Reason == openlist.ReasonTargetTypeConflict {
 		return presentResult{result: result}
 	}
-	if s.confirmer.IsMedia(remotePath) {
+	if s.rowSelected(row) {
 		return presentResult{result: result}
 	}
 	return presentResult{
@@ -778,6 +1001,89 @@ func (s *Syncer) confirmAndCleanup(ctx context.Context, src Source, res *SourceR
 		return err
 	}
 	return s.cleanupCandidates(ctx, src, res)
+}
+
+// confirmSubtitlePresence is the subtitle appearance path used while cleanup
+// stays disabled. It re-reads every unobserved owned subtitle row by its exact
+// remote path and clears the committed count of a confirmed reappearance; a
+// target still excluded by the current subtitle list keeps its old count, and
+// no missing observation is staged. It never deletes anything.
+func (s *Syncer) confirmSubtitlePresence(ctx context.Context, src Source) error {
+	if s.store == nil || !s.opts.SubtitlesEnabled || s.opts.CleanupEnabled {
+		return nil
+	}
+	if !s.store.PreciseMappingAvailable() {
+		return nil
+	}
+	if s.confirmer == nil {
+		return errors.New("no remote confirmer is configured")
+	}
+	after := ""
+	for {
+		batch, err := s.store.ListOwnershipAfter(ctx, src.Key, after, pendingBatchSize)
+		if err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, row := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			after = row.RelativePath
+			if row.FileType != storage.FileSubtitle {
+				// STRM rows keep their historical behaviour while cleanup is
+				// disabled: listing observations already cleared them and no
+				// missing evidence is staged or consumed here.
+				continue
+			}
+			expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
+			if !ok || row.AbsolutePath != expected || row.RemotePath == "" {
+				continue
+			}
+			observed, err := s.store.IsObserved(ctx, src.Key, row.RelativePath)
+			if err != nil {
+				return err
+			}
+			if observed {
+				continue
+			}
+			current := s.currentTarget(ctx, src, row)
+			switch current.result.Status {
+			case openlist.AbsencePresent:
+				// Only a target still selected by the current subtitle list is a
+				// confirmed reappearance; a type conflict or an excluded
+				// extension keeps the committed count.
+				if current.result.Reason == openlist.ReasonTargetTypeConflict || !s.rowSelected(row) {
+					continue
+				}
+				if _, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath); err != nil {
+					return err
+				}
+				if err := s.store.MarkObserved(ctx, src.Key, row.RelativePath); err != nil {
+					return err
+				}
+			case openlist.AbsenceMissing:
+				// With cleanup disabled a missing target is not counted; the old
+				// committed evidence simply stays as it is.
+				continue
+			default:
+				switch current.result.Reason {
+				case openlist.ReasonCancelled:
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					return errors.New("confirmation cancelled")
+				case openlist.ReasonRootUnavailable:
+					return errRootUnavailable
+				default:
+					continue
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // confirmMissing reads the current remote facts for every unobserved owned
@@ -813,7 +1119,12 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 				return err
 			}
 			after = row.RelativePath
-			expected, ok := expectedTarget(src.Output, row.RelativePath)
+			if !s.rowJudged(row) {
+				// A subtitle row while the feature is closed keeps its file and
+				// counts untouched; no remote read is issued for it.
+				continue
+			}
+			expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
 			if !ok || row.AbsolutePath != expected {
 				res.Retained++
 				res.addDiagnostic("ownership record is outside the configured output boundary; preserved")
@@ -831,14 +1142,16 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 			if observed {
 				continue
 			}
-			current := s.currentTarget(ctx, src, row.RemotePath)
+			current := s.currentTarget(ctx, src, row)
 			switch current.result.Status {
 			case openlist.AbsencePresent:
 				cleared, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath)
 				// A committed N -> 0 reset stands on its own: the durable clear
 				// already happened, even when the private workspace cleanup or
 				// a later step of this round failed.
-				if cleared.RowFound && cleared.PriorMissing > 0 {
+				if cleared.RowFound && cleared.PriorMissing > 0 && row.FileType == storage.FileSTRM {
+					// The fact stream carries STRM events; a subtitle clear
+					// stays inside the command statistics.
 					s.emitFact(Fact{
 						SourceIndex:  src.Index,
 						Kind:         FactMissingCleared,
@@ -860,6 +1173,7 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 				pending = append(pending, storage.PendingMissingEntry{
 					RelativePath: row.RelativePath,
 					Reason:       missingReason(current.excluded),
+					FileType:     row.FileType,
 				})
 				res.ConfirmedMissing++
 				if len(pending) >= pendingBatchSize {
@@ -924,7 +1238,12 @@ func (s *Syncer) cleanupCandidates(ctx context.Context, src Source, res *SourceR
 }
 
 func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ownership, res *SourceResult) error {
-	expected, ok := expectedTarget(src.Output, row.RelativePath)
+	if !s.rowJudged(row) {
+		// A subtitle row while the feature is closed is never a deletion
+		// candidate; it is preserved together with its committed counts.
+		return nil
+	}
+	expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
 	if !ok || row.AbsolutePath != expected {
 		res.Retained++
 		res.addDiagnostic("cleanup candidate is outside the configured output boundary; preserved")
@@ -937,14 +1256,16 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	if observed {
 		return nil
 	}
-	current := s.currentTarget(ctx, src, row.RemotePath)
+	current := s.currentTarget(ctx, src, row)
 	switch current.result.Status {
 	case openlist.AbsencePresent:
 		cleared, err := s.store.ClearMissing(ctx, src.Key, row.RelativePath)
 		// A committed N -> 0 reset stands on its own: the durable clear already
 		// happened, even when the private workspace cleanup or a later step of
 		// this round failed.
-		if cleared.RowFound && cleared.PriorMissing > 0 {
+		if cleared.RowFound && cleared.PriorMissing > 0 && row.FileType == storage.FileSTRM {
+			// The fact stream carries STRM events; a subtitle clear stays
+			// inside the command statistics.
 			s.emitFact(Fact{
 				SourceIndex:  src.Index,
 				Kind:         FactMissingCleared,
@@ -989,15 +1310,19 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	}
 	outcome, err := s.opts.FS.DeleteOwned(ctx, src.Output, row.RelativePath)
 	if outcome.Removed {
-		res.Deleted++
-		// The unlink is a fact that stands even when a later step fails.
-		s.emitFact(Fact{
-			SourceIndex:  src.Index,
-			Kind:         FactDeleted,
-			RelativePath: row.RelativePath,
-			PriorCount:   row.MissingCount,
-			Reason:       missingReason(current.excluded),
-		})
+		if row.FileType == storage.FileSubtitle {
+			res.SubtitlesDeleted++
+		} else {
+			res.Deleted++
+			// The unlink is a fact that stands even when a later step fails.
+			s.emitFact(Fact{
+				SourceIndex:  src.Index,
+				Kind:         FactDeleted,
+				RelativePath: row.RelativePath,
+				PriorCount:   row.MissingCount,
+				Reason:       missingReason(current.excluded),
+			})
+		}
 	}
 	if err != nil {
 		return err
@@ -1006,19 +1331,31 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 		return err
 	}
 	if outcome.AlreadyAbsent {
-		res.Reclaimed++
-		s.emitFact(Fact{
-			SourceIndex:  src.Index,
-			Kind:         FactReclaimed,
-			RelativePath: row.RelativePath,
-			Reason:       missingReason(current.excluded),
-		})
+		if row.FileType == storage.FileSubtitle {
+			res.SubtitlesReclaimed++
+		} else {
+			res.Reclaimed++
+			s.emitFact(Fact{
+				SourceIndex:  src.Index,
+				Kind:         FactReclaimed,
+				RelativePath: row.RelativePath,
+				Reason:       missingReason(current.excluded),
+			})
+		}
 	} else if current.excluded {
 		// The exact source file may still exist and read successfully; the
-		// deletion happened because its extension is no longer generated.
-		res.addDiagnostic(fmt.Sprintf("deleted %s (extension no longer generated)", row.RelativePath))
+		// deletion happened because its extension is no longer selected.
+		if row.FileType == storage.FileSubtitle {
+			res.addDiagnostic(fmt.Sprintf("deleted subtitle %s (extension no longer selected)", row.RelativePath))
+		} else {
+			res.addDiagnostic(fmt.Sprintf("deleted %s (extension no longer generated)", row.RelativePath))
+		}
 	} else {
-		res.addDiagnostic(fmt.Sprintf("deleted %s", row.RelativePath))
+		if row.FileType == storage.FileSubtitle {
+			res.addDiagnostic(fmt.Sprintf("deleted subtitle %s", row.RelativePath))
+		} else {
+			res.addDiagnostic(fmt.Sprintf("deleted %s", row.RelativePath))
+		}
 	}
 	return nil
 }
@@ -1054,7 +1391,12 @@ func (s *Syncer) previewCleanup(ctx context.Context, src Source, res *SourceResu
 				return err
 			}
 			after = row.RelativePath
-			expected, ok := expectedTarget(src.Output, row.RelativePath)
+			if !s.rowJudged(row) {
+				// A subtitle row while the feature is closed is never a
+				// deletion candidate, not even a previewed one.
+				continue
+			}
+			expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
 			if !ok || row.AbsolutePath != expected {
 				res.Retained++
 				res.addDiagnostic("cleanup candidate is outside the configured output boundary; preserved")
@@ -1067,7 +1409,7 @@ func (s *Syncer) previewCleanup(ctx context.Context, src Source, res *SourceResu
 			if observed {
 				continue
 			}
-			current := s.currentTarget(ctx, src, row.RemotePath)
+			current := s.currentTarget(ctx, src, row)
 			switch current.result.Status {
 			case openlist.AbsencePresent:
 				if current.result.Reason == openlist.ReasonTargetTypeConflict {
@@ -1098,8 +1440,13 @@ func (s *Syncer) previewCleanup(ctx context.Context, src Source, res *SourceResu
 				}
 				return err
 			}
-			res.Candidates++
-			res.addDiagnostic(fmt.Sprintf("would delete %s", row.RelativePath))
+			if row.FileType == storage.FileSubtitle {
+				res.SubtitlesCandidates++
+				res.addDiagnostic(fmt.Sprintf("would delete subtitle %s", row.RelativePath))
+			} else {
+				res.Candidates++
+				res.addDiagnostic(fmt.Sprintf("would delete %s", row.RelativePath))
+			}
 		}
 	}
 	return nil

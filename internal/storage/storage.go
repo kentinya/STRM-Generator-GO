@@ -34,7 +34,7 @@ import (
 )
 
 // schemaVersion is the durable write schema this build understands.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // maxInt64 is the SQLite integer ceiling. A missing count never overflows into
 // a negative value or wraps around the confirmation threshold.
@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS ownership (
 	created_round  INTEGER NOT NULL,
 	missing_count  INTEGER NOT NULL DEFAULT 0,
 	missing_round  INTEGER NOT NULL DEFAULT 0,
+	file_type      INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (source_key, relative_path)
 );
 CREATE TABLE IF NOT EXISTS rounds (
@@ -78,11 +79,25 @@ CREATE TABLE missing (
 	source_key    TEXT NOT NULL,
 	relative_path TEXT NOT NULL,
 	reason        TEXT NOT NULL DEFAULT '',
+	file_type     INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (source_key, relative_path)
 );
 `
 
-// Ownership is one trustworthy owned STRM mapping. RemotePath is empty for a
+// FileType classifies one ownership row. The zero value is the historical
+// STRM row so every pre-existing record and every existing constructor keeps
+// its meaning without an explicit field.
+type FileType int
+
+const (
+	// FileSTRM marks an ownership row for a generated .strm document.
+	FileSTRM FileType = 0
+	// FileSubtitle marks an ownership row for a downloaded subtitle file
+	// registered after a successful atomic publication.
+	FileSubtitle FileType = 1
+)
+
+// Ownership is one trustworthy owned target mapping. RemotePath is empty for a
 // legacy row whose exact remote media path is not known; such a row is
 // preserved but never eligible for cleanup.
 type Ownership struct {
@@ -90,6 +105,7 @@ type Ownership struct {
 	RelativePath string
 	AbsolutePath string
 	RemotePath   string
+	FileType     FileType
 	MissingCount int64
 	MissingRound int64
 }
@@ -107,10 +123,12 @@ const (
 )
 
 // PendingMissingEntry is one missing observation staged for the current round
-// together with its qualification reason.
+// together with its qualification reason and the ownership file type, so the
+// commit can keep STRM events separate from subtitle counting.
 type PendingMissingEntry struct {
 	RelativePath string
 	Reason       string
+	FileType     FileType
 }
 
 // MissingAdvance is one durable missing-count increment applied by a committed
@@ -120,6 +138,7 @@ type MissingAdvance struct {
 	PriorCount   int64
 	NewCount     int64
 	Reason       string
+	FileType     FileType
 }
 
 // AdvanceSink receives one missing-count increment while it is applied inside
@@ -161,7 +180,11 @@ type Store struct {
 	tempName string
 	tempBase *securepath.Dir
 	legacy   bool // ownership lacks the precise-mapping columns (old read-only DB)
-	scratch  *sql.DB
+	// hasFileType reports whether the ownership table carries the file_type
+	// column. A writable store always upgrades to it; a read-only snapshot of a
+	// pre-subtitle database reads every row as a STRM row instead of failing.
+	hasFileType bool
+	scratch     *sql.DB
 }
 
 // Open opens or creates the ownership database for writing. Parent traversal,
@@ -211,7 +234,9 @@ func Open(path string) (*Store, error) {
 		dir.Close()
 		return nil, errors.New("initialize round workspace")
 	}
-	return &Store{db: db, dir: dir, scratch: scratch}, nil
+	// A writable store always carries the upgraded schema, including the
+	// ownership file type column.
+	return &Store{db: db, dir: dir, hasFileType: true, scratch: scratch}, nil
 }
 
 // OpenReadOnly opens an existing database without modifying it or creating
@@ -261,7 +286,7 @@ func OpenReadOnly(path string, forbiddenOutputRoots ...string) (*Store, error) {
 		dir.Close()
 		return nil, errors.New("database is not safely readable")
 	}
-	legacy, err := detectSchema(db)
+	legacy, hasFileType, err := detectSchema(db)
 	if err != nil {
 		db.Close()
 		dir.Close()
@@ -273,7 +298,7 @@ func OpenReadOnly(path string, forbiddenOutputRoots ...string) (*Store, error) {
 		dir.Close()
 		return nil, errors.New("initialize round workspace")
 	}
-	return &Store{db: db, readOnly: true, dir: dir, legacy: legacy, scratch: scratch}, nil
+	return &Store{db: db, readOnly: true, dir: dir, legacy: legacy, hasFileType: hasFileType, scratch: scratch}, nil
 }
 
 func openDatabaseParent(path string, create bool) (*securepath.Dir, string, error) {
@@ -406,6 +431,14 @@ func upgradeSchema(db *sql.DB) error {
 			return err
 		}
 	}
+	// The subtitle feature adds the ownership file type. The column defaults to
+	// zero, which is the historical STRM type, so every pre-existing row keeps
+	// its exact ownership, paths, rounds and counts.
+	if !columns["file_type"] {
+		if _, err := tx.Exec(`ALTER TABLE ownership ADD COLUMN file_type INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS ownership_missing_idx
 		ON ownership (source_key, missing_count, missing_round)`); err != nil {
 		return err
@@ -416,41 +449,43 @@ func upgradeSchema(db *sql.DB) error {
 	return tx.Commit()
 }
 
-// detectSchema inspects a read-only database without modifying it and reports
-// whether the precise-mapping columns are absent (a legacy Slice 1 database).
-func detectSchema(db *sql.DB) (legacy bool, err error) {
+// detectSchema inspects a read-only database without modifying it. It reports
+// whether the precise-mapping columns are absent (a legacy Slice 1 database) and
+// whether the file_type column exists; a database without file_type reads every
+// row as a STRM row so pre-upgrade snapshots stay usable by dry-run.
+func detectSchema(db *sql.DB) (legacy bool, hasFileType bool, err error) {
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if version > schemaVersion {
-		return false, errors.New("database schema is newer than this build")
+		return false, false, errors.New("database schema is newer than this build")
 	}
 	tables, err := tableNames(db)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if len(tables) == 0 {
-		return false, errors.New("database schema is missing")
+		return false, false, errors.New("database schema is missing")
 	}
 	for name := range tables {
 		if name != "ownership" && name != "rounds" {
-			return false, errors.New("database contains an unknown table")
+			return false, false, errors.New("database contains an unknown table")
 		}
 	}
 	if !tables["ownership"] || !tables["rounds"] {
-		return false, errors.New("database schema is incomplete")
+		return false, false, errors.New("database schema is incomplete")
 	}
 	columns, err := columnNames(db, "ownership")
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, required := range []string{"source_key", "relative_path", "absolute_path", "created_round", "missing_count"} {
 		if !columns[required] {
-			return false, errors.New("ownership table is missing a required column")
+			return false, false, errors.New("ownership table is missing a required column")
 		}
 	}
-	return !columns["remote_path"] || !columns["missing_round"], nil
+	return !columns["remote_path"] || !columns["missing_round"], columns["file_type"], nil
 }
 
 type queryer interface {
@@ -578,7 +613,7 @@ func openWALSnapshot(sourceDir *securepath.Dir, base, parentPath string, forbidd
 		cleanup()
 		return nil, errors.New("open database snapshot")
 	}
-	legacy, err := detectSchema(db)
+	legacy, hasFileType, err := detectSchema(db)
 	if err != nil {
 		db.Close()
 		cleanup()
@@ -590,7 +625,7 @@ func openWALSnapshot(sourceDir *securepath.Dir, base, parentPath string, forbidd
 		cleanup()
 		return nil, errors.New("initialize round workspace")
 	}
-	return &Store{db: db, readOnly: true, tempDir: tempDir, tempName: tempName, tempBase: tempBase, legacy: legacy, scratch: scratch}, nil
+	return &Store{db: db, readOnly: true, tempDir: tempDir, tempName: tempName, tempBase: tempBase, legacy: legacy, hasFileType: hasFileType, scratch: scratch}, nil
 }
 
 func createSnapshotDirectory(parent *securepath.Dir, parentPath string, forbiddenOutputRoots []string) (string, *securepath.Dir, error) {
@@ -698,6 +733,16 @@ func (s *Store) Close() error {
 	return first
 }
 
+// ownershipProjection returns the ordered column list used by the read paths.
+// A read-only snapshot of a pre-subtitle database substitutes the STRM type
+// for the missing column so the query cannot fail on an old snapshot.
+func (s *Store) ownershipProjection() string {
+	if s.hasFileType {
+		return "absolute_path, remote_path, file_type, missing_count, missing_round"
+	}
+	return "absolute_path, remote_path, 0, missing_count, missing_round"
+}
+
 // Lookup returns the ownership record for a relative path when present.
 func (s *Store) Lookup(sourceKey, relativePath string) (Ownership, bool, error) {
 	o := Ownership{SourceKey: sourceKey, RelativePath: relativePath}
@@ -709,10 +754,9 @@ func (s *Store) Lookup(sourceKey, relativePath string) (Ownership, bool, error) 
 		).Scan(&o.AbsolutePath)
 	} else {
 		err = s.db.QueryRow(
-			`SELECT absolute_path, remote_path, missing_count, missing_round
-			 FROM ownership WHERE source_key = ? AND relative_path = ?`,
+			`SELECT `+s.ownershipProjection()+` FROM ownership WHERE source_key = ? AND relative_path = ?`,
 			sourceKey, relativePath,
-		).Scan(&o.AbsolutePath, &o.RemotePath, &o.MissingCount, &o.MissingRound)
+		).Scan(&o.AbsolutePath, &o.RemotePath, &o.FileType, &o.MissingCount, &o.MissingRound)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return Ownership{}, false, nil
@@ -732,14 +776,15 @@ func (s *Store) RecordOwnership(ctx context.Context, o Ownership, epoch int64) e
 		return errors.New("store is read-only")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO ownership (source_key, relative_path, absolute_path, remote_path, created_round, missing_count, missing_round)
-		 VALUES (?, ?, ?, ?, ?, 0, 0)
+		`INSERT INTO ownership (source_key, relative_path, absolute_path, remote_path, created_round, missing_count, missing_round, file_type)
+		 VALUES (?, ?, ?, ?, ?, 0, 0, ?)
 		 ON CONFLICT(source_key, relative_path) DO UPDATE SET
 			absolute_path = excluded.absolute_path,
 			remote_path = CASE WHEN excluded.remote_path = '' THEN ownership.remote_path ELSE excluded.remote_path END,
 			missing_count = 0,
-			missing_round = 0`,
-		o.SourceKey, o.RelativePath, o.AbsolutePath, o.RemotePath, epoch,
+			missing_round = 0,
+			file_type = excluded.file_type`,
+		o.SourceKey, o.RelativePath, o.AbsolutePath, o.RemotePath, epoch, o.FileType,
 	)
 	return err
 }
@@ -812,8 +857,8 @@ func (s *Store) ListOwnershipAfter(ctx context.Context, sourceKey, after string,
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT relative_path, absolute_path, remote_path, missing_count, missing_round
-		 FROM ownership WHERE source_key = ? AND relative_path > ?
+		`SELECT relative_path, `+s.ownershipProjection()+` FROM ownership
+		 WHERE source_key = ? AND relative_path > ?
 		 ORDER BY relative_path LIMIT ?`,
 		sourceKey, after, limit,
 	)
@@ -824,7 +869,7 @@ func (s *Store) ListOwnershipAfter(ctx context.Context, sourceKey, after string,
 	var result []Ownership
 	for rows.Next() {
 		o := Ownership{SourceKey: sourceKey}
-		if err := rows.Scan(&o.RelativePath, &o.AbsolutePath, &o.RemotePath, &o.MissingCount, &o.MissingRound); err != nil {
+		if err := rows.Scan(&o.RelativePath, &o.AbsolutePath, &o.RemotePath, &o.FileType, &o.MissingCount, &o.MissingRound); err != nil {
 			return nil, err
 		}
 		result = append(result, o)
@@ -843,8 +888,7 @@ func (s *Store) ListEligibleAfter(ctx context.Context, sourceKey, after string, 
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT relative_path, absolute_path, remote_path, missing_count, missing_round
-		 FROM ownership
+		`SELECT relative_path, `+s.ownershipProjection()+` FROM ownership
 		 WHERE source_key = ? AND relative_path > ? AND missing_count >= ? AND missing_round > 0 AND remote_path != ''
 		 ORDER BY relative_path LIMIT ?`,
 		sourceKey, after, threshold, limit,
@@ -856,7 +900,7 @@ func (s *Store) ListEligibleAfter(ctx context.Context, sourceKey, after string, 
 	var result []Ownership
 	for rows.Next() {
 		o := Ownership{SourceKey: sourceKey}
-		if err := rows.Scan(&o.RelativePath, &o.AbsolutePath, &o.RemotePath, &o.MissingCount, &o.MissingRound); err != nil {
+		if err := rows.Scan(&o.RelativePath, &o.AbsolutePath, &o.RemotePath, &o.FileType, &o.MissingCount, &o.MissingRound); err != nil {
 			return nil, err
 		}
 		result = append(result, o)
@@ -940,13 +984,13 @@ func (s *Store) AddPendingMissing(ctx context.Context, sourceKey string, entries
 	}
 	defer tx.Rollback()
 	statement, err := tx.PrepareContext(ctx,
-		`INSERT OR IGNORE INTO missing (source_key, relative_path, reason) VALUES (?, ?, ?)`)
+		`INSERT OR IGNORE INTO missing (source_key, relative_path, reason, file_type) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer statement.Close()
 	for _, entry := range entries {
-		if _, err := statement.ExecContext(ctx, sourceKey, entry.RelativePath, entry.Reason); err != nil {
+		if _, err := statement.ExecContext(ctx, sourceKey, entry.RelativePath, entry.Reason, entry.FileType); err != nil {
 			return err
 		}
 	}
@@ -1044,6 +1088,7 @@ func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, 
 				PriorCount:   prior,
 				NewCount:     newCount,
 				Reason:       entry.Reason,
+				FileType:     entry.FileType,
 			}
 			if advances != nil {
 				// Provisional until the transaction commits.
@@ -1092,10 +1137,12 @@ func (s *Store) CommitRound(ctx context.Context, sourceKey string, epoch int64, 
 	return result, nil
 }
 
-// pendingEntry is one staged missing row including its reason.
+// pendingEntry is one staged missing row including its reason and the
+// ownership file type, so a committed advance can be classified exactly.
 type pendingEntry struct {
 	RelativePath string
 	Reason       string
+	FileType     FileType
 }
 
 func (s *Store) pendingBatch(ctx context.Context, sourceKey, after string, limit int) ([]pendingEntry, error) {
@@ -1103,7 +1150,7 @@ func (s *Store) pendingBatch(ctx context.Context, sourceKey, after string, limit
 		return nil, nil
 	}
 	rows, err := s.scratch.QueryContext(ctx,
-		`SELECT relative_path, reason FROM missing WHERE source_key = ? AND relative_path > ?
+		`SELECT relative_path, reason, file_type FROM missing WHERE source_key = ? AND relative_path > ?
 		 ORDER BY relative_path LIMIT ?`,
 		sourceKey, after, limit)
 	if err != nil {
@@ -1113,7 +1160,7 @@ func (s *Store) pendingBatch(ctx context.Context, sourceKey, after string, limit
 	var paths []pendingEntry
 	for rows.Next() {
 		var entry pendingEntry
-		if err := rows.Scan(&entry.RelativePath, &entry.Reason); err != nil {
+		if err := rows.Scan(&entry.RelativePath, &entry.Reason, &entry.FileType); err != nil {
 			return nil, err
 		}
 		paths = append(paths, entry)

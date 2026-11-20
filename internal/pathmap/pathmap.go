@@ -31,6 +31,18 @@ func DefaultExtensions() []string {
 	return append([]string(nil), defaultExtensions...)
 }
 
+// defaultSubtitleExtensions is the subtitle extension whitelist used when
+// sync.subtitles.extensions is omitted. An explicit configuration may only
+// pick a subset of these four entries.
+var defaultSubtitleExtensions = []string{".srt", ".ass", ".ssa", ".vtt"}
+
+// SubtitleExtensions returns the subtitle whitelist. The config layer uses it
+// to accept explicit subsets; the syncer uses it as the instance set when the
+// feature is enabled without an explicit list.
+func SubtitleExtensions() []string {
+	return append([]string(nil), defaultSubtitleExtensions...)
+}
+
 // MediaSet is one instance-owned extension set. Nothing in this package mutates
 // a set after construction, and constructing a set never touches the shared
 // default map, so two sync instances can use different lists in one process.
@@ -107,6 +119,27 @@ func LocalRelative(remoteDir, name string) (string, error) {
 		return "", errors.New("relative path exceeds limit")
 	}
 	return mapped, nil
+}
+
+// SubtitleRelative maps a remote directory and an entry name onto the local
+// relative subtitle path. Unlike media files, the remote file name is kept
+// verbatim: only the directory is mirrored. The same segment and length
+// boundaries as LocalRelative apply, so a subtitle can never forge a different
+// local layout than the video mapping beside it.
+func SubtitleRelative(relDir, name string) (string, error) {
+	if err := ValidateSegment(name); err != nil {
+		return "", err
+	}
+	if relDir == "" {
+		if len(name) > MaxRelativePathBytes {
+			return "", errors.New("relative path exceeds limit")
+		}
+		return name, nil
+	}
+	if len(relDir)+1+len(name) > MaxRelativePathBytes {
+		return "", errors.New("relative path exceeds limit")
+	}
+	return relDir + "/" + name, nil
 }
 
 // ValidateSegment rejects names that cannot become a safe single local path

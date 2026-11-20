@@ -40,6 +40,23 @@ sync:
   # serve reads this file at startup; a change requires a restart.
   media_extensions: [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg"]
 
+  # Optional subtitle downloads, disabled by default. An omitted block or an
+  # omitted enabled keeps historical behavior. When enabled, directories whose
+  # videos produced a usable STRM this round also copy their missing selected
+  # subtitle files beside the STRM, keeping the remote file names and bytes.
+  # Downloads use the stable openlist.public_url + /d/ address without the API
+  # token: the mount behind public_url must serve /d/ to the container (in
+  # compose the same URL Jellyfin consumers use). Each file gets a 30-second
+  # budget, at most five HTTP(S) redirects and an 8 MiB response ceiling.
+  # Successfully published subtitles are owned like STRM files and share the
+  # cleanup switches and the three-round confirmation. extensions defaults to
+  # the four-entry whitelist .srt .ass .ssa .vtt; an explicit list may only
+  # pick a subset and must not overlap media_extensions while enabled.
+  # serve reads this file at startup; a change requires a restart.
+  subtitles:
+    enabled: false
+    extensions: [".srt", ".ass", ".ssa", ".vtt"]
+
 cleanup:
   # Cleanup stays off unless explicitly enabled together with mirror: true.
   enabled: false

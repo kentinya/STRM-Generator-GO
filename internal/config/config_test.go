@@ -678,3 +678,147 @@ func TestNotificationsAcceptsLongInstanceName(t *testing.T) {
 		t.Fatalf("instance name changed: %+v", r.Notifications.Telegram)
 	}
 }
+
+// withSubtitles inserts one raw sync.subtitles block.
+func withSubtitles(raw string) string {
+	return strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles:\n"+raw+"\ncleanup:\n", 1)
+}
+
+func TestSubtitlesDisabledByDefault(t *testing.T) {
+	for name, body := range map[string]string{
+		"no block":        validBase,
+		"empty block":     withSubtitles(""),
+		"enabled omitted": withSubtitles("    extensions: [\".srt\"]"),
+		"explicit false":  withSubtitles("    enabled: false"),
+		"explicit null":   withSubtitles("    enabled: null"),
+		"block null":      strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles: null\ncleanup:\n", 1),
+	} {
+		r, err := Load(write(t, body))
+		if err != nil {
+			t.Fatalf("%s: load: %v", name, err)
+		}
+		if r.SubtitlesEnabled {
+			t.Fatalf("%s: subtitles must stay disabled", name)
+		}
+	}
+}
+
+func TestSubtitlesEnabledWithDefaultWhitelist(t *testing.T) {
+	r, err := Load(write(t, withSubtitles("    enabled: true")))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !r.SubtitlesEnabled {
+		t.Fatal("explicit enabled must turn subtitles on")
+	}
+	want := []string{".srt", ".ass", ".ssa", ".vtt"}
+	if len(r.SubtitleExtensions) != len(want) {
+		t.Fatalf("default subtitle list = %v, want %v", r.SubtitleExtensions, want)
+	}
+	for i := range want {
+		if r.SubtitleExtensions[i] != want[i] {
+			t.Fatalf("default subtitle list = %v, want %v", r.SubtitleExtensions, want)
+		}
+	}
+}
+
+func TestSubtitlesExplicitListReplacesAndNormalises(t *testing.T) {
+	body := withSubtitles("    enabled: true\n    extensions: [\" .SRT \", \"VTT\", \".ass\", \".srt\", \".Vtt\"]")
+	r, err := Load(write(t, body))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []string{".srt", ".vtt", ".ass"}
+	if len(r.SubtitleExtensions) != len(want) {
+		t.Fatalf("resolved subtitle list = %v, want %v", r.SubtitleExtensions, want)
+	}
+	for i := range want {
+		if r.SubtitleExtensions[i] != want[i] {
+			t.Fatalf("resolved subtitle list = %v, want %v", r.SubtitleExtensions, want)
+		}
+	}
+}
+
+func TestSubtitlesRejectInvalidInputEvenWhileDisabled(t *testing.T) {
+	cases := map[string]string{
+		"empty flow list":   "    extensions: []",
+		"null":              "    extensions: null",
+		"single string":     "    extensions: \".srt\"",
+		"number":            "    extensions: 5",
+		"non-string item":   "    extensions: [5]",
+		"nested structure":  "    extensions: [[\".srt\"]]",
+		"blank item":        "    extensions: [\"   \"]",
+		"outside whitelist": "    extensions: [\".mkv\"]",
+		"strm suffix":       "    extensions: [\".strm\"]",
+		"mixed valid":       "    extensions: [\".srt\", \".sub\"]",
+	}
+	for name, raw := range cases {
+		// The invalid value must be rejected even with enabled: false so it can
+		// never hide behind a disabled switch.
+		body := withSubtitles("    enabled: false\n" + raw)
+		_, err := Load(write(t, body))
+		if err == nil {
+			t.Fatalf("%s must be rejected while disabled", name)
+		}
+		if diag := SafeDiagnostic(err); !strings.Contains(diag, "sync.subtitles.extensions") {
+			t.Fatalf("%s diagnostic = %q", name, diag)
+		}
+	}
+}
+
+func TestSubtitlesOverlapWithMediaExtensionsRejectedOnlyWhenEnabled(t *testing.T) {
+	// mp4 is a media extension and srt is not, so this is a legal pair.
+	media := strings.Replace(validBase, "cleanup:\n", "sync:\n  media_extensions: [\".mp4\"]\ncleanup:\n", 1)
+	if r, err := Load(write(t, media)); err != nil {
+		t.Fatalf("load: %v", err)
+	} else if r.SubtitlesEnabled {
+		t.Fatal("subtitles must stay off without the block")
+	}
+
+	// A subtitle whitelist entry can never appear in a legal media list, so the
+	// overlap rule is exercised through an explicit media list that adopts it.
+	overlap := strings.Replace(validBase, "cleanup:\n",
+		"sync:\n  media_extensions: [\".mp4\", \".srt\"]\n  subtitles:\n    enabled: true\ncleanup:\n", 1)
+	_, err := Load(write(t, overlap))
+	if err == nil {
+		t.Fatal("an enabled subtitle extension overlapping the media list must be rejected")
+	}
+	if diag := SafeDiagnostic(err); !strings.Contains(diag, "sync.subtitles.extensions") {
+		t.Fatalf("overlap diagnostic = %q", diag)
+	}
+
+	// The same overlapping pair is inert while the feature stays disabled:
+	// the value is still validated, the switch just never turns on.
+	inert := strings.Replace(validBase, "cleanup:\n",
+		"sync:\n  media_extensions: [\".mp4\", \".srt\"]\n  subtitles:\n    enabled: false\ncleanup:\n", 1)
+	r, err := Load(write(t, inert))
+	if err != nil {
+		t.Fatalf("disabled overlap must still load: %v", err)
+	}
+	if r.SubtitlesEnabled {
+		t.Fatal("subtitles must stay off")
+	}
+}
+
+func TestSubtitlesDiagnosticDoesNotEchoInput(t *testing.T) {
+	marker := "PRIVATE_SUBTITLE_MARKER_20261120"
+	for _, raw := range []string{
+		"    extensions: [\"/private/" + marker + ".srt\"]",
+		"    extensions: [\"" + strings.Repeat(marker, 4) + "\"]",
+	} {
+		_, err := Load(write(t, withSubtitles("    enabled: true\n"+raw)))
+		if err == nil {
+			t.Fatalf("marker input must be rejected: %s", raw)
+		}
+		if strings.Contains(SafeDiagnostic(err), marker) {
+			t.Fatalf("diagnostic echoed the configured value: %q", SafeDiagnostic(err))
+		}
+	}
+}
+
+func TestSubtitlesUnknownFieldStillRejected(t *testing.T) {
+	body := strings.Replace(validBase, "cleanup:\n", "sync:\n  subtitles:\n    enable: true\ncleanup:\n", 1)
+	if _, err := Load(write(t, body)); err == nil {
+		t.Fatal("a misspelled subtitle field must still be rejected")
+	}
+}

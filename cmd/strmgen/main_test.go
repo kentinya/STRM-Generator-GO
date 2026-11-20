@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -641,6 +642,86 @@ func TestMediaExtensionConfigErrorsExitBeforeProductAction(t *testing.T) {
 			if strings.Contains(errBuf.String(), ".strm") || strings.Contains(errBuf.String(), "5") {
 				t.Fatalf("%s %v echoed the configured value: %q", tc.name, command, errBuf.String())
 			}
+		}
+	}
+}
+
+// subtitleConfig appends a sync block with a subtitle configuration to the
+// generated CLI configuration.
+func subtitleConfig(t *testing.T, apiURL, root, db, subtitleBlock string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "openlist:\n" +
+		"  api_url: \"" + apiURL + "\"\n" +
+		"  public_url: \"" + apiURL + "\"\n" +
+		"  token_env: \"STRMGEN_TEST_TOKEN\"\n" +
+		"sources:\n  - remote: \"/Movies\"\n    output: \"" + root + "\"\n" +
+		"sync:\n" + subtitleBlock + "\n" +
+		"cleanup:\n  enabled: false\n" +
+		"database:\n  path: \"" + db + "\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSubtitleConfigErrorFailsBeforeAnyRound(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := filepath.Join(t.TempDir(), "out-marker")
+	db := filepath.Join(t.TempDir(), "db-marker", "strmgen.db")
+
+	for name, block := range map[string]string{
+		"empty list":        "  subtitles:\n    enabled: true\n    extensions: []",
+		"non-string item":   "  subtitles:\n    enabled: true\n    extensions: [5]",
+		"outside whitelist": "  subtitles:\n    enabled: true\n    extensions: [\".mkv\"]",
+	} {
+		cfg := subtitleConfig(t, ts.URL, root, db, block)
+		var out, errBuf bytes.Buffer
+		if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitUsage {
+			t.Fatalf("%s: sync exit = %d, want 2 (stderr=%s)", name, code, errBuf.String())
+		}
+		if !strings.Contains(errBuf.String(), "invalid sync.subtitles.extensions") {
+			t.Fatalf("%s: diagnostic = %s", name, errBuf.String())
+		}
+		if _, err := os.Stat(root); err == nil {
+			t.Fatalf("%s: an invalid subtitle config must fail before any output", name)
+		}
+		// The serve entry point uses the same validation before any side effect.
+		var serveOut, serveErr bytes.Buffer
+		if code := run([]string{"serve", "--config", cfg}, &serveOut, &serveErr); code != exitUsage {
+			t.Fatalf("%s: serve exit = %d, want 2", name, code)
+		}
+		if _, err := os.Stat(db); err == nil {
+			t.Fatalf("%s: an invalid subtitle config must fail before the database", name)
+		}
+	}
+}
+
+func TestSubtitleReportCarriesDedicatedCounters(t *testing.T) {
+	report := &reconciler.Report{
+		Sources: []reconciler.SourceResult{{
+			SourceIndex:         0,
+			Created:             1,
+			SubtitlesDownloaded: 2,
+			SubtitlesSkipped:    1,
+			SubtitlesFailed:     0,
+			SubtitlesDeleted:    0,
+			SubtitlesReclaimed:  0,
+			SubtitlesCandidates: 0,
+		}},
+	}
+	var out bytes.Buffer
+	printReport(&out, io.Discard, report, false)
+	line := out.String()
+	for _, token := range []string{
+		"subtitle_downloaded=2", "subtitle_skipped=1", "subtitle_failed=0",
+		"subtitle_deleted=0", "subtitle_reclaimed=0", "subtitle_candidates=0",
+		"created=1",
+	} {
+		if !strings.Contains(line, token) {
+			t.Fatalf("report line missing %s: %s", token, line)
 		}
 	}
 }

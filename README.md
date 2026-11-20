@@ -14,6 +14,7 @@
 - **稳定链接**：写入逐段编码的 OpenList `/d/` 地址，不使用临时签名 URL。
 - **定时同步**：`sync` 执行一次；`serve` 启动即同步，默认每 60 分钟运行一轮。
 - **安全清理**：默认关闭；只处理可靠归属的 STRM，累计至少三次完整成功轮的缺失记录，删除前再次核对。
+- **外挂字幕**：默认关闭；开启后按目录补下载缺失的入选字幕后缀文件，保留原名与字节，已发布登记的字幕沿用同一套三轮清理规则。
 - **预览与恢复**：`--dry-run` 不修改输出、原数据库或计数；支持跨进程互斥和正常中断后的重试恢复。
 - **Telegram 通知**：每轮带图标的 HTML 摘要、可展开文件明细与清理进度，明细过多时附文本清单；默认关闭。
 
@@ -115,6 +116,7 @@ Token 只通过环境变量注入，不写入 YAML。
 | `sync.interval_minutes` | 默认 `60`；`serve` 要求正整数，单次同步允许 `0` |
 | `sync.directory_workers` | 默认 `4`，范围 `1–32` |
 | `sync.media_extensions` | 省略时使用内置 11 项；显式列表完整替换默认值 |
+| `sync.subtitles.enabled` / `sync.subtitles.extensions` | 默认 `false`；后缀省略时为 `.srt` `.ass` `.ssa` `.vtt` 白名单，显式列表只能取其子集且开启时不得与媒体后缀重叠 |
 | `sync.mirror` | 默认 `true`；清理另需显式开启 |
 | `cleanup.enabled` / `cleanup.missing_confirmations` | 默认 `false` / `3`，阈值最低 `3` |
 | `notifications.telegram.enabled` | 默认 `false` |
@@ -137,6 +139,40 @@ sync:
 **移除扩展名会影响已有输出**：开启清理后，即使源文件仍存在，已归属 STRM 也进入正常
 缺失计数与清理流程。加回扩展名且源文件可读时清零保留，已删除的文件会重新生成。
 完整规则见[自定义扩展名](docs/requirements.md#自定义扩展名)。
+
+### 外挂字幕
+
+```yaml
+sync:
+  subtitles:
+    enabled: true
+    extensions: [".srt", ".ass", ".ssa", ".vtt"]
+```
+
+开启后，每轮在本轮生成了可用 STRM 的目录（新建、更新，或已确认有效的未变化归属文件）
+里，把同目录列表中入选后缀的缺失字幕复制到 STRM 旁边：保留远端原名与原始字节，
+目录层级随视频镜像，同目录多个视频只处理一次，视频与字幕基本名可以无关。已有同名
+普通文件（无论是否归属）直接跳过，不覆盖、不改字节与 mtime；符号链接等非普通文件
+保留并报冲突。dry-run 预览预计下载与预计清理，不发出任何内容请求。
+
+- **访问条件**：下载使用 `openlist.public_url + /d/` 的稳定地址且不携带 API token；
+  要求临时签名的挂载不满足使用前提，`public_url` 必须允许生成器直接下载。
+- **传输界限**：每份字幕 30 秒预算（含重定向与读体）、最多 5 次 HTTP(S) 重定向、
+  响应上限 8 MiB；HTML/JSON 错误页、截断或超大响应视为下载失败。失败或目标安全
+  冲突使本轮不完整，冻结该来源的缺失推进与清理，成功已发布的文件保留，下一轮重试缺件。
+- **归属与清理**：成功发布并登记的字幕与 STRM 共用 `cleanup.enabled`、
+  `sync.mirror` 与 `cleanup.missing_confirmations`：三次完整成功轮缺失并删除前重核后
+  才清理；再出现清零，关闭清理时出现观察仍可清零。人工放入或未登记的字幕始终保留。
+- **与 Jellyfin 的关系**：字幕关联由 Jellyfin 原生扫描完成。要自动关联为外部字幕轨，
+  使用 `Movie.zh.srt` 这类匹配名称（同目录同名或带语言后缀）；任意命名的字幕（例如
+  `中文.srt`）也会被原样复制到 STRM 旁边，但是否作为外部轨展示由 Jellyfin 自行决定。
+- **生效时机**：`sync`、`sync --dry-run` 与 `serve` 使用同一配置；`serve` 在启动时
+  读取，修改后需重启。旧配置无需修改，字幕功能保持关闭。
+
+命令摘要中字幕计数单独显示：`subtitle_downloaded`（dry-run 为预计下载）、
+`subtitle_skipped`、`subtitle_failed`、`subtitle_deleted`、`subtitle_reclaimed` 和
+`subtitle_candidates`（dry-run 预计清理）。关闭字幕功能时保留已下载字幕与原计数，
+不新增计数也不删除。
 
 ## Telegram 通知
 
@@ -181,6 +217,10 @@ v1.2.1 兼容 v1.1.0／v1.2.0 配置。Telegram 通知仍默认关闭，已启�
 先停止生成器并备份输出、状态目录（含 SQLite sidecar）和配置，再替换二进制或镜像。
 保留原数据库、输出映射和共享锁目录，先运行 `sync --dry-run`，核对后恢复同步。
 
+升级到包含外挂字幕的版本时，旧数据库会在下次可写同步时自动迁移：新增的文件类型列把
+既有记录一律视为 STRM，归属、路径、完整轮次与缺失计数保持不变；`--dry-run` 可直接
+读取升级前后的库。字幕功能默认关闭，升级后无需修改配置。
+
 配置、通知与扩展名均在进程启动时读取；Compose 使用
 `docker compose -f deploy/compose.yaml up -d --force-recreate` 重新创建容器。
 普通配置修改无需删除状态库或重新认领已有文件。
@@ -224,4 +264,4 @@ v1.2.1 兼容 v1.1.0／v1.2.0 配置。Telegram 通知仍默认关闭，已启�
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
 Slice 1–6 与独立修复 FIX-TG-01 均已 PASS / CLOSED，新版通知已实发并获用户确认。
-Slice 7 的外挂字幕任务处于计划阶段，见 [TASK](TASK.md)。
+Slice 7 的外挂字幕任务已实施并交独立 B 审查，见 [TASK](TASK.md)。

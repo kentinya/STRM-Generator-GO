@@ -2,11 +2,11 @@
 
 ## CURRENT
 
-当前实现支持 `sync`、`sync --dry-run`、定时 `serve`、全局自定义媒体扩展名和可选的
-Telegram 运行通知（本地实现与真实文本／附件送达均已验收）。
-V4.4、Slice 5 与 Slice 6 增量均已交付，Slice 1–6 PASS / CLOSED。
+当前实现支持 `sync`、`sync --dry-run`、定时 `serve`、全局自定义媒体扩展名、可选的
+外挂字幕按目录补下载与三轮清理，以及可选的 Telegram 运行通知（本地实现与真实
+文本／附件送达均已验收）。V4.4、Slice 5 与 Slice 6 增量均已交付，Slice 1–6 PASS / CLOSED。
 独立修复 FIX-TG-01 已独立 B PASS / CLOSED：新版 HTML 排版经本地回归、真实发送
-与用户最终确认，关闭记录和 Slice 7 的 Task 规划见 [TASK](../TASK.md)。
+与用户最终确认，关闭记录见 [TASK](../TASK.md)；Slice 7 的外挂字幕实施状态见当前 [TASK](../TASK.md)。
 Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记录](development-workflow.md#历史记录)。
 当前合同见 [SLICE](../SLICE.md)，已关闭结果、分层验收及未运行项见[路线图](roadmap.md)，
 完整合同与过程记录从[固定 Git 检查点](development-workflow.md#历史记录)查阅。
@@ -29,6 +29,30 @@ Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记�
 目标 Get 的明确类型冲突仍保留，恢复入选则回到原 Get 规则。
 归属、完整轮、输出边界及删除前 regular STRM 检查继续使用现有机制。
 
+## 外挂字幕接入
+
+`internal/config` 以与媒体扩展名相同的原始 YAML 节点机制解析 `sync.subtitles`：
+整段或 `enabled` 省略保持关闭，`extensions` 只能取四项白名单子集，开启时与媒体列表
+查重，错误在准备输出／数据库前以退出码 2 返回脱敏字段名。三个命令入口在
+`config.Load` 后一次构建字幕扩展集并放入 `roundDeps`，运行中的 `serve` 不热加载。
+
+`reconciler` 在每轮 `handleDirectory` 内判定目录资格：本轮至少一个视频 STRM 新建、
+更新或确认为有效归属的未变化文件。合格目录按同一份列表逐个补缺，字幕相对路径由
+`pathmap.SubtitleRelative` 用与视频相同的段校验拼接源内相对目录与原名；已归属字幕
+的出现观察独立于目录资格。`internal/openlist.SubtitleDownloader` 以
+`pathmap.StableURL` 构造 `/d/` 地址执行无凭证 GET，实行 30 秒预算、5 次重定向与
+8 MiB 上限，HTML／JSON 错误页与截断响应分类为失败；`LocalFS.PublishSubtitle` 复用
+同目录临时写入、`Link` 无覆盖原子发布与父目录同步顺序，失败清理本次临时文件。
+发布成功后按 `storage.FileSubtitle` 登记归属；下载、本地处理或安全冲突使该来源
+本轮不完整并冻结清理与计数推进，`FactSink` 事实流继续只携带 STRM 事件。
+
+清理共用 `currentTarget`／`confirmMissing`／`deleteCandidate`／`previewCleanup`：
+归属行按 `file_type` 决定查重用的扩展名列表，字幕行随功能开关决定是否参与判定；
+排除扩展名、类型冲突保留、源根门槛、阈值与删除前重核与 STRM 完全一致。清理关闭而
+字幕开启时，`confirmSubtitlePresence` 用精确 Get 保持出现清零路径。SQLite schema
+v3 事务式新增 `file_type` 列（缺省 0＝STRM），旧库升级保留全部既有事实，只读
+`--dry-run` 对升级前后的库都以 STRM 读取缺列库。
+
 ## 模块与数据流
 
 ```text
@@ -47,10 +71,10 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 |---|---|
 | `cmd/strmgen` | CLI、配置与依赖装配、信号取消、摘要与脱敏诊断 |
 | `internal/config` | 严格 YAML、扩展名列表、环境变量名、URL、路径、输出根重叠及清理／调度配置校验 |
-| `internal/openlist` | 有界 HTTP、list/get、分页完整性、可选元数据；`Confirmer` 执行源根／目标 Get 判定与扩展名资格查询 |
-| `internal/pathmap` | 本地路径映射、实例级扩展名匹配与稳定 `/d/` URL 逐段编码，保持纯函数 |
+| `internal/openlist` | 有界 HTTP、list/get、分页完整性、可选元数据；`Confirmer` 执行源根／目标 Get 判定与扩展名资格查询；`SubtitleDownloader` 执行有界稳定 `/d/` 字幕下载 |
+| `internal/pathmap` | 本地路径映射（媒体换后缀、字幕保原名）、实例级扩展名匹配与稳定 `/d/` URL 逐段编码，保持纯函数 |
 | `internal/strm` | V1 解析、序列化与 URL → SHA-1 → Size 比较，保持纯函数 |
-| `internal/storage` | SQLite 最小归属、精确路径、成功轮次与缺失计数；不保存媒体指纹 |
+| `internal/storage` | SQLite 最小归属（含文件类型）、精确路径、成功轮次与缺失计数；不保存媒体指纹 |
 | `internal/reconciler` | 有界目录对账、归属／冲突、完整轮提交、清理资格，以及 LocalFS 发布／恢复／删除 |
 | `internal/notify` | 可选通知旁路：事实格式化、单个临时清单与官方 Bot API 传输；不依赖 reconciler／storage |
 | `internal/securepath` | Linux 目录句柄与相对操作，限制输出及数据库路径边界 |

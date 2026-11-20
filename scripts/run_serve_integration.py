@@ -49,6 +49,7 @@ ALL_SCENARIOS = [
     "serve_redaction",
     "serve_custom_extensions",
     "serve_notifications",
+    "serve_subtitles",
 ]
 
 _LIVE_HARNESSES = []
@@ -145,8 +146,10 @@ class Harness:
         self.processes = []
         _LIVE_HARNESSES.append(self)
 
-    def server(self, directories=None, hooks=None):
+    def server(self, directories=None, files=None, hooks=None):
         fixture = {"directories": directories if directories is not None else base_directories()}
+        if files is not None:
+            fixture["files"] = files
         server = make_server(port=0, fixture=fixture, hooks=hooks)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -162,7 +165,7 @@ class Harness:
             self._server = None
 
     def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4,
-               interval_minutes=60, media_extensions=None, notifications=None):
+               interval_minutes=60, media_extensions=None, notifications=None, subtitles=None):
         lines = [
             "openlist:",
             f'  api_url: "{api_url}"',
@@ -179,6 +182,12 @@ class Harness:
         if media_extensions is not None:
             rendered = ", ".join(json.dumps(ext) for ext in media_extensions)
             lines.append(f"  media_extensions: [{rendered}]")
+        if subtitles is not None:
+            lines.append("  subtitles:")
+            lines.append(f"    enabled: {'true' if subtitles.get('enabled', True) else 'false'}")
+            if subtitles.get("extensions") is not None:
+                rendered = ", ".join(json.dumps(ext) for ext in subtitles["extensions"])
+                lines.append(f"    extensions: [{rendered}]")
         lines.append("cleanup:")
         lines.append("  enabled: false")
         lines.append("database:")
@@ -693,6 +702,74 @@ def scenario_serve_notifications(h, results):
     }
 
 
+def scenario_serve_subtitles(h, results):
+    """The serve entry drives the subtitle pipeline with its resolved config.
+
+    The first tick downloads the missing subtitle, the following ticks skip it,
+    an in-flight configuration edit changes nothing, and only a restart adopts
+    the closed feature — after which the downloaded file stays untouched.
+    """
+    entries = [
+        {"name": "Sample.mkv", "is_dir": False, "size": 10,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+    ]
+    api, dirs = h.server(
+        directories={"/Movies": list(entries)},
+        files={"/Movies/Movie.zh.srt": "1\n00:00:01,000 --> 00:00:02,000\nserve subtitle\n"})
+    root = h.workdir / "out"
+    db = h.workdir / "data" / "strmgen.db"
+    cfg = h.config("subtitles", api, [("/Movies", root)], db, public=api,
+                   subtitles={"enabled": True})
+    stdout_path = h.workdir / "serve.out"
+    stderr_path = h.workdir / "serve.err"
+    proc = h.start_serve(cfg, extra_env={"STRMGEN_TEST_SERVE_INTERVAL_MS": "1200"},
+                         stdout_path=stdout_path, stderr_path=stderr_path)
+    check(wait_for(lambda: count_serve_results(stdout_path, "success") >= 2, 40,
+                   "serve did not complete two subtitle rounds"),
+          f"expected two rounds: {read_lines(stdout_path)}")
+    successes = [line for line in read_lines(stdout_path) if "result: success " in line]
+    check("subtitle_downloaded=1" in successes[0],
+          f"the first serve tick did not download the subtitle: {successes[0]}")
+    for line in successes[1:]:
+        check("subtitle_skipped=1" in line and "subtitle_downloaded=0" in line,
+              f"a repeat tick did not skip the subtitle: {line}")
+    target = root / "Movie.zh.srt"
+    check(target.exists(), "the subtitle was not published")
+    before = target.read_bytes()
+    before_mtime = target.stat().st_mtime_ns
+
+    # Editing the configuration while serve runs must not close the feature.
+    cfg.write_text(cfg.read_text().replace("    enabled: true", "    enabled: false"))
+    check(wait_for(lambda: count_serve_results(stdout_path, "success") >= 3, 20,
+                   "serve did not run another tick after the config edit"),
+          f"no further tick after the edit: {read_lines(stdout_path)}")
+    check(target.read_bytes() == before and target.stat().st_mtime_ns == before_mtime,
+          "a running serve adopted an edited configuration file")
+    code, _, _ = stop_serve(proc)
+    check(code != 0, f"cancelled serve must be non-zero, got {code}")
+    results["serve_subtitles"] = {"first_tick_downloaded": True, "rounds": len(successes)}
+
+    # The restart adopts the closed feature: no downloads, no deletions, and
+    # the already downloaded subtitle stays exactly as it was.
+    restarted_out = h.workdir / "serve-restart.out"
+    restarted_err = h.workdir / "serve-restart.err"
+    restart = h.start_serve(cfg, extra_env={"STRMGEN_TEST_SERVE_INTERVAL_MS": "1200"},
+                            stdout_path=restarted_out, stderr_path=restarted_err)
+    check(wait_for(lambda: count_serve_results(restarted_out, "success") >= 2, 40,
+                   "the restarted serve did not complete two rounds"),
+          f"restart rounds: {read_lines(restarted_out)}")
+    restart_lines = [line for line in read_lines(restarted_out) if "result: success " in line]
+    for line in restart_lines:
+        check("subtitle_downloaded=0" in line and "subtitle_deleted=0" in line,
+              f"the closed feature must stay inert: {line}")
+    check(target.read_bytes() == before and target.stat().st_mtime_ns == before_mtime,
+          "the closed feature changed the downloaded subtitle")
+    restart_code, _, _ = stop_serve(restart)
+    check(restart_code != 0, f"cancelled serve must be non-zero, got {restart_code}")
+    results["serve_subtitles"]["restart_inert"] = True
+    results["serve_subtitles"]["restart_exit"] = restart_code
+
 SCENARIOS = {
     "serve_release_first_round": scenario_serve_release_first_round,
     "serve_interval_and_skip": scenario_serve_interval_and_skip,
@@ -702,6 +779,7 @@ SCENARIOS = {
     "serve_redaction": scenario_serve_redaction,
     "serve_custom_extensions": scenario_serve_custom_extensions,
     "serve_notifications": scenario_serve_notifications,
+    "serve_subtitles": scenario_serve_subtitles,
 }
 
 

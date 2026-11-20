@@ -29,6 +29,25 @@ sync:
   # serve 在启动时读取本配置，修改后需重启生效。
   media_extensions: [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg"]
 
+  # 外挂字幕下载，默认关闭。整段或 enabled 省略时行为与旧配置完全一致。
+  # 开启后，对本轮生成了可用 STRM 的目录（新建、更新或已确认有效的未变化
+  # 归属文件），按同一份目录列表把入选后缀的缺失字幕复制到 STRM 旁边，
+  # 保留远端原名与原始字节；同目录多视频只处理一次，视频与字幕基本名可以无关。
+  # 已有同名字幕（无论是否归属）直接跳过，不覆盖、不改字节与 mtime。
+  # 下载使用 openlist.public_url + /d/ 的稳定地址且不携带 API token，
+  # 每份预算 30 秒、最多 5 次 HTTP(S) 重定向、响应上限 8 MiB，HTML/JSON
+  # 错误页与截断/超大响应视为失败；失败或目标安全冲突使本轮不完整，
+  # 冻结该来源的缺失推进与清理，下一轮重试缺件。
+  # 成功发布并登记归属的字幕与 STRM 共用 cleanup.enabled、sync.mirror 与
+  # cleanup.missing_confirmations：三次完整成功轮缺失并删除前重核后清理。
+  # extensions 省略时使用四项白名单 .srt .ass .ssa .vtt；显式列表完整替换且
+  # 只能取其中任意子集，规范化规则同 media_extensions。开启时字幕后缀不能
+  # 与 media_extensions 重叠。关闭功能时保留已下载字幕与原计数，不新增计数。
+  # serve 在启动时读取本配置，修改后需重启生效。
+  subtitles:
+    enabled: false
+    extensions: [".srt", ".ass", ".ssa", ".vtt"]
+
 # 清理默认关闭。只有显式 enabled: true 且 mirror 开启时才按已提交的完整轮
 # 缺失证据删除；阈值最低 3，更大的值只会延后清理。
 cleanup:

@@ -64,6 +64,18 @@ type Sync struct {
 	// value, and its plain slice decode would silently accept null, a single
 	// string, a number, a boolean or nested structures as an extension list.
 	MediaExtensions yaml.Node `yaml:"media_extensions"`
+	// Subtitles is the optional sync.subtitles block. A nil block (omitted or
+	// explicitly null) keeps subtitle downloading disabled.
+	Subtitles *Subtitles `yaml:"subtitles"`
+}
+
+// Subtitles is the optional sync.subtitles block. An omitted block or an
+// omitted enabled keeps the feature off; extensions default to the four-entry
+// subtitle whitelist and are validated even while disabled so an invalid
+// value can never hide behind enabled: false.
+type Subtitles struct {
+	Enabled    *bool     `yaml:"enabled"`
+	Extensions yaml.Node `yaml:"extensions"`
 }
 
 // MinuteCount is a strictly integral YAML scalar. The default yaml.v3 integer
@@ -211,6 +223,14 @@ type Resolved struct {
 	// process. It is either the 11-item default or the operator's explicit
 	// replacement list; the two are never merged.
 	MediaExtensions []string
+	// SubtitlesEnabled reports whether subtitle downloading is on for this
+	// process. The zero value keeps historical configurations off.
+	SubtitlesEnabled bool
+	// SubtitleExtensions is the validated subtitle extension list. It is the
+	// four-entry whitelist when the field is omitted and the operator's
+	// explicit subset when provided; when SubtitlesEnabled is false the list is
+	// still validated but never used.
+	SubtitleExtensions []string
 	// Notifications is the resolved notification configuration. Disabled is the
 	// zero value; enabled notifications still require the runtime credentials.
 	Notifications NotificationConfig
@@ -282,7 +302,7 @@ func safeFieldFromError(message string) string {
 	for _, field := range []string{
 		"openlist.api_url", "openlist.public_url", "openlist.token_env",
 		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged", "sync.mirror",
-		"sync.media_extensions",
+		"sync.media_extensions", "sync.subtitles.enabled", "sync.subtitles.extensions",
 		"cleanup.enabled", "cleanup.missing_confirmations", "database.path",
 		"notifications.telegram.enabled", "notifications.telegram.instance_name",
 		"notifications.telegram.bot_token_env", "notifications.telegram.chat_id_env",
@@ -391,6 +411,22 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
+	subtitlesEnabled := cfg.Sync.Subtitles != nil && cfg.Sync.Subtitles.Enabled != nil && *cfg.Sync.Subtitles.Enabled
+	var subtitleNode yaml.Node
+	if cfg.Sync.Subtitles != nil {
+		subtitleNode = cfg.Sync.Subtitles.Extensions
+	}
+	subtitleExtensions, err := resolveSubtitleExtensions(subtitleNode)
+	if err != nil {
+		return nil, err
+	}
+	if subtitlesEnabled {
+		// A selected extension can never be both a video candidate and a
+		// subtitle candidate in the same directory listing.
+		if extensionOverlap(mediaExtensions, subtitleExtensions) {
+			return nil, errors.New("sync.subtitles.extensions must not overlap sync.media_extensions")
+		}
+	}
 	notifications, err := resolveNotifications(cfg.Notif)
 	if err != nil {
 		return nil, err
@@ -407,6 +443,8 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 		IntervalMinutes:      intervalMinutes,
 		Interval:             interval,
 		MediaExtensions:      mediaExtensions,
+		SubtitlesEnabled:     subtitlesEnabled,
+		SubtitleExtensions:   subtitleExtensions,
 		Notifications:        notifications,
 		baseDir:              baseDir,
 	}
@@ -483,6 +521,69 @@ func resolveMediaExtensions(node yaml.Node) ([]string, error) {
 		ext, ok := normalizeExtension(item.Value)
 		if !ok {
 			return nil, errors.New("sync.media_extensions contains an unsupported extension")
+		}
+		if _, duplicate := seen[ext]; duplicate {
+			continue
+		}
+		seen[ext] = struct{}{}
+		resolved = append(resolved, ext)
+	}
+	return resolved, nil
+}
+
+// extensionOverlap reports whether any extension appears in both lists.
+// Both inputs are already normalised.
+func extensionOverlap(media, subtitles []string) bool {
+	seen := make(map[string]struct{}, len(media))
+	for _, ext := range media {
+		seen[ext] = struct{}{}
+	}
+	for _, ext := range subtitles {
+		if _, ok := seen[ext]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveSubtitleExtensions returns the subtitle extension list. An omitted
+// field keeps the four-entry whitelist; an explicit list completely replaces
+// it, must be non-empty and may only pick entries from the whitelist. The
+// normalisation rules are the ones media extensions use, so the two lists can
+// never drift apart. Every diagnostic names the field only.
+func resolveSubtitleExtensions(node yaml.Node) ([]string, error) {
+	switch node.Kind {
+	case 0:
+		// The field was omitted: keep the subtitle whitelist.
+		return pathmap.SubtitleExtensions(), nil
+	case yaml.ScalarNode:
+		if node.Tag == "!!null" {
+			return nil, errors.New("sync.subtitles.extensions must be a list of strings, not null")
+		}
+		return nil, errors.New("sync.subtitles.extensions must be a list of strings")
+	case yaml.SequenceNode:
+	default:
+		return nil, errors.New("sync.subtitles.extensions must be a list of strings")
+	}
+	if len(node.Content) == 0 {
+		return nil, errors.New("sync.subtitles.extensions must not be empty")
+	}
+	allowed := make(map[string]struct{}, 4)
+	for _, ext := range pathmap.SubtitleExtensions() {
+		allowed[ext] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(node.Content))
+	resolved := make([]string, 0, len(node.Content))
+	for _, item := range node.Content {
+		if item.Kind != yaml.ScalarNode || item.Tag != "!!str" {
+			return nil, errors.New("sync.subtitles.extensions must contain only strings")
+		}
+		ext, ok := normalizeExtension(item.Value)
+		if !ok {
+			return nil, errors.New("sync.subtitles.extensions contains an unsupported extension")
+		}
+		if _, whitelisted := allowed[ext]; !whitelisted {
+			return nil, errors.New("sync.subtitles.extensions contains an unsupported extension")
 		}
 		if _, duplicate := seen[ext]; duplicate {
 			continue

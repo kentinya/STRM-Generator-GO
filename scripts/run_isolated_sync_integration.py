@@ -56,6 +56,8 @@ ALL_SCENARIOS = [
     "custom_extensions",
     "notifications",
     "notifications_cleanup",
+    "subtitles",
+    "subtitles_cleanup",
 ]
 
 # Every Harness registers here so a failing scenario cannot leak a locked or
@@ -105,14 +107,19 @@ class Harness:
         self.processes = []
         _LIVE_HARNESSES.append(self)
 
-    def server(self, directories=None, hooks=None):
+    def server(self, directories=None, files=None, hooks=None):
         fixture = {"directories": directories if directories is not None else base_directories()}
+        if files is not None:
+            fixture["files"] = files
         server = make_server(port=0, fixture=fixture, hooks=hooks)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self._server = server
         self._thread = thread
         return f"http://127.0.0.1:{server.server_port}", fixture["directories"]
+
+    def download_calls(self):
+        return list(getattr(self._server, "download_calls", []))
 
     def stop_server(self):
         if getattr(self, "_server", None) is not None:
@@ -122,7 +129,8 @@ class Harness:
             self._server = None
 
     def config(self, name, api_url, sources, db, public=DEFAULT_PUBLIC, workers=4, cleanup=False,
-               mirror=None, missing_confirmations=None, media_extensions=None, notifications=None):
+               mirror=None, missing_confirmations=None, media_extensions=None, notifications=None,
+               subtitles=None):
         lines = [
             "openlist:",
             f'  api_url: "{api_url}"',
@@ -140,6 +148,12 @@ class Harness:
             # are already plain strings chosen by this driver.
             rendered = ", ".join(json.dumps(ext) for ext in media_extensions)
             lines.append(f"  media_extensions: [{rendered}]")
+        if subtitles is not None:
+            lines.append("  subtitles:")
+            lines.append(f"    enabled: {'true' if subtitles.get('enabled', True) else 'false'}")
+            if subtitles.get("extensions") is not None:
+                rendered = ", ".join(json.dumps(ext) for ext in subtitles["extensions"])
+                lines.append(f"    extensions: [{rendered}]")
         if mirror is not None:
             lines.append(f"  mirror: {'true' if mirror else 'false'}")
         lines.append("cleanup:")
@@ -246,11 +260,21 @@ def read_db(db):
 
 
 def ownership_details(db):
-    """Return rel path -> (missing_count, missing_round, remote_path)."""
+    """Return rel path -> (missing_count, missing_round, remote_path, file_type).
+
+    file_type is 0 for a STRM row and 1 for a subtitle row; a pre-subtitle
+    database without the column reads every row as 0.
+    """
     conn = sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        return {row[0]: (row[1], row[2], row[3]) for row in conn.execute(
-            "SELECT relative_path, missing_count, missing_round, remote_path FROM ownership")}
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(ownership)")]
+        if "file_type" in columns:
+            query = ("SELECT relative_path, missing_count, missing_round, remote_path, file_type"
+                     " FROM ownership")
+        else:
+            query = ("SELECT relative_path, missing_count, missing_round, remote_path, 0"
+                     " FROM ownership")
+        return {row[0]: (row[1], row[2], row[3], row[4]) for row in conn.execute(query)}
     finally:
         conn.close()
 
@@ -3057,6 +3081,329 @@ def validate_output_dir(output_dir):
 
 
 
+SUBTITLE_BODIES = {
+    "/Movies/Movie.zh.srt": "1\n00:00:01,000 --> 00:00:02,000\nEnglish track\n",
+    "/Movies/中 文.srt": "1\n00:00:01,000 --> 00:00:02,000\n中文轨道\n",
+    "/Movies/科幻/A #100%.zh.srt": "1\n00:00:01,000 --> 00:00:02,000\n科幻\n",
+    "/Movies/Broken.srt": "never served\n",
+    "/Movies/Link.srt": "never served\n",
+    "/Movies/Window.srt": "interrupted window body\n",
+    "/Movies/Reappear.srt": "reappearing subtitle\n",
+}
+
+
+def scenario_subtitles(h, results):
+    """Subtitle downloading through the real CLI: dry-run preview, exact-byte
+    publication with ownership, stable rerun skip, download failure freeze,
+    symlink conflict and the published-but-unregistered interruption window."""
+    observed = {}
+
+    def setup(name, entries=None, files=None, extra_dirs=None, subtitles=True, extensions=None):
+        hh = Harness(h.binary, h.workdir / name, fault_binary=h.fault_binary)
+        dirs = {
+            "/Movies": entries if entries is not None else [
+                {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+                 "hash_info": {"sha1": "a" * 40}},
+                {"name": "NoHash.mp4", "is_dir": False, "size": 2048, "hash_info": None},
+                {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+                {"name": "中 文.srt", "is_dir": False, "size": 40, "hash_info": None},
+            ],
+        }
+        if extra_dirs:
+            dirs.update(extra_dirs)
+        api, served = hh.server(directories=dirs, files=files if files is not None else SUBTITLE_BODIES)
+        root = hh.workdir / "out"
+        db = hh.workdir / "data" / "strmgen.db"
+        block = {"enabled": subtitles} if subtitles else None
+        if subtitles and extensions is not None:
+            block["extensions"] = extensions
+        cfg = hh.config(name, api, [("/Movies", root)], db, public=api,
+                        cleanup=False, subtitles=block)
+        return hh, api, dirs, root, db, cfg
+
+    # Dry-run previews the downloads of eligible directories without state.
+    hh, api, dirs, root, db, cfg = setup("dry-run-preview", extra_dirs={
+        "/Movies/SubsOnly": [{"name": "Orphan.srt", "is_dir": False, "size": 10, "hash_info": None}],
+    })
+    dry = hh.run(cfg, dry_run=True)
+    check(dry.returncode == 0, f"subtitle dry-run exit: {dry.stdout} {dry.stderr}")
+    check("subtitle_downloaded=2" in dry.stdout, f"dry-run must plan two downloads: {dry.stdout}")
+    check("would download subtitle" in dry.stderr, f"dry-run diagnostics: {dry.stderr}")
+    check(not root.exists() and not db.exists(), "dry-run created state")
+    observed["dry_run_planned"] = 2
+    hh.cleanup()
+
+    # First sync downloads exactly the eligible set with original names and bytes.
+    hh, api, dirs, root, db, cfg = setup("first-sync")
+    first = hh.run(cfg)
+    check(first.returncode == 0, f"first subtitle sync: {first.stdout} {first.stderr}")
+    check("subtitle_downloaded=2" in first.stdout and "subtitle_failed=0" in first.stdout,
+          f"first sync counters: {first.stdout}")
+    zh = (root / "Movie.zh.srt").read_bytes()
+    cn = (root / "中 文.srt").read_bytes()
+    check(zh == SUBTITLE_BODIES["/Movies/Movie.zh.srt"].encode(), f"zh bytes: {zh!r}")
+    check(cn == SUBTITLE_BODIES["/Movies/中 文.srt"].encode(), f"cn bytes: {cn!r}")
+    details = ownership_details(db)
+    check(details["Sample.strm"][3] == 0, f"STRM row type: {details}")
+    check(details["Movie.zh.srt"][3] == 1, f"subtitle row type: {details}")
+    check(details["Movie.zh.srt"][2] == "/Movies/Movie.zh.srt", f"subtitle mapping: {details}")
+    check(details["中 文.srt"][3] == 1, f"subtitle row type: {details}")
+    check(len(hh.download_calls()) == 2, f"download set: {hh.download_calls()}")
+    mtimes = {rel: (root / rel).stat().st_mtime_ns for rel in ("Movie.zh.srt", "中 文.srt")}
+    observed["first_sync"] = first.returncode
+    observed["ownership_types"] = (details["Sample.strm"][3], details["Movie.zh.srt"][3])
+
+    # A stable rerun skips the existing files: no requests, no byte or mtime change.
+    second = hh.run(cfg)
+    check(second.returncode == 0, f"rerun: {second.stdout} {second.stderr}")
+    check("subtitle_downloaded=0" in second.stdout and "subtitle_skipped=2" in second.stdout,
+          f"rerun counters: {second.stdout}")
+    check(len(hh.download_calls()) == 2, f"rerun re-downloaded: {hh.download_calls()}")
+    for rel, mtime in mtimes.items():
+        check((root / rel).stat().st_mtime_ns == mtime, f"rerun changed mtime of {rel}")
+        check((root / rel).read_bytes() == zh if rel == "Movie.zh.srt"
+              else (root / rel).read_bytes() == cn, f"rerun changed bytes of {rel}")
+    observed["stable_rerun"] = True
+    hh.cleanup()
+
+    # A subtitle answered by an HTML/JSON error page fails the round and
+    # keeps the file set.
+    hh, api, dirs, root, db, cfg = setup("broken-download", files={
+        "/Movies/Movie.zh.srt": SUBTITLE_BODIES["/Movies/Movie.zh.srt"],
+        "/Movies/中 文.srt": SUBTITLE_BODIES["/Movies/中 文.srt"],
+        "/Movies/Broken.srt": {"body": '{"code":500}', "content_type": "application/json"},
+    })
+    dirs["/Movies"].append({"name": "Broken.srt", "is_dir": False, "size": 10, "hash_info": None})
+    broken = hh.run(cfg)
+    check(broken.returncode == 1, f"a failed subtitle download must exit non-zero: {broken.stdout}")
+    check("subtitle_failed=1" in broken.stdout and "partial=true" in broken.stdout,
+          f"failed round counters: {broken.stdout}")
+    check(not (root / "Broken.srt").exists(), "a failed download left a target")
+    check((root / "Movie.zh.srt").exists(), "the failed round removed an earlier download")
+    observed["download_failure_freeze"] = broken.returncode
+    hh.cleanup()
+
+    # An existing unowned plain file is skipped with its original bytes.
+    hh, api, dirs, root, db, cfg = setup("existing-unowned")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "Movie.zh.srt").write_bytes(b"user-authored subtitle\n")
+    old_mtime = (root / "Movie.zh.srt").stat().st_mtime_ns
+    run = hh.run(cfg)
+    check(run.returncode == 0, f"unowned skip: {run.stdout} {run.stderr}")
+    check("subtitle_skipped=1" in run.stdout and "subtitle_downloaded=1" in run.stdout,
+          f"unowned skip counters: {run.stdout}")
+    check((root / "Movie.zh.srt").read_bytes() == b"user-authored subtitle\n",
+          "unowned subtitle bytes changed")
+    check((root / "Movie.zh.srt").stat().st_mtime_ns == old_mtime, "unowned subtitle mtime changed")
+    details = ownership_details(db)
+    check("Movie.zh.srt" not in details, f"unowned file was claimed: {details}")
+    observed["unowned_skip"] = True
+    hh.cleanup()
+
+    # A symlink subtitle target is a conflict and stays a symlink.
+    hh, api, dirs, root, db, cfg = setup("symlink-target")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "Movie.zh.srt").symlink_to("/etc/passwd")
+    run = hh.run(cfg)
+    check(run.returncode == 1, f"symlink conflict exit: {run.stdout} {run.stderr}")
+    check("conflicts=1" in run.stdout, f"symlink conflict counters: {run.stdout}")
+    check((root / "Movie.zh.srt").is_symlink(), "the symlink target was replaced")
+    observed["symlink_conflict"] = run.returncode
+    hh.cleanup()
+
+    # Only-subtitle directories never download.
+    hh, api, dirs, root, db, cfg = setup(
+        "subs-only", extra_dirs={"/Movies/SubsOnly": [
+            {"name": "Orphan.srt", "is_dir": False, "size": 10, "hash_info": None}]})
+    run = hh.run(cfg)
+    check(run.returncode == 0 and "subtitle_downloaded=2" in run.stdout,
+          f"subs-only directory: {run.stdout}")
+    check(not (root / "SubsOnly" / "Orphan.srt").exists(),
+          "a directory without a usable video downloaded a subtitle")
+    observed["subs_only_skipped"] = True
+    hh.cleanup()
+
+    # The published-but-unregistered window: an interrupted process leaves the
+    # subtitle on disk without an ownership row, and a rerun keeps it unowned.
+    if h.fault_binary is not None:
+        hh, api, dirs, root, db, cfg = setup("publish-window")
+        dirs["/Movies"].append({"name": "Window.srt", "is_dir": False, "size": 30, "hash_info": None})
+        marker = hh.workdir / "window.marker"
+        proc = hh.start(cfg, binary=h.fault_binary, extra_env={
+            "STRMGEN_TEST_SUBTITLE_HOLD": "Window.srt",
+            "STRMGEN_TEST_SUBTITLE_MARKER": str(marker),
+        })
+        # The hold fires during the first round that reaches the window.
+        check(wait_for_marker(proc, marker, 60), "the fault build never reached the subtitle window")
+        proc.kill()
+        proc.wait(timeout=10)
+        check((root / "Window.srt").exists(), "the interrupted publication is missing")
+        details = ownership_details(db)
+        check("Window.srt" not in details, f"unregistered window row: {details}")
+        # The rerun skips the unowned file and never claims it.
+        rerun = hh.run(cfg)
+        check(rerun.returncode == 0, f"window rerun: {rerun.stdout} {rerun.stderr}")
+        check("subtitle_skipped=3" in rerun.stdout, f"window rerun counters: {rerun.stdout}")
+        details = ownership_details(db)
+        check("Window.srt" not in details, f"the unowned subtitle was claimed: {details}")
+        check((root / "Window.srt").read_bytes()
+              == SUBTITLE_BODIES["/Movies/Window.srt"].encode(), "window bytes changed")
+        observed["publish_window_unowned"] = True
+        hh.cleanup()
+    else:
+        observed["publish_window_unowned"] = "SKIPPED: no fault binary"
+
+    results["subtitles"] = observed
+
+
+def scenario_subtitles_cleanup(h, results):
+    """Subtitle ownership through the committed three-round lifecycle:
+    0->1->2->3 counting, dry-run candidate preview, threshold deletion with the
+    STRM untouched, excluded-extension qualification, the disabled-feature
+    freeze and the cleanup-off appearance clearing path."""
+    observed = {}
+
+    def setup(name, cleanup=True, subtitles=True, extensions=None):
+        hh = Harness(h.binary, h.workdir / name, fault_binary=h.fault_binary)
+        entries = [
+            {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+             "hash_info": {"sha1": "a" * 40}},
+            {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+        ]
+        api, served = hh.server(directories={"/Movies": entries}, files=dict(SUBTITLE_BODIES))
+        root = hh.workdir / "out"
+        db = hh.workdir / "data" / "strmgen.db"
+        block = {"enabled": subtitles} if subtitles else None
+        if subtitles and extensions is not None:
+            block["extensions"] = extensions
+        cfg = hh.config(name, api, [("/Movies", root)], db, public=api,
+                        cleanup=cleanup, subtitles=block)
+        return hh, api, served, root, db, cfg
+
+    # Three committed rounds count, a dry-run previews, the fourth deletes.
+    hh, api, dirs, root, db, cfg = setup("lifecycle")
+    check(hh.run(cfg).returncode == 0, "lifecycle seed failed")
+    dirs["/Movies"] = [entry for entry in dirs["/Movies"] if entry["name"] != "Movie.zh.srt"]
+    for round_number in range(1, 4):
+        run = hh.run(cfg)
+        check(run.returncode == 0 and "subtitle_deleted=0" in run.stdout,
+              f"missing round {round_number}: {run.stdout} {run.stderr}")
+        details = ownership_details(db)
+        check(details["Movie.zh.srt"][0] == round_number, f"round {round_number} count: {details}")
+        check((root / "Movie.zh.srt").exists(), f"round {round_number} deleted early")
+    before_file = (root / "Movie.zh.srt").read_bytes()
+    preview = hh.run(cfg, dry_run=True)
+    check(preview.returncode == 0 and "subtitle_candidates=1" in preview.stdout,
+          f"cleanup preview: {preview.stdout} {preview.stderr}")
+    check("would delete subtitle" in preview.stderr, f"preview diagnostic: {preview.stderr}")
+    check((root / "Movie.zh.srt").read_bytes() == before_file, "preview changed the candidate")
+    fourth = hh.run(cfg)
+    check(fourth.returncode == 0 and "subtitle_deleted=1" in fourth.stdout,
+          f"qualified subtitle delete: {fourth.stdout} {fourth.stderr}")
+    check("deleted subtitle Movie.zh.srt" in fourth.stderr, f"deletion diagnostic: {fourth.stderr}")
+    check(not (root / "Movie.zh.srt").exists(), "the qualified subtitle still exists")
+    check((root / "Sample.strm").exists(), "the video STRM was removed with the subtitle")
+    check("Movie.zh.srt" not in ownership_details(db), "the deleted row is still present")
+    observed["threshold_delete"] = fourth.returncode
+    hh.cleanup()
+
+    # A subtitle whose extension left the current list counts while its Get
+    # still succeeds, and deletes at the threshold.
+    # The seed runs with the default subtitle list so the .srt is owned; the
+    # narrow list then excludes it while its Get keeps succeeding.
+    hh, api, dirs, root, db, cfg = setup("excluded-extension")
+    check(hh.run(cfg).returncode == 0, "excluded seed failed")
+    narrow = hh.config("excluded-narrow", api, [("/Movies", root)], db, public=api,
+                       cleanup=True, subtitles={"enabled": True, "extensions": [".vtt"]})
+    for round_number in range(1, 4):
+        run = hh.run(narrow)
+        check(run.returncode == 0 and "subtitle_downloaded=0" in run.stdout,
+              f"excluded round {round_number}: {run.stdout} {run.stderr}")
+        details = ownership_details(db)
+        check(details["Movie.zh.srt"][0] == round_number, f"excluded count {round_number}: {details}")
+    excluded = hh.run(narrow)
+    check(excluded.returncode == 0 and "subtitle_deleted=1" in excluded.stdout,
+          f"excluded deletion: {excluded.stdout} {excluded.stderr}")
+    check(not (root / "Movie.zh.srt").exists(), "the excluded subtitle was not removed")
+    check((root / "Sample.strm").exists(), "the excluded round removed the video")
+    observed["excluded_extension"] = excluded.returncode
+    hh.cleanup()
+
+    # Closing the subtitle feature freezes the row: no counting, no deletion.
+    hh, api, dirs, root, db, cfg = setup("disabled-freeze")
+    check(hh.run(cfg).returncode == 0, "freeze seed failed")
+    dirs["/Movies"] = [entry for entry in dirs["/Movies"] if entry["name"] != "Movie.zh.srt"]
+    check(hh.run(cfg).returncode == 0, "freeze counting round failed")
+    check(ownership_details(db)["Movie.zh.srt"][0] == 1, "freeze seed count missing")
+    frozen_cfg = hh.config("frozen", api, [("/Movies", root)], db, public=api,
+                            cleanup=True, subtitles=None)
+    for _ in range(3):
+        run = hh.run(frozen_cfg)
+        check(run.returncode == 0 and "subtitle_deleted=0" in run.stdout,
+              f"frozen round: {run.stdout} {run.stderr}")
+    check(ownership_details(db)["Movie.zh.srt"][0] == 1,
+          "a closed subtitle feature changed the committed count")
+    check((root / "Movie.zh.srt").exists(), "a closed subtitle feature deleted the file")
+    observed["disabled_freeze"] = True
+    hh.cleanup()
+
+    # With cleanup disabled the subtitle appearance path still works: an
+    # unlisted subtitle read by its exact Get clears the committed count, and
+    # a genuinely unreadable one never counts. The override flag lets the
+    # fixture answer list/get inconsistently on demand.
+    get_state = {"succeeds": False}
+
+    def get_override(endpoint, req_path, request, directories):
+        if get_state["succeeds"] and endpoint == "/api/fs/get" and req_path == "/Movies/Movie.zh.srt":
+            return 200, 200, {"name": "Movie.zh.srt", "is_dir": False, "size": 60,
+                              "hash_info": None}
+        return None
+
+    hh = Harness(h.binary, h.workdir / "presence-clear", fault_binary=h.fault_binary)
+    entries = [
+        {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+    ]
+    api, dirs = hh.server(directories={"/Movies": entries}, files=dict(SUBTITLE_BODIES),
+                          hooks={"override": get_override})
+    root = hh.workdir / "out"
+    db = hh.workdir / "data" / "strmgen.db"
+    cfg = hh.config("presence-on", api, [("/Movies", root)], db, public=api,
+                    cleanup=True, subtitles={"enabled": True})
+    check(hh.run(cfg).returncode == 0, "presence seed failed")
+    # The subtitle leaves the listing and the exact Get; one committed count.
+    dirs["/Movies"] = [entry for entry in dirs["/Movies"] if entry["name"] != "Movie.zh.srt"]
+    check(hh.run(cfg).returncode == 0, "presence counting round failed")
+    check(ownership_details(db)["Movie.zh.srt"][0] == 1, "presence seed count missing")
+
+    # Cleanup is disabled and the listing stays without the subtitle, but the
+    # exact Get now reads it: the appearance path must clear the count.
+    off_cfg = hh.config("presence-off", api, [("/Movies", root)], db, public=api,
+                        cleanup=False, subtitles={"enabled": True})
+    get_state["succeeds"] = True
+    cleared = hh.run(off_cfg)
+    check(cleared.returncode == 0, f"presence pass: {cleared.stdout} {cleared.stderr}")
+    check("subtitle_deleted=0" in cleared.stdout, f"presence counters: {cleared.stdout}")
+    details = ownership_details(db)
+    check(details["Movie.zh.srt"][0] == 0,
+          f"the confirmed reappearance must clear the committed count: {details}")
+    check((root / "Movie.zh.srt").exists(), "the presence pass deleted the subtitle")
+
+    # With the Get unreadable again, a cleanup-off round never counts.
+    get_state["succeeds"] = False
+    steady = hh.run(off_cfg)
+    check(steady.returncode == 0, f"steady cleanup-off round: {steady.stdout} {steady.stderr}")
+    check(ownership_details(db)["Movie.zh.srt"][0] == 0,
+          "a cleanup-off round must not advance a subtitle count")
+    check((root / "Movie.zh.srt").exists(), "the steady round removed the subtitle")
+    observed["presence_clear"] = True
+    hh.cleanup()
+
+    results["subtitles_cleanup"] = observed
+
+
+
 SCENARIOS = {
     "first_generation": scenario_first_generation,
     "repeat_and_compare": scenario_repeat_and_compare,
@@ -3072,6 +3419,8 @@ SCENARIOS = {
     "custom_extensions": scenario_custom_extensions,
     "notifications": scenario_notifications,
     "notifications_cleanup": scenario_notifications_cleanup,
+    "subtitles": scenario_subtitles,
+    "subtitles_cleanup": scenario_subtitles_cleanup,
 }
 
 

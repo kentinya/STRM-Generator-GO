@@ -15,8 +15,12 @@ Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
 `config.example.yaml`，无需运行时 Go SDK；下载、校验和初次配置见
 [README](../README.md#下载二进制)。
 
-v1.2.0 增加可选 Telegram 通知；v1.2.1 改善摘要排版、图标和文件明细折叠，
-兼容原配置，通知仍默认关闭。
+v1.2.0 增加可选 Telegram 通知；v1.2.1 改善摘要排版、图标和文件明细折叠。
+后续版本增加可选外挂字幕下载（`sync.subtitles`，默认关闭，兼容原配置）：
+首次可写同步会把状态库自动升级到含文件类型列的 schema，既有 STRM 归属、路径、
+完整轮次与缺失计数保持不变，`--dry-run` 可直接读取升级前后的库，无需删除或重建数据库。
+字幕下载要求 `openlist.public_url + /d/` 稳定地址可被生成器直接访问且不使用
+OpenList token；要求临时签名或额外鉴权的挂载不满足使用前提。
 升级前停止生成器，备份输出、配置与完整状态目录；替换程序或镜像时保留这些目录和
 共享锁挂载，先执行 dry-run 再恢复运行。Compose 修改镜像或环境变量后需重新创建容器。
 不要用安装包里的示例覆盖现有配置，不要删除数据库来升级。
@@ -155,6 +159,18 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
 默认 Compose 的 `/tmp` 是每个容器独立的 tmpfs，其中的同名锁路径不构成跨容器互斥。
 锁目录挂载到 `read_only` 文件系统时仍可写（bind mount 不受 `read_only: true` 限制），
 但必须由运行身份拥有。
+
+## 字幕部署注意
+
+- **网络可达**：字幕下载与 Jellyfin 消费同一稳定地址。容器部署时确认 `public_url`
+  指向的 `/d/` 路由在容器网络内可达；API 地址与下载地址可以不同源，但都必须指向
+  同一 OpenList 实例的同一目录树。
+- **消费者只读**：字幕与 STRM 一样由生成器单写；人工放入或外部工具改动的同名字幕
+  不会被覆盖，长期保留。
+- **扫描关联**：要被 Jellyfin 识别为外部字幕轨，字幕命名需符合其规则
+  （例如 `Movie.zh.srt`）；任意命名的字幕仅按原名复制，是否展示由 Jellyfin 决定。
+- **关闭功能**：把 `sync.subtitles.enabled` 改为 `false`（或删除该段）并重启即可；
+  已下载字幕与原计数保留，不新增计数也不删除。
 
 ## 边界与 NOT RUN
 

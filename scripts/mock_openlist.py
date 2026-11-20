@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import posixpath
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "strmgen-fixture-only"  # Public test value, not a secret.
@@ -16,7 +17,13 @@ def load_fixture():
 
 
 def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
-    directories = (fixture or load_fixture())["directories"]
+    data = fixture or load_fixture()
+    directories = data["directories"]
+    # files maps an absolute remote path to its downloadable body. A value may
+    # be plain text/bytes or {"body": ..., "content_type": ...}; the /d/ route
+    # serves exactly these bytes, never list metadata.
+    files = data.get("files", {})
+    downloads = []
     hooks = hooks or {}
     accepted_tokens = {TOKEN}
     accepted_tokens.update(token for token in hooks.get("tokens", []) if isinstance(token, str))
@@ -38,7 +45,38 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
                 pass  # A cancelled client may close the socket early.
 
         def do_GET(self):
-            self.respond(200 if self.path == "/health" else 404)
+            if self.path == "/health":
+                self.respond(200)
+                return
+            # The stable download route serves fixture bytes only. Every served
+            # path is recorded so a scenario can assert the download set.
+            if not self.path.startswith("/d/"):
+                self.respond(404)
+                return
+            remote = urllib.parse.unquote(self.path[len("/d/"):])
+            remote = "/" + remote.lstrip("/")
+            downloads.append(remote)
+            entry = files.get(remote)
+            if entry is None:
+                # A real HTTP 404, not the JSON API envelope.
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if isinstance(entry, dict):
+                body, content_type = entry.get("body", ""), entry.get("content_type", "application/octet-stream")
+            else:
+                body, content_type = entry, "text/plain; charset=utf-8"
+            if isinstance(body, str):
+                body = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def do_POST(self):
             if self.headers.get("Authorization") not in accepted_tokens:
@@ -102,7 +140,9 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
             obj["raw_url"] = "https://fixture.example.invalid/temporary?sign=fixture-only"
             self.respond(200, obj)
 
-    return ThreadingHTTPServer((host, port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
+    server.download_calls = downloads
+    return server
 
 
 def main():

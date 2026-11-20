@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/strm"
 )
@@ -695,5 +696,105 @@ func TestRecoverRemovesOwnStagingWhenTargetAbsent(t *testing.T) {
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("own staging was not removed: %v %v", entries, err)
+	}
+}
+
+func TestPublishSubtitleStreamsExactBytes(t *testing.T) {
+	root := t.TempDir()
+	fs := LocalFS{}
+	if err := fs.EnsureDir(root, "sub"); err != nil {
+		t.Fatalf("ensure dir: %v", err)
+	}
+	body := "1\n00:00:01,000 --> 00:00:02,000\n字幕\n"
+	outcome, err := fs.PublishSubtitle(root, "sub/中文.srt", func(w io.Writer) error {
+		_, err := w.Write([]byte(body))
+		return err
+	})
+	if err != nil || !outcome.Published {
+		t.Fatalf("publish subtitle: %v %+v", err, outcome)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "sub", "中文.srt"))
+	if err != nil || string(raw) != body {
+		t.Fatalf("subtitle bytes: %q %v", raw, err)
+	}
+	// No temporary residue may survive a successful publication.
+	assertNoSubtitleTemp(t, filepath.Join(root, "sub"))
+}
+
+func TestPublishSubtitleRefusesExistingTargetAndSymlink(t *testing.T) {
+	root := t.TempDir()
+	fs := LocalFS{}
+	if err := os.WriteFile(filepath.Join(root, "A.srt"), []byte("existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.PublishSubtitle(root, "A.srt", func(w io.Writer) error { return nil }); err == nil {
+		t.Fatal("an existing plain file must be refused")
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(root, "L.srt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := fs.PublishSubtitle(root, "L.srt", func(w io.Writer) error { return nil }); err == nil {
+		t.Fatal("a symlink target must be refused")
+	}
+	info, err := os.Lstat(filepath.Join(root, "L.srt"))
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink not preserved: %v", err)
+	}
+}
+
+func TestPublishSubtitleCleansTempOnWriteFailure(t *testing.T) {
+	root := t.TempDir()
+	fs := LocalFS{}
+	write := func(w io.Writer) error { return errors.New("injected stream failure") }
+	if _, err := fs.PublishSubtitle(root, "A.srt", write); err == nil {
+		t.Fatal("a failed write must fail the publication")
+	}
+	if _, err := os.Stat(filepath.Join(root, "A.srt")); err == nil {
+		t.Fatal("a failed write must not leave a target")
+	}
+	assertNoSubtitleTemp(t, root)
+}
+
+func TestPublishSubtitleEnforcesByteCeiling(t *testing.T) {
+	root := t.TempDir()
+	fs := LocalFS{}
+	write := func(w io.Writer) error {
+		// The write itself never lies: the fs layer enforces the ceiling.
+		if _, err := w.Write(make([]byte, openlist.SubtitleMaxBytes)); err != nil {
+			return nil // a well-behaved fetcher reports the refusal as failure
+		}
+		if _, err := w.Write([]byte("x")); err != nil {
+			return nil
+		}
+		return nil
+	}
+	if _, err := fs.PublishSubtitle(root, "A.srt", write); err != nil {
+		t.Fatalf("an in-ceiling body must publish: %v", err)
+	}
+	over := func(w io.Writer) error {
+		if _, err := w.Write(make([]byte, openlist.SubtitleMaxBytes+1024)); err != nil {
+			return err
+		}
+		return nil
+	}
+	if _, err := fs.PublishSubtitle(root, "B.srt", over); err == nil {
+		t.Fatal("an above-ceiling body must be refused")
+	}
+	if _, err := os.Stat(filepath.Join(root, "B.srt")); err == nil {
+		t.Fatal("an oversized body must not publish")
+	}
+	assertNoSubtitleTemp(t, root)
+}
+
+func assertNoSubtitleTemp(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".strmgen-") && strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("temporary residue %s survived", e.Name())
+		}
 	}
 }
