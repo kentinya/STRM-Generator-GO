@@ -4,10 +4,10 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: PLANNED
+Status: READY FOR B REVIEW
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
-Implementation Head: NOT SET
+Implementation Head: eefbef028b60eabaad29e75c9f94e2eee8ee518d
 Independent B Review: PENDING
 Difficulty: High
 Test Level: T4
@@ -95,8 +95,86 @@ STRM、同轮下载匹配名字幕的样片，在该视频的字幕轨列表查�
 
 ## Task Report
 
-待 Developer 记录实际 Head、改动摘要、逐项验收结果、证据位置、首次失败／重跑和未运行原因。
-当前为规划阶段，产品测试、真实 OpenList 和 Jellyfin 扫描均为 NOT RUN。
+实施 Head：`eefbef028b60eabaad29e75c9f94e2eee8ee518d`（单提交，含产品代码、测试、
+集成驱动与文档；Base..Head 全差异为 Task Base 后唯一产品提交，无其他隐藏改动）。
+
+**改动摘要**
+
+- `internal/config`：`sync.subtitles` 严格解析（enabled＋四项白名单 extensions，默认
+  关闭；关闭时列表仍校验；开启时与 `media_extensions` 查重；错误字段进入
+  `SafeDiagnostic`，退出 2）。
+- `internal/pathmap`：`SubtitleExtensions()` 白名单与 `SubtitleRelative`（与视频相同
+  的段校验，保原名拼接源内相对目录）。
+- `internal/openlist/download.go`：`SubtitleDownloader`，稳定 `/d/` 无凭证 GET、
+  30 秒预算、5 次重定向、8 MiB 上限，HTML/JSON 错误页／截断／超大分类为固定错误。
+- `internal/reconciler`：`handleFile` 返回本轮可用结果；目录资格驱动
+  `handleSubtitle` 下载；出现观察独立于资格；`LocalFS.PublishSubtitle` 流式同目录
+  临时写入＋无覆盖 Link 原子发布＋父目录同步，自带字幕字节上限并显式拒绝超限；
+  `currentTarget`/`confirmMissing`/`deleteCandidate`/`previewCleanup` 按
+  `file_type` 统一判定；清理关闭时的 `confirmSubtitlePresence` 出现清零路径；
+  字幕行不进入 `FactSink`；新增 `afterSubtitlePublish` testhooks 窗口
+  （已发布未登记）。
+- `internal/storage`：schema v3 新增 `file_type`（缺省 0＝STRM，升级保留既有
+  行／轮次／计数），只读打开对升级前后的库均可用（缺列按 STRM 读取）。
+- `cmd/strmgen`：三入口装配字幕集与下载器；`printReport`/`printServeSummary`
+  输出 `subtitle_downloaded/skipped/failed/deleted/reclaimed/candidates`。
+- 驱动：`scripts/mock_openlist.py` 支持固定 `/d/` 字节与下载计数；
+  `run_isolated_sync_integration.py` 新增 `subtitles`、`subtitles_cleanup` 场景；
+  `run_serve_integration.py` 新增 `serve_subtitles` 场景。
+- 文档：README、两份示例配置、deployment、requirements（R-15）、architecture。
+
+**逐项验收结果（本地可验证部分）**
+
+| 验收项 | 结果 | 主要证据 |
+|---|---|---|
+| AC-1 配置 | PASS | `internal/config/config_test.go` 字幕用例（默认关闭、显式替换、白名单外拒绝、关闭仍校验、开启重叠拒绝）；CLI 三入口代表性错误 `cmd/strmgen/main_test.go`（sync/serve 退出 2、无输出／数据库） |
+| AC-2 目录资格 | PASS | `internal/reconciler/subtitle_test.go`（多视频目录一次、无视频目录跳过、冲突目录跳过、嵌套目录、重跑跳过且字节/mtime 不变）；serve 驱动 `serve_subtitles`（首轮下载、后续轮跳过、编辑配置运行中不生效、重启关闭后不变）；驱动场景 `subtitles`（分页列表 `refresh:false` 由既有夹具断言） |
+| AC-3 传输与发布 | PASS | `internal/openlist/download_test.go`（URL 编码、无 Authorization、5/6 次重定向、非 HTTP 重定向、非 200、HTML/JSON 错误页、截断、8 MiB 边界、内容恰好等限时接受、取消）；`internal/reconciler/fs_test.go`（流式字节、已有/符号链接拒绝、写失败临时清理、超限拒绝无残留）；CLI 驱动核对真实下载字节与同名跳过 |
+| AC-4 归属升级 | PASS | `internal/storage/storage_round_test.go`（v2→v3 升级保行／轮次／计数、只读旧库按 STRM 读、字幕行往返、typed pending）；CLI `subtitles` 场景 testhooks 窗口（已发布未登记 → 重跑按未归属跳过不认领）；已登记窗口沿用既有 `afterOwnershipRecord` 机制 |
+| AC-5 三轮清理 | PASS | `subtitles_cleanup` 场景与 `subtitle_test.go`：0→1→2→3、第 4 轮删除且 STRM 保留、再出现清零、扩展名排除照计（Get 仍成功）、改名走下载＋旧路径三轮、功能关闭冻结计数、清理关闭出现清零（含列表未列出但 Get 读到）、本地已不存在回收归属 |
+| AC-6 dry-run 与冻结 | PASS | dry-run：预计下载／`subtitle_candidates=1` 预览、无文件无库行无轮次、下载请求为 0；失败冻结：下载失败轮不删除已达阈值字幕（`TestSubtitleDownloadFailureFreezesThresholdCleanup`＋驱动 `broken-download` 分支），恢复后同轮补齐并删除 |
+| AC-7 摘要与通知 | PASS | `printReport` 六项字幕计数（`main_test.go`）；`TestSubtitleLifecycleNeverEntersTheFactStream`：字幕发布／推进／删除／清零均不进事实流，STRM 事件不变；既有通知合成回归全部通过 |
+| AC-8 真实服务 | BLOCKED | 本轮无新授权的真实 OpenList 隔离实例（含稳定 `/d/` 下载授权）与隔离 Jellyfin 媒体库；按任务预定的记录方式，见下方"未运行与阻塞" |
+| AC-9 交付 | PASS（除 AC-8） | 示例配置可用（驱动即按示例结构驱动真实 CLI）；完整回归、race、双架构交叉构建、arm64 OCI、容器六场景见下；独立 B 审查待提交后进行 |
+
+**证据位置（均在 `artifacts/validation-evidence/`，另有 `artifacts/build/oci/`）**
+
+- 全量 CLI 回归（16 场景含 `subtitles`、`subtitles_cleanup`）：
+  `task-7.1-sync-full-8rEG2M/`（PASS，约 130s）
+- 全量 serve 回归（9 场景含 `serve_subtitles`）：`task-7.1-serve-full-s7OieV/`（PASS）
+- 容器 `image_static`（含 arm64 OCI 核对）、`minimal_run`、`serve_lifecycle`、
+  `cross_container_busy`、`compose_lifecycle`、`notifications`：`task-7.1-container-*`
+  七个目录（全 PASS；镜像 `strmgen:task-7.1` 本地构建）
+- `python3 scripts/quality.py`：治理＋Python 125 项＋gofmt/vet/Go 全套（PASS）
+- race：`CC=artifacts/dev-env/cc/bin/cc CGO_ENABLED=1 go test -race -count=1 ./...` 全 PASS
+- 双架构交叉构建：CGO=0 amd64/arm64 静态二进制成功；
+  arm64 OCI 归档 `artifacts/build/oci/strmgen-arm64.oci.tar`（8.7M）
+- 候选 SHA、命令与退出码：本报告与 evidence `summary.json` 一致；
+  二进制为提交 `eefbef0` 的 `-trimpath` 构建
+
+**首次失败／修复记录**
+
+- race 模式下原始 TCP 截断用例偶发失败（服务端未消费请求即回包）：先在测试内消费
+  请求头后修复，重跑通过；非产品代码缺陷。
+- 修复过程中的驱动断言修正：`public_url` 未指向夹具导致字幕 404（改用夹具地址）、
+  损坏下载场景遗漏一个正文映射（补齐后失败计数恰为 1）、窗口重跑跳过计数 2→3
+  （第三个已存在文件）、排除扩展场景先用默认列表种子再收窄。
+- `fs.subtitleLimitWriter` 初版对单次超限写入静默截断：改为显式拒绝并清理临时
+  文件（产品修复，含对应测试）。
+
+**未运行与阻塞（如实记录）**
+
+- 真实 OpenList 字幕下载（AC-8 前半）：NOT RUN。本轮未获得新的专用隔离 OpenList
+  实例及稳定地址下载授权；既有 `run_openlist_absence_integration.py` 按任务约定
+  只能证明元数据路径，不能作为字幕证据，故未纳入本轮运行。
+- Jellyfin 隔离库原生扫描（AC-8 后半）：NOT RUN。本轮未提供／授权专用隔离 Jellyfin
+  媒体库；需要用户按任务场景提供隔离源、媒体样片与扫描入口后补证。
+- ARM64 原生实机运行：不在合同范围（仅交叉构建与 OCI 产物核对）。
+
+**时间与测试占比**
+
+本轮次实施约 50 分钟，其中测试／验证（含全部驱动、race、质量门、容器与双架构
+构建）约 11 分钟，占比约 22%，低于 30% 上限。
 
 ## Independent B Review
 
