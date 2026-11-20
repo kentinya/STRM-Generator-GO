@@ -9,7 +9,7 @@ V4.4、自定义扩展名、Telegram 通知与外挂字幕均已验收，Slice 1
 
 软件分发版本见 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases)：
 v1.0.0 为基础功能发布，v1.1.0 增加自定义扩展名，v1.2.0 增加 Telegram 通知，
-v1.2.1 改善通知排版、图标与明细折叠。
+v1.2.1 改善通知排版、图标与明细折叠，v1.3.0 增加可选外挂字幕下载及清理。
 软件版本与 V4.4 需求合同版本分别维护；具体发布结果以 Release 与 Actions 记录为准。
 
 | Slice | 名称 | Status | 依赖 | 结果与范围 |

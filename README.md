@@ -4,7 +4,7 @@
 独立 Go 命令行工具，支持 **Linux amd64 / arm64**、Docker Compose 和二进制运行。
 可配合 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe) 使用。
 
-**当前版本：v1.2.1** · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
+**当前版本 v1.3.0** · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
 [快速开始](#快速开始) · [配置](#配置) · [Telegram 通知](#telegram-通知) · [升级](#升级)
 
 ## 特性
@@ -14,7 +14,7 @@
 - **稳定链接**：写入逐段编码的 OpenList `/d/` 地址，不使用临时签名 URL。
 - **定时同步**：`sync` 执行一次；`serve` 启动即同步，默认每 60 分钟运行一轮。
 - **安全清理**：默认关闭，只处理可靠归属的输出。至少累计三次完整成功轮的缺失记录，删除前再次核对。
-- **外挂字幕（当前源码）**：默认关闭。开启后按目录补下载缺失的入选字幕后缀文件，保留原名与字节，已发布登记的字幕沿用同一套三轮清理规则。
+- **外挂字幕**：默认关闭。开启后按目录补齐缺失的外挂字幕，保留原名与字节，已发布登记的字幕沿用同一套三轮清理规则。
 - **预览与恢复**：`--dry-run` 不修改输出、原数据库或计数；支持跨进程互斥和正常中断后的重试恢复。
 - **Telegram 通知**：每轮带图标的 HTML 摘要、可展开文件明细与清理进度，明细过多时附文本清单；默认关闭。
 
@@ -39,21 +39,22 @@ flowchart LR
 
 从 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases) 下载对应架构的压缩包和
 `SHA256SUMS.txt`。预编译包只需 Linux 运行环境，无需安装 Go 或 Python。
-下面以 v1.2.1 为例，在一个新的安装目录内执行：
+在新的安装目录内下载 v1.3.0 并校验压缩包。
 
 ```bash
-mkdir strmgen-v1.2.1
-cd strmgen-v1.2.1
+version=v1.3.0
+mkdir "strmgen-${version}"
+cd "strmgen-${version}"
 case "$(uname -m)" in
   x86_64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
   *) echo '仅提供 Linux amd64 / arm64 安装包'; exit 1 ;;
 esac
-release_url='https://github.com/kentinya/STRM-Generator-GO/releases/download/v1.2.1'
-curl -fLO "$release_url/strmgen_v1.2.1_linux_${arch}.tar.gz"
+release_url="https://github.com/kentinya/STRM-Generator-GO/releases/download/${version}"
+archive="strmgen_${version}_linux_${arch}.tar.gz"
+curl -fLO "$release_url/$archive"
 curl -fLO "$release_url/SHA256SUMS.txt"
-sha256sum --check --ignore-missing SHA256SUMS.txt && \
-  tar -xzf "strmgen_v1.2.1_linux_${arch}.tar.gz"
+sha256sum --check --ignore-missing SHA256SUMS.txt && tar -xzf "$archive"
 cp config.example.yaml config.yaml
 ```
 
@@ -74,7 +75,7 @@ export OPENLIST_TOKEN='替换为你的 OpenList token'
 ```bash
 git clone https://github.com/kentinya/STRM-Generator-GO.git
 cd STRM-Generator-GO
-git checkout v1.2.1
+git checkout v1.3.0
 docker buildx build --load --tag strmgen:local .
 cp deploy/config.example.yaml deploy/config.yaml
 mkdir -p deploy/data/output deploy/data/state deploy/data/locks
@@ -161,8 +162,9 @@ sync:
   响应上限 8 MiB；HTML/JSON 错误页、截断或超大响应视为下载失败。失败或目标安全
   冲突使本轮不完整，冻结该来源的缺失推进与清理，成功已发布的文件保留，下一轮重试缺件。
 - **归属与清理**：成功发布并登记的字幕与 STRM 共用 `cleanup.enabled`、
-  `sync.mirror` 与 `cleanup.missing_confirmations`：三次完整成功轮缺失并删除前重核后
-  才清理；再出现清零，关闭清理时出现观察仍可清零。人工放入或未登记的字幕始终保留。
+  `sync.mirror` 与 `cleanup.missing_confirmations`。缺失次数达到配置阈值后，须在后续
+  正式轮重核才能删除。阈值默认且最低为三轮。再出现时清零，关闭清理时确认出现仍可清零。
+  人工放入或未登记的字幕保留。
 - **与 Jellyfin 的关系**：字幕关联由 Jellyfin 原生扫描完成。要自动关联为外部字幕轨，
   使用 `Movie.zh.srt` 这类匹配名称（同目录同名或带语言后缀）；任意命名的字幕（例如
   `中文.srt`）也会被原样复制到 STRM 旁边，但是否作为外部轨展示由 Jellyfin 自行决定。
@@ -213,13 +215,13 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 
 ## 升级
 
-v1.2.1 兼容 v1.1.0／v1.2.0 配置。Telegram 通知仍默认关闭，已启用时自动采用新版排版。
+v1.3.0 兼容旧配置，外挂字幕默认关闭。启用方法见[外挂字幕](#外挂字幕)。
 先停止生成器并备份输出、状态目录（含 SQLite sidecar）和配置，再替换二进制或镜像。
 保留原数据库、输出映射和共享锁目录，先运行 `sync --dry-run`，核对后恢复同步。
 
-升级到包含外挂字幕的版本时，旧数据库会在下次可写同步时自动迁移：新增的文件类型列把
-既有记录一律视为 STRM，归属、路径、完整轮次与缺失计数保持不变；`--dry-run` 可直接
-读取升级前后的库。字幕功能默认关闭，升级后无需修改配置。
+首次可写同步会自动迁移旧数据库，保留既有 STRM 归属、路径、完整轮次和缺失计数。
+`--dry-run` 可读取升级前后的数据库。回退至 v1.2.1 时须恢复升级前的完整备份。
+部署和备份步骤见[下载与升级](docs/deployment.md#下载与升级)。
 
 配置、通知与扩展名均在进程启动时读取；Compose 使用
 `docker compose -f deploy/compose.yaml up -d --force-recreate` 重新创建容器。
