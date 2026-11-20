@@ -4,11 +4,11 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Implementation Head: f51db7b448e761569ea39eba83109efd51ec7a7a
-Independent B Review: PENDING
+Independent B Review: FIX REQUIRED
 Difficulty: High
 Test Level: T4
 ```
@@ -299,6 +299,53 @@ CLI 退出 0，报告下载 1 份并登记文件归属。下载服务恢复后�
   的字幕和 STRM 的证据。现有取消用例在发请求前取消，时限用例只核对常量。
 - B 本轮测试及构建按各命令时长相加约 31 秒，少于本轮复核耗时的一半。完整容器复跑、
   真实 OpenList 和 Jellyfin 扫描为 NOT RUN。
+
+### 2026-11-20 · 第二次独立审查 · FIX REQUIRED
+
+复核完整范围
+`e59af5280f11c0d69e735d4cbc951cf0f521bedb..f51db7b448e761569ea39eba83109efd51ec7a7a`，
+结合首轮逐文件审查，核对了全部修复差异及报告提交
+`d47c06bc2eda6f99c5415dfe87fab2c86da2905a`。发布及 testhooks 二进制均标明候选
+提交 `f51db7b` 和干净工作区，摘要与 Developer 全量 CLI 记录一致。修正证据索引写错了
+候选的直接父提交。Git 中的直接父提交是 `ca05810`。
+
+| RO | 续审结论 |
+|---|---|
+| RO-1 | 部分通过。原配置兼容，三入口共用配置，`enabled: "true"` 已正确定位字段。整个配置块类型错误或拼错键时仍缺少字段提示，B-04 部分未关闭。 |
+| RO-2 | 本地通过。唯一视频归属失败时没有字幕下载请求。同目录另一部视频完成时正常补字幕，B-02 关闭。真实 OpenList 结果见 B-05。 |
+| RO-3 | FIX REQUIRED。普通 HTML／JSON 错误页已拒绝，读体取消和 30 秒时限通过。带 UTF-8 BOM 的 HTML 错误页仍能发布，B-01 未关闭。 |
+| RO-4 | FIX REQUIRED。三轮清理、重现清零、失败冻结、dry-run 和正常恢复均有本地证据。B-01 的错误文件会被后续同步跳过。 |
+| RO-5 | 本地通过。字幕重现清零不再触发 STRM 通知，B-03 关闭。serve 失败计数、字幕链接冲突、字幕归属登记失败和路径转义已通过，B-04 对应部分关闭。 |
+| RO-6 | BLOCKED。说明与配置示例就绪。真实 OpenList 字幕下载及清理和 Jellyfin 外部字幕轨仍为 NOT RUN，见 B-05。 |
+
+#### 本轮阻塞项与 Developer 修正指导
+
+- **B-01**。用户启用字幕并同步 `Movie.mkv`。下载地址暂时返回用 UTF-8 BOM 保存的
+  HTML 错误页，状态为 HTTP 200，类型为 `text/plain`。程序退出 0，把错误页写进
+  `Movie.zh.srt`、登记归属并提交轮次。地址恢复后再跑，程序报告已有跳过，下载请求总数
+  仍为 1。原因是正文分类在 BOM 处停止，没检查后面的 HTML 标记。在现有正文判定中
+  识别 UTF-8 BOM，再检查 HTML／JSON 标记。将这个变体加到现有失败与恢复用例，覆盖
+  首轮无成品和归属、恢复轮实际补齐，以及有效 UTF-8 BOM 字幕仍按原字节写入。
+- **B-04 剩余项**。用户把示例简写为 `sync.subtitles: true`，或误写成
+  `enable: true`。dry-run 退出 2，输出及状态库保持未创建，但两种错误都只显示
+  `invalid configuration`。解码错误应使用固定的 `sync.subtitles` 字段，
+  让 CLI 指出应检查的配置块。用现有配置错误用例核对退出码、字段和本地状态。
+- **B-05**。Developer 的真实 OpenList 回归覆盖 List、Get 和 CLI Mirror。
+  字幕验收仍需明确授权的隔离 OpenList 源和 Jellyfin 库，完成字幕下载、重跑、延迟清理，
+  然后在原生扫描后查看同轮生成的 STRM 视频详情中的外部字幕轨。
+
+#### 续审核对的证据
+
+- B 独立运行 config、reconciler、storage、CLI 和 openlist 五包测试，均通过。
+  openlist 包含在途读取取消及实际 30 秒时限。使用已核对身份的候选二进制运行
+  `subtitles`、`subtitles_cleanup`、`notifications` 和 `serve_subtitles`，均通过。
+  首次并行运行时 `subtitles` 争用固定同步锁失败，串行重跑通过。单独用发布 CLI 和
+  同一 OpenList 夹具复现 B-01 和 B-04 剩余项。
+- Developer 的全量 sync 16/16、serve 9/9 场景摘要与候选二进制匹配。核对容器 7/7
+  摘要、ARM64 交叉构建身份及真实 OpenList 元数据／Mirror 摘要。B 本轮未重跑容器或访问
+  真实服务。
+- B 证据位于 `artifacts/validation-evidence/task-7.1-b-recheck-EsGagt/`。
+  按各测试命令时长相加约 60 秒，少于本轮复核耗时的一半。
 
 ## 已关闭任务索引
 
