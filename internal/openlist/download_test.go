@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -265,6 +266,9 @@ func TestSubtitleFetchRejectsDeclaredLengthAboveLimitBeforeReading(t *testing.T)
 func TestSubtitleFetchAcceptsBodyExactlyAtLimit(t *testing.T) {
 	body := make([]byte, SubtitleMaxBytes)
 	_, _ = rand.Read(body[:64])
+	// The leading byte is fixed so the body can never look like an HTML or
+	// JSON error page; the rest stays random for the limit check.
+	body[0] = 'x'
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write(body)
 	}))
@@ -324,4 +328,128 @@ type countingSink struct{ n *int64 }
 func (c *countingSink) Write(p []byte) (int, error) {
 	atomic.AddInt64(c.n, int64(len(p)))
 	return len(p), nil
+}
+
+// TestSubtitleFetchRejectsErrorBodiesWithPlainContentType covers an OpenList
+// error body answered with a harmless content type: the streamed bytes decide,
+// so the caller can never publish an error page as a subtitle.
+func TestSubtitleFetchRejectsErrorBodiesWithPlainContentType(t *testing.T) {
+	longArray := "[" + strings.Repeat(`{"code":500},`, 80) + `{"code":500}]`
+	cases := map[string]string{
+		"json object":            `{"code":500,"message":"fixture error"}`,
+		"json object indented":   "\n\n  {\"code\":500}",
+		"json array":             `[{"code":500}]`,
+		"json array past window": longArray,
+		"html doctype":           "<!DOCTYPE html><html><body>502 bad gateway</body></html>",
+	}
+	for name, body := range cases {
+		for _, contentType := range []string{"text/plain", "application/octet-stream", ""} {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if contentType != "" {
+					w.Header().Set("Content-Type", contentType)
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			d := newTestDownloader(ts.URL)
+			err := d.Fetch(context.Background(), "/Movies/a.srt", io.Discard)
+			ts.Close()
+			if !errors.Is(err, errSubtitleErrorPage) {
+				t.Fatalf("%s (%q): error = %v, want an error page refusal", name, contentType, err)
+			}
+		}
+	}
+}
+
+// TestSubtitleFetchAcceptsAssSectionHeader keeps the ambiguous '[' prefix
+// honest: a legal ASS subtitle starts with a section header and must keep its
+// exact bytes even when it is longer than the sniff window.
+func TestSubtitleFetchAcceptsAssSectionHeader(t *testing.T) {
+	body := "[Script Info]\nTitle: fixture\nScriptType: v4.00+\n\n[Events]\n"
+	for len(body) < errorPageSniffBytes*2 {
+		body += "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello\n"
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	d := newTestDownloader(ts.URL)
+	var out strings.Builder
+	if err := d.Fetch(context.Background(), "/Movies/a.srt", &out); err != nil {
+		t.Fatalf("ass body: %v", err)
+	}
+	if out.String() != body {
+		t.Fatal("the accepted subtitle bytes changed")
+	}
+}
+
+// gatedSink signals when the first body chunk reaches the destination and then
+// holds the copy until the test releases it, so a cancellation lands inside
+// the in-flight body read instead of before the request.
+type gatedSink struct {
+	arrived chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (g *gatedSink) Write(p []byte) (int, error) {
+	g.once.Do(func() { close(g.arrived) })
+	<-g.release
+	return len(p), nil
+}
+
+// TestSubtitleFetchCancelDuringBodyRead cancels while response bytes are
+// already streaming into the destination writer.
+func TestSubtitleFetchCancelDuringBodyRead(t *testing.T) {
+	started := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("first chunk of a subtitle"))
+		// Flushing without a declared length keeps the body open as a
+		// chunked stream until the handler returns.
+		w.(http.Flusher).Flush()
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer ts.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gate := &gatedSink{arrived: make(chan struct{}), release: make(chan struct{})}
+	d := newTestDownloader(ts.URL)
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Fetch(ctx, "/Movies/a.srt", gate) }()
+	<-started
+	<-gate.arrived
+	cancel()
+	close(gate.release)
+	if err := <-errCh; !errors.Is(err, errSubtitleTransport) {
+		t.Fatalf("cancelled body read error = %v", err)
+	}
+}
+
+// TestSubtitleDownloadBudgetStopsStalledBody proves the thirty-second budget
+// really ends a response body that never finishes, instead of existing only
+// as a documented constant.
+func TestSubtitleDownloadBudgetStopsStalledBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("stalled"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(SubtitleDownloadBudget + 20*time.Second):
+		}
+	}))
+	defer ts.Close()
+	d := newTestDownloader(ts.URL)
+	start := time.Now()
+	err := d.Fetch(context.Background(), "/Movies/a.srt", io.Discard)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("a stalled body must fail the download")
+	}
+	if elapsed < SubtitleDownloadBudget-2*time.Second {
+		t.Fatalf("failed after %v, before the %v budget", elapsed, SubtitleDownloadBudget)
+	}
+	if elapsed > SubtitleDownloadBudget+10*time.Second {
+		t.Fatalf("failed after %v, the budget did not bound the body read", elapsed)
+	}
 }

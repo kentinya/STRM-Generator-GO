@@ -770,6 +770,47 @@ def scenario_serve_subtitles(h, results):
     results["serve_subtitles"]["restart_inert"] = True
     results["serve_subtitles"]["restart_exit"] = restart_code
 
+    # A first tick whose subtitle address answers 404 fails the round and must
+    # still report the subtitle failure on the serve summary line; the next
+    # tick recovers once the address serves the real bytes.
+    fail_files = {}
+    fail_entries = [
+        {"name": "Sample.mkv", "is_dir": False, "size": 10,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+    ]
+    fail_api, fail_dirs = h.server(directories={"/Movies": list(fail_entries)}, files=fail_files)
+    fail_root = h.workdir / "out-subtitle-failure"
+    fail_db = h.workdir / "data-subtitle-failure" / "strmgen.db"
+    fail_cfg = h.config("subtitles-failure", fail_api, [("/Movies", fail_root)], fail_db,
+                        public=fail_api, subtitles={"enabled": True})
+    fail_out = h.workdir / "serve-subtitle-failure.out"
+    fail_err = h.workdir / "serve-subtitle-failure.err"
+    fail_proc = h.start_serve(fail_cfg, extra_env={"STRMGEN_TEST_SERVE_INTERVAL_MS": "1200"},
+                              stdout_path=fail_out, stderr_path=fail_err)
+    check(wait_for(lambda: count_serve_results(fail_out, "failure") >= 1, 20,
+                   "the 404 subtitle round was not reported as a failure"),
+          f"no failure summary: {read_lines(fail_out)}")
+    failure_lines = [line for line in read_lines(fail_out) if "result: failure " in line]
+    check("subtitle_failed=1" in failure_lines[0],
+          f"the failure summary must carry subtitle_failed: {failure_lines[0]}")
+    check(not (fail_root / "Movie.zh.srt").exists(), "the 404 answer was published")
+    check(fail_root.joinpath("Sample.strm").exists(), "the video itself was not published")
+    fail_files["/Movies/Movie.zh.srt"] = "1\n00:00:01,000 --> 00:00:02,000\nrecovered\n"
+    check(wait_for(lambda: count_serve_results(fail_out, "success") >= 1, 30,
+                   "serve did not recover after the subtitle address recovered"),
+          f"no recovery summary: {read_lines(fail_out)}")
+    success_lines = [line for line in read_lines(fail_out) if "result: success " in line]
+    check("subtitle_downloaded=1" in success_lines[0],
+          f"the recovery tick must report the download: {success_lines[0]}")
+    check((fail_root / "Movie.zh.srt").read_bytes()
+          == b"1\n00:00:01,000 --> 00:00:02,000\nrecovered\n",
+          "the recovered subtitle bytes changed")
+    fail_code, _, _ = stop_serve(fail_proc)
+    check(fail_code != 0, f"cancelled serve must be non-zero, got {fail_code}")
+    results["serve_subtitles"]["failure_summary_subtitles_failed"] = True
+    results["serve_subtitles"]["failure_recovery"] = True
+
 SCENARIOS = {
     "serve_release_first_round": scenario_serve_release_first_round,
     "serve_interval_and_skip": scenario_serve_interval_and_skip,

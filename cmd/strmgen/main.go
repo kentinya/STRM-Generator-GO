@@ -380,7 +380,9 @@ func printReport(stdout, stderr io.Writer, report *reconciler.Report, dryRun boo
 		diagnostics := append([]string(nil), src.Diagnostics...)
 		sort.Strings(diagnostics)
 		for _, d := range diagnostics {
-			fmt.Fprintf(stderr, "source %d: %s\n", src.SourceIndex, d)
+			// The terminal line escapes control and bidirectional runes; the
+			// stored diagnostic and the file name on disk stay untouched.
+			fmt.Fprintf(stderr, "source %d: %s\n", src.SourceIndex, notify.EscapeText(d))
 		}
 		if src.Err != nil {
 			fmt.Fprintf(stderr, "source %d: source round incomplete\n", src.SourceIndex)
@@ -399,6 +401,7 @@ type serveSummary struct {
 	// line can distinguish the two pipelines.
 	subtitleDownloaded int
 	subtitleSkipped    int
+	subtitleFailed     int
 	subtitleDeleted    int
 	subtitleReclaimed  int
 }
@@ -416,6 +419,7 @@ func summarize(report *reconciler.Report) serveSummary {
 		s.reclaimed += src.Reclaimed
 		s.subtitleDownloaded += src.SubtitlesDownloaded
 		s.subtitleSkipped += src.SubtitlesSkipped
+		s.subtitleFailed += src.SubtitlesFailed
 		s.subtitleDeleted += src.SubtitlesDeleted
 		s.subtitleReclaimed += src.SubtitlesReclaimed
 	}
@@ -432,9 +436,9 @@ func printServeSummary(stdout, stderr io.Writer, event scheduler.Event, report *
 	if !event.Next.IsZero() {
 		next = event.Next.Format(time.RFC3339)
 	}
-	fmt.Fprintf(stdout, "mode: serve result: %s created=%d updated=%d skipped=%d cleanup=%d deleted=%d reclaimed=%d subtitle_downloaded=%d subtitle_skipped=%d subtitle_deleted=%d subtitle_reclaimed=%d next=%s\n",
+	fmt.Fprintf(stdout, "mode: serve result: %s created=%d updated=%d skipped=%d cleanup=%d deleted=%d reclaimed=%d subtitle_downloaded=%d subtitle_skipped=%d subtitle_failed=%d subtitle_deleted=%d subtitle_reclaimed=%d next=%s\n",
 		event.Kind, s.created, s.updated, s.skipped, cleanup, s.deleted, s.reclaimed,
-		s.subtitleDownloaded, s.subtitleSkipped, s.subtitleDeleted, s.subtitleReclaimed, next)
+		s.subtitleDownloaded, s.subtitleSkipped, s.subtitleFailed, s.subtitleDeleted, s.subtitleReclaimed, next)
 	if event.Err != nil && event.Kind != scheduler.Cancelled {
 		fmt.Fprintf(stderr, "serve %s: %s\n", event.Kind, event.Err)
 	}
@@ -445,7 +449,7 @@ func printServeSummary(stdout, stderr io.Writer, event scheduler.Event, report *
 		diagnostics := append([]string(nil), src.Diagnostics...)
 		sort.Strings(diagnostics)
 		for _, d := range diagnostics {
-			fmt.Fprintf(stderr, "source %d: %s\n", src.SourceIndex, d)
+			fmt.Fprintf(stderr, "source %d: %s\n", src.SourceIndex, notify.EscapeText(d))
 		}
 		if src.Err != nil {
 			fmt.Fprintf(stderr, "source %d: source round incomplete\n", src.SourceIndex)

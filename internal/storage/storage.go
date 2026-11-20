@@ -164,11 +164,15 @@ type CommitResult struct {
 }
 
 // ClearResult reports the committed missing state observed immediately before
-// a conservative clear. PriorMissing is meaningful only when RowFound is true;
-// a row that never existed or a store without the row reports zero.
+// a conservative clear. PriorMissing and FileType are meaningful only when
+// RowFound is true; a row that never existed or a store without the row
+// reports zero, which is the STRM file type.
 type ClearResult struct {
 	RowFound     bool
 	PriorMissing int64
+	// FileType is the ownership type of the cleared row, so a caller can keep
+	// the fact stream limited to STRM events without a second lookup.
+	FileType FileType
 }
 
 // Store wraps a SQLite database holding ownership and round facts.
@@ -794,8 +798,9 @@ func (s *Store) RecordOwnership(ctx context.Context, o Ownership, epoch int64) e
 // round. It is safe for a row that does not exist and is called as soon as a
 // source file is observed, even if later processing fails, and again when a
 // deletion re-check reads the target as present. The returned result carries
-// the committed count observed immediately before the clear so a caller can
-// report a durable N -> 0 reset without re-reading the database afterwards.
+// the committed count and the ownership file type observed immediately before
+// the clear so a caller can report a durable N -> 0 reset for STRM rows only,
+// without re-reading the database afterwards.
 // When the main-database update already succeeded and only the private scratch
 // cleanup failed, the error is returned together with the durable result: the
 // clear is a committed fact that must be reported even though the round fails.
@@ -805,13 +810,15 @@ func (s *Store) ClearMissing(ctx context.Context, sourceKey, relativePath string
 	}
 	var result ClearResult
 	var prior sql.NullInt64
+	var fileType FileType
 	err := s.db.QueryRowContext(ctx,
-		`SELECT missing_count FROM ownership WHERE source_key = ? AND relative_path = ?`,
+		`SELECT missing_count, file_type FROM ownership WHERE source_key = ? AND relative_path = ?`,
 		sourceKey, relativePath,
-	).Scan(&prior)
+	).Scan(&prior, &fileType)
 	if err == nil {
 		result.RowFound = true
 		result.PriorMissing = prior.Int64
+		result.FileType = fileType
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return ClearResult{}, err
 	}

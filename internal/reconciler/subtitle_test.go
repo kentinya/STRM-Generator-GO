@@ -12,6 +12,7 @@ import (
 
 	"strm-generator-go/internal/openlist"
 	"strm-generator-go/internal/pathmap"
+	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/storage"
 )
 
@@ -636,5 +637,298 @@ func TestSubtitleLifecycleNeverEntersTheFactStream(t *testing.T) {
 	advances := factKindsOf(sink, FactMissingAdvanced)
 	if len(advances) != 1 || advances[0].RelativePath != "Sample.strm" {
 		t.Fatalf("STRM advances must still be reported: %+v", advances)
+	}
+}
+
+// ownershipFailureStore rejects the ownership insert of selected relative
+// paths, mirroring a state database that refuses the video's row.
+type ownershipFailureStore struct {
+	*storage.Store
+	failOn func(relativePath string) bool
+}
+
+func (f *ownershipFailureStore) RecordOwnership(ctx context.Context, o storage.Ownership, epoch int64) error {
+	if f.failOn(o.RelativePath) {
+		return errors.New("injected ownership failure")
+	}
+	return f.Store.RecordOwnership(ctx, o, epoch)
+}
+
+// A directory whose only video never completed its ownership record must not
+// fetch the subtitle beside it: an unowned STRM cannot qualify the directory.
+func TestSubtitleDirectoryWaitsForCompletedVideoOwnership(t *testing.T) {
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {media("Sample.mkv", 10, shaA), subtitleEntry("Movie.zh.srt")},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	fetcher := subtitleFetcher()
+	report, err := New(lister,
+		&ownershipFailureStore{Store: store, failOn: func(string) bool { return true }},
+		subtitleOptions(fetcher)).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("the ownership failure must fail the source")
+	}
+	res := report.Sources[0]
+	if !res.Partial || res.Errors == 0 {
+		t.Fatalf("ownership failure must be reported: %+v", res)
+	}
+	if len(fetcher.calls) != 0 {
+		t.Fatalf("subtitle content was requested without a usable video: %v", fetcher.calls)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "Movie.zh.srt")); !os.IsNotExist(statErr) {
+		t.Fatal("a subtitle was published for an unowned video")
+	}
+	if _, ok, _ := store.Lookup("/Movies", "Movie.zh.srt"); ok {
+		t.Fatal("a subtitle row was recorded for an unowned video")
+	}
+}
+
+// The same directory keeps its normal subtitle behaviour as soon as one video
+// completes its ownership record.
+func TestSubtitleDirectoryDownloadsBesideTheCompletingVideo(t *testing.T) {
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {
+				media("Sample.mkv", 10, shaA),
+				media("Other.mkv", 20, shaB),
+				subtitleEntry("Movie.zh.srt"),
+			},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	fetcher := subtitleFetcher()
+	report, err := New(lister,
+		&ownershipFailureStore{Store: store, failOn: func(rel string) bool { return rel == "Sample.strm" }},
+		subtitleOptions(fetcher)).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("the ownership failure must fail the source")
+	}
+	res := report.Sources[0]
+	if !res.Partial || res.SubtitlesDownloaded != 1 {
+		t.Fatalf("round result: %+v", res)
+	}
+	if len(fetcher.calls) != 1 || fetcher.calls[0] != "/Movies/Movie.zh.srt" {
+		t.Fatalf("download set = %v, want the subtitle beside the completing video", fetcher.calls)
+	}
+	raw, statErr := os.ReadFile(filepath.Join(root, "Movie.zh.srt"))
+	if statErr != nil {
+		t.Fatalf("the subtitle was not published: %v", statErr)
+	}
+	if string(raw) != fetcher.bodies["/Movies/Movie.zh.srt"] {
+		t.Fatalf("published bytes = %q", raw)
+	}
+	o, ok, lookupErr := store.Lookup("/Movies", "Movie.zh.srt")
+	if lookupErr != nil || !ok || o.FileType != storage.FileSubtitle {
+		t.Fatalf("subtitle ownership: ok=%v err=%v row=%+v", ok, lookupErr, o)
+	}
+	if _, ok, _ := store.Lookup("/Movies", "Sample.strm"); ok {
+		t.Fatal("the unrecorded video must stay unowned")
+	}
+}
+
+// A committed subtitle reappearance clears its count without entering the
+// STRM fact stream, while the video reappearance in the same round still does.
+func TestSubtitleReappearanceClearNeverEntersTheFactStream(t *testing.T) {
+	sample := media("Sample.mkv", 10, shaA)
+	subtitle := subtitleEntry("Movie.zh.srt")
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {sample, subtitle},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	opts := subtitleOptions(subtitleFetcher())
+	opts.CleanupEnabled = true
+	sink := &recordingSink{}
+	opts.Facts = sink
+	mustNotFail(t, runSubtitle(t, lister, store, root, opts))
+
+	// Both targets disappear: one committed count each.
+	removeRemote(lister, "Sample.mkv")
+	removeRemote(lister, "Movie.zh.srt")
+	mustNotFail(t, runSubtitle(t, lister, store, root, opts))
+	if got := countFor(t, store, "Sample.strm"); got != 1 {
+		t.Fatalf("Sample.strm count = %d, want 1", got)
+	}
+	if got := countFor(t, store, "Movie.zh.srt"); got != 1 {
+		t.Fatalf("Movie.zh.srt count = %d, want 1", got)
+	}
+
+	// Both reappear in one round: only the STRM clear may reach the fact
+	// stream, and both committed counts drop back to zero.
+	lister.dirs["/Movies"] = append(lister.dirs["/Movies"], sample, subtitle)
+	delete(lister.getErr, "/Movies/Sample.mkv")
+	delete(lister.getErr, "/Movies/Movie.zh.srt")
+	sink.facts = nil
+	mustNotFail(t, runSubtitle(t, lister, store, root, opts))
+	clears := factKindsOf(sink, FactMissingCleared)
+	if len(clears) != 1 || clears[0].RelativePath != "Sample.strm" {
+		t.Fatalf("cleared facts = %+v, want only the STRM reappearance", clears)
+	}
+	if got := countFor(t, store, "Movie.zh.srt"); got != 0 {
+		t.Fatalf("subtitle count after reappearance = %d, want 0", got)
+	}
+	if got := countFor(t, store, "Sample.strm"); got != 0 {
+		t.Fatalf("STRM count after reappearance = %d, want 0", got)
+	}
+}
+
+// One failing round freezes both kinds of threshold evidence: the STRM and the
+// subtitle that already reached the committed threshold stay on disk with
+// their counts untouched, and the recovery round then completes both.
+func TestFailedRoundFreezesThresholdSTRMAndSubtitle(t *testing.T) {
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {
+				media("Sample.mkv", 10, shaA),
+				media("Other.mkv", 20, shaB),
+				subtitleEntry("Movie.zh.srt"),
+			},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	opts := subtitleOptions(subtitleFetcher())
+	opts.CleanupEnabled = true
+	mustNotFail(t, runSubtitle(t, lister, store, root, opts))
+
+	removeRemote(lister, "Other.mkv")
+	removeRemote(lister, "Movie.zh.srt")
+	for round := 0; round < 3; round++ {
+		mustNotFail(t, runSubtitle(t, lister, store, root, opts))
+	}
+	if got := countFor(t, store, "Other.strm"); got != 3 {
+		t.Fatalf("Other.strm count = %d, want 3", got)
+	}
+	if got := countFor(t, store, "Movie.zh.srt"); got != 3 {
+		t.Fatalf("Movie.zh.srt count = %d, want 3", got)
+	}
+
+	// A new subtitle download fails in the same round as both threshold rows.
+	lister.dirs["/Movies"] = append(lister.dirs["/Movies"], subtitleEntry("New.srt"))
+	failing := subtitleFetcher()
+	failing.bodies["/Movies/New.srt"] = "new subtitle\n"
+	failing.failOn["/Movies/New.srt"] = true
+	failingOpts := opts
+	failingOpts.SubtitleFetcher = failing
+	frozen := runSubtitle(t, lister, store, root, failingOpts).Sources[0]
+	if !frozen.Partial || frozen.Deleted != 0 || frozen.SubtitlesDeleted != 0 {
+		t.Fatalf("a failing round must freeze both cleanups: %+v", frozen)
+	}
+	if frozen.SubtitlesFailed != 1 {
+		t.Fatalf("subtitle failures = %d, want 1: %+v", frozen.SubtitlesFailed, frozen)
+	}
+	for _, rel := range []string{"Other.strm", "Movie.zh.srt"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("%s must stay on disk through the failed round: %v", rel, err)
+		}
+	}
+	if got := countFor(t, store, "Other.strm"); got != 3 {
+		t.Fatalf("failed round changed the STRM count to %d", got)
+	}
+	if got := countFor(t, store, "Movie.zh.srt"); got != 3 {
+		t.Fatalf("failed round changed the subtitle count to %d", got)
+	}
+
+	// The recovery round downloads the missing subtitle and deletes both
+	// qualified rows in the same pass.
+	delete(failing.failOn, "/Movies/New.srt")
+	recovered := mustNotFail(t, runSubtitle(t, lister, store, root, failingOpts))
+	if recovered.SubtitlesDownloaded != 1 || recovered.SubtitlesDeleted != 1 || recovered.Deleted != 1 {
+		t.Fatalf("recovery round counters: %+v", recovered)
+	}
+	for _, rel := range []string{"Other.strm", "Movie.zh.srt"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("%s must be removed by the recovery round: %v", rel, err)
+		}
+	}
+}
+
+// An update whose ownership refresh was refused keeps the update fact but
+// never qualifies the directory for subtitle downloads.
+func TestSubtitleDirectoryWaitsForOwnershipRefreshOnUpdate(t *testing.T) {
+	sample := media("Sample.mkv", 10, shaA)
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {sample, subtitleEntry("Movie.zh.srt")},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	fetcher := subtitleFetcher()
+	mustNotFail(t, runSubtitle(t, lister, store, root, subtitleOptions(fetcher)))
+
+	// The remote content changes: the update completes on disk while the
+	// ownership refresh is refused, so the directory loses its eligibility.
+	lister.dirs["/Movies"] = []openlist.Entry{
+		media("Sample.mkv", 10, shaB),
+		subtitleEntry("Movie.zh.srt"),
+		subtitleEntry("Extra.srt"),
+	}
+	next := subtitleFetcher()
+	next.bodies["/Movies/Extra.srt"] = "extra\n"
+	report, err := New(lister,
+		&ownershipFailureStore{Store: store, failOn: func(rel string) bool { return rel == "Sample.strm" }},
+		subtitleOptions(next)).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("the ownership refresh failure must fail the source")
+	}
+	res := report.Sources[0]
+	if res.Updated != 1 || res.Errors == 0 {
+		t.Fatalf("update result: %+v", res)
+	}
+	if len(next.calls) != 0 {
+		t.Fatalf("subtitle content was requested without a refreshed owner: %v", next.calls)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "Extra.srt")); !os.IsNotExist(statErr) {
+		t.Fatal("a subtitle was published beside an unrefreshed video")
+	}
+}
+
+// A creation whose directory durability step failed keeps the created fact but
+// never qualifies the directory for subtitle downloads.
+func TestSubtitleDirectoryWaitsForDurablePublication(t *testing.T) {
+	lister := &fakeLister{
+		dirs: map[string][]openlist.Entry{
+			"/Movies": {media("Sample.mkv", 10, shaA), subtitleEntry("Movie.zh.srt")},
+		},
+		getErr:  map[string]error{},
+		listErr: map[string]error{},
+	}
+	root := t.TempDir()
+	store := newStore(t)
+	fetcher := subtitleFetcher()
+	opts := subtitleOptions(fetcher)
+	opts.FS = LocalFS{syncDir: func(_ *securepath.Dir) error {
+		return errors.New("post-link directory sync failure")
+	}}
+	report, err := New(lister, store, opts).Run(context.Background(), []Source{sourceFor(root)})
+	if err == nil {
+		t.Fatal("the durability failure must fail the source")
+	}
+	res := report.Sources[0]
+	if res.Created != 1 || res.Errors == 0 {
+		t.Fatalf("publication result: %+v", res)
+	}
+	if len(fetcher.calls) != 0 {
+		t.Fatalf("subtitle content was requested without a durable publication: %v", fetcher.calls)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "Movie.zh.srt")); !os.IsNotExist(statErr) {
+		t.Fatal("a subtitle was published beside an undurable video")
 	}
 }

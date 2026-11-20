@@ -78,6 +78,37 @@ type Subtitles struct {
 	Extensions yaml.Node `yaml:"extensions"`
 }
 
+// strictFieldError marks a decode error whose message already names one fixed
+// configuration field and never echoes a configured value. The strict Load
+// entry returns exactly such errors, so a wrong scalar type reports the field
+// instead of a bare syntax failure; every other decode failure keeps the
+// generic message.
+type strictFieldError struct{ message string }
+
+func (e strictFieldError) Error() string { return e.message }
+
+// UnmarshalYAML decodes the sync.subtitles block. The known-field set is
+// enforced manually because Node.Decode does not carry the strict KnownFields
+// flag of the outer decoder, and enabled must be a YAML boolean (or null) so
+// the parse entry can name sync.subtitles.enabled for a mistyped value.
+func (s *Subtitles) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return strictFieldError{message: "field sync.subtitles must be a mapping"}
+	}
+	allowed := map[string]bool{"enabled": true, "extensions": true}
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		key, val := value.Content[i], value.Content[i+1]
+		if !allowed[key.Value] {
+			return strictFieldError{message: fmt.Sprintf("field %s not found in type sync.subtitles", key.Value)}
+		}
+		if key.Value == "enabled" && val.Tag != "!!bool" && val.Tag != "!!null" {
+			return strictFieldError{message: "sync.subtitles.enabled: must be a boolean"}
+		}
+	}
+	type plainSubtitles Subtitles
+	return value.Decode((*plainSubtitles)(s))
+}
+
 // MinuteCount is a strictly integral YAML scalar. The default yaml.v3 integer
 // decode silently truncates a float such as 1.5 to 1, which would let a
 // fractional interval look like a valid one; this type rejects any non-integer
@@ -252,6 +283,12 @@ func Load(file string) (*Resolved, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
 		// YAML diagnostics can echo arbitrary values. Never reflect raw config.
+		// A decode error that already names one fixed field is safe to keep:
+		// SafeDiagnostic renders the field name and nothing else.
+		var named strictFieldError
+		if errors.As(err, &named) {
+			return nil, err
+		}
 		return nil, errors.New("configuration syntax or fields are invalid")
 	}
 	// Reject a second YAML document: the contract is a single document.

@@ -2969,6 +2969,64 @@ def scenario_notifications(h, results):
 
         # Temporary artifacts are cleaned up on every normal path.
         check(notify_temp_dirs() - before_dirs == set(), "a completed round left temporary files")
+
+        # A subtitle reappearance never reaches the STRM notification stream,
+        # while the same reappearance of a video STRM still notifies.
+        sub_api, sub_dirs = h.server(directories={"/Movies": [
+            {"name": "Sample.mkv", "is_dir": False, "size": 10,
+             "hash_info": {"sha1": "a" * 40}},
+            {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+        ]}, files={"/Movies/Movie.zh.srt": "1\n00:00:01,000 --> 00:00:02,000\nnotify sub\n"})
+        sub_root = h.workdir / "out-subtitle-notify"
+        sub_db = h.workdir / "data-subtitle-notify" / "strmgen.db"
+        sub_cfg = h.config("notify-subtitle", sub_api, [("/Movies", sub_root)], sub_db,
+                           public=sub_api, cleanup=True, subtitles={"enabled": True},
+                           notifications={"policy": "change_or_error"})
+        receiver.requests.clear()
+        sub_seed = h.run(sub_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(sub_seed.returncode == 0, f"subtitle notify seed failed: {sub_seed.stderr}")
+        check(receiver.count() >= 1, "the seeding round must notify")
+        check((sub_root / "Movie.zh.srt").exists(), "the seed round did not download the subtitle")
+
+        # The subtitle leaves the listing: one committed missing count.
+        sub_dirs["/Movies"] = [e for e in sub_dirs["/Movies"] if e["name"] != "Movie.zh.srt"]
+        receiver.requests.clear()
+        sub_gone = h.run(sub_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(sub_gone.returncode == 0, f"subtitle missing round failed: {sub_gone.stderr}")
+        check(ownership_details(sub_db)["Movie.zh.srt"][0] == 1,
+              "the subtitle must carry one committed missing count")
+
+        # The subtitle returns: the count clears and no notification is sent.
+        sub_dirs["/Movies"].append({"name": "Movie.zh.srt", "is_dir": False,
+                                    "size": 60, "hash_info": None})
+        receiver.requests.clear()
+        sub_back = h.run(sub_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(sub_back.returncode == 0, f"subtitle reappearance round failed: {sub_back.stderr}")
+        check(receiver.count() == 0,
+              f"a subtitle reappearance must not notify: {receiver.requests}")
+        check(ownership_details(sub_db)["Movie.zh.srt"][0] == 0,
+              "the reappearance must clear the subtitle count")
+        check((sub_root / "Movie.zh.srt").exists(), "the reappearance round removed the subtitle")
+
+        # The video leaves and returns: the STRM reappearance still notifies.
+        sub_dirs["/Movies"] = [e for e in sub_dirs["/Movies"] if e["name"] != "Sample.mkv"]
+        receiver.requests.clear()
+        video_gone = h.run(sub_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(video_gone.returncode == 0, f"video missing round failed: {video_gone.stderr}")
+        check(ownership_details(sub_db)["Sample.strm"][0] == 1,
+              "the STRM must carry one committed missing count")
+        sub_dirs["/Movies"].append({"name": "Sample.mkv", "is_dir": False, "size": 10,
+                                    "hash_info": {"sha1": "a" * 40}})
+        receiver.requests.clear()
+        video_back = h.run(sub_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(video_back.returncode == 0, f"video reappearance round failed: {video_back.stderr}")
+        strms = receiver.messages()
+        check(len(strms) >= 1, "a STRM reappearance must notify")
+        check("Sample.strm" in visible_text(strms[0]["text"]),
+              f"the STRM recovery message must name the file:\n{strms[0]['text']}")
+        check("Movie.zh.srt" not in visible_text(strms[0]["text"]),
+              f"a subtitle event leaked into the STRM message:\n{strms[0]['text']}")
+        subtitle_notify_verified = True
     finally:
         receiver.close()
     results["notifications"] = {
@@ -2979,6 +3037,7 @@ def scenario_notifications(h, results):
         "policy_change_or_error_verified": True,
         "dry_run_silent": True,
         "temp_cleanup_verified": True,
+        "subtitle_clear_silent": subtitle_notify_verified,
     }
 
 
@@ -3207,6 +3266,8 @@ def scenario_subtitles(h, results):
     run = hh.run(cfg)
     check(run.returncode == 1, f"symlink conflict exit: {run.stdout} {run.stderr}")
     check("conflicts=1" in run.stdout, f"symlink conflict counters: {run.stdout}")
+    check("subtitle_failed=1" in run.stdout,
+          f"a refused subtitle target must count as a subtitle failure: {run.stdout}")
     check((root / "Movie.zh.srt").is_symlink(), "the symlink target was replaced")
     observed["symlink_conflict"] = run.returncode
     hh.cleanup()
@@ -3252,6 +3313,141 @@ def scenario_subtitles(h, results):
         hh.cleanup()
     else:
         observed["publish_window_unowned"] = "SKIPPED: no fault binary"
+
+    # An error body answered with a harmless content type must fail before any
+    # publication: no subtitle file, no ownership row, no committed round or
+    # missing evidence, and the next round fetches only the missing file.
+    plain_files = {
+        "/Movies/Movie.zh.srt": SUBTITLE_BODIES["/Movies/Movie.zh.srt"],
+        "/Movies/中 文.srt": SUBTITLE_BODIES["/Movies/中 文.srt"],
+        "/Movies/Broken.srt": {"body": '{"code":500,"message":"fixture"}',
+                               "content_type": "text/plain"},
+    }
+    hh, api, dirs, root, db, cfg = setup("plain-error-body", files=plain_files)
+    dirs["/Movies"].append({"name": "Broken.srt", "is_dir": False, "size": 30,
+                            "hash_info": None})
+    plain_broken = hh.run(cfg)
+    check(plain_broken.returncode == 1,
+          f"a plain-content-type error body must exit 1: {plain_broken.stdout} {plain_broken.stderr}")
+    check("subtitle_failed=1" in plain_broken.stdout and "partial=true" in plain_broken.stdout,
+          f"plain error counters: {plain_broken.stdout}")
+    check(not (root / "Broken.srt").exists(), "the error body was published")
+    check((root / "Movie.zh.srt").exists() and (root / "中 文.srt").exists(),
+          "the failed round removed the earlier downloads")
+    plain_details = ownership_details(db)
+    check("Broken.srt" not in plain_details, f"the error body was owned: {plain_details}")
+    check(all(row[3] == 0 for row in read_db(db)["ownership"]),
+          "the failed round committed missing evidence")
+    check(read_db(db)["rounds"] == [], "the failed round committed a round")
+    check(len(hh.download_calls()) == 3, f"first download set: {hh.download_calls()}")
+    # The address recovers: only the missing subtitle is fetched again.
+    plain_files["/Movies/Broken.srt"] = "1\n00:00:01,000 --> 00:00:02,000\nrecovered\n"
+    plain_ok = hh.run(cfg)
+    check(plain_ok.returncode == 0, f"recovery round: {plain_ok.stdout} {plain_ok.stderr}")
+    check("subtitle_downloaded=1" in plain_ok.stdout and "subtitle_failed=0" in plain_ok.stdout,
+          f"recovery counters: {plain_ok.stdout}")
+    check((root / "Broken.srt").read_bytes()
+          == b"1\n00:00:01,000 --> 00:00:02,000\nrecovered\n",
+          "the recovered subtitle bytes changed")
+    check(len(hh.download_calls()) == 4, f"recovery download set: {hh.download_calls()}")
+    check(len(read_db(db)["rounds"]) == 1, "the recovery round must commit")
+    observed["plain_error_body_recovery"] = True
+    hh.cleanup()
+
+    # A directory whose only video never completes its ownership record must
+    # not fetch the subtitle beside it.
+    hh, api, dirs, root, db, cfg = setup("ownership-blocked", entries=[
+        {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+    ])
+    precreate_db_with_trigger(db, "CREATE TRIGGER block_owner BEFORE INSERT ON ownership "
+                                  "BEGIN SELECT RAISE(ABORT, 'injected'); END;")
+    owner_block = hh.run(cfg)
+    check(owner_block.returncode == 1,
+          f"an ownership failure must exit 1: {owner_block.stdout} {owner_block.stderr}")
+    check(len(hh.download_calls()) == 0,
+          f"subtitle content was requested without a usable video: {hh.download_calls()}")
+    check((root / "Sample.strm").exists(), "the video itself was not published")
+    check(not (root / "Movie.zh.srt").exists(),
+          "a subtitle was published without a usable video")
+    check("ownership not recorded" in owner_block.stderr,
+          f"ownership diagnostic missing: {owner_block.stderr}")
+    observed["ownership_block_no_download"] = True
+    hh.cleanup()
+
+    # With a second video completing its ownership record the same directory
+    # keeps its normal subtitle behaviour.
+    hh, api, dirs, root, db, cfg = setup("ownership-blocked-sibling", entries=[
+        {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Other.mkv", "is_dir": False, "size": 2048,
+         "hash_info": {"sha1": "b" * 40}},
+        {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+    ])
+    precreate_db_with_trigger(db, "CREATE TRIGGER block_sample_owner BEFORE INSERT ON ownership "
+                                  "WHEN NEW.relative_path = 'Sample.strm' "
+                                  "BEGIN SELECT RAISE(ABORT, 'injected'); END;")
+    sibling = hh.run(cfg)
+    check(sibling.returncode == 1,
+          f"the blocked video must still fail the round: {sibling.stdout} {sibling.stderr}")
+    check(hh.download_calls() == ["/Movies/Movie.zh.srt"],
+          f"download set beside the completing video: {hh.download_calls()}")
+    check((root / "Movie.zh.srt").exists(),
+          "the subtitle beside the completing video is missing")
+    sibling_details = ownership_details(db)
+    check("Other.strm" in sibling_details and "Movie.zh.srt" in sibling_details,
+          f"completed rows missing: {sibling_details}")
+    check("Sample.strm" not in sibling_details,
+          f"the blocked video was owned: {sibling_details}")
+    observed["ownership_block_sibling_download"] = True
+    hh.cleanup()
+
+    # A subtitle that was published but whose ownership row was refused keeps
+    # both facts visible: the real download and the failed registration.
+    hh, api, dirs, root, db, cfg = setup("ownership-blocked-subtitle", entries=[
+        {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+    ])
+    precreate_db_with_trigger(db, "CREATE TRIGGER block_sub_owner BEFORE INSERT ON ownership "
+                                  "WHEN NEW.relative_path = 'Movie.zh.srt' "
+                                  "BEGIN SELECT RAISE(ABORT, 'injected'); END;")
+    sub_owner_block = hh.run(cfg)
+    check(sub_owner_block.returncode == 1,
+          f"a refused subtitle row must fail the round: {sub_owner_block.stdout}")
+    check("subtitle_downloaded=1" in sub_owner_block.stdout,
+          f"the published fact must stay visible: {sub_owner_block.stdout}")
+    check("subtitle_failed=1" in sub_owner_block.stdout,
+          f"the refused registration must count as a subtitle failure: {sub_owner_block.stdout}")
+    check("subtitle ownership not recorded" in sub_owner_block.stderr,
+          f"registration diagnostic missing: {sub_owner_block.stderr}")
+    check((root / "Movie.zh.srt").read_bytes()
+          == SUBTITLE_BODIES["/Movies/Movie.zh.srt"].encode(),
+          "the published subtitle bytes changed")
+    sub_details = ownership_details(db)
+    check("Movie.zh.srt" not in sub_details, f"the refused row exists: {sub_details}")
+    observed["ownership_block_subtitle_both_facts"] = True
+    hh.cleanup()
+
+    # A subtitle name carrying a direction control character is previewed with
+    # the path escaped on the terminal; the stored name is never rewritten.
+    rlo = "\u202e"
+    control_name = rlo + "Movie.srt"
+    hh, api, dirs, root, db, cfg = setup("control-name", entries=[
+        {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": control_name, "is_dir": False, "size": 20, "hash_info": None},
+    ], files={"/Movies/" + control_name: "1\n00:00:01,000 --> 00:00:02,000\ncontrol\n"})
+    control = hh.run(cfg, dry_run=True)
+    check(control.returncode == 0, f"control-name preview: {control.stdout} {control.stderr}")
+    check("subtitle_downloaded=1" in control.stdout, f"preview counters: {control.stdout}")
+    check(rlo not in control.stderr,
+          f"a raw direction control reached the terminal: {control.stderr!r}")
+    check("\\u202E" in control.stderr, f"the escaped path is missing: {control.stderr!r}")
+    check(not root.exists() and not db.exists(), "the preview created state")
+    observed["control_name_preview_escaped"] = True
+    hh.cleanup()
 
     results["subtitles"] = observed
 

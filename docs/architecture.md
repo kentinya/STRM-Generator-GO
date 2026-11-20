@@ -36,8 +36,9 @@ Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记�
 查重，错误在准备输出／数据库前以退出码 2 返回脱敏字段名。三个命令入口在
 `config.Load` 后一次构建字幕扩展集并放入 `roundDeps`，运行中的 `serve` 不热加载。
 
-`reconciler` 在每轮 `handleDirectory` 内判定目录资格：本轮至少一个视频 STRM 新建、
-更新或确认为有效归属的未变化文件。合格目录按同一份列表逐个补缺，字幕相对路径由
+`reconciler` 在每轮 `handleDirectory` 内判定目录资格:本轮至少一个视频 STRM 新建、
+更新或确认为有效归属的未变化文件,且该动作的归属登记已完成;已发生的文件动作仍按
+实际结果计数,但未完成归属的目录不取得字幕下载资格。合格目录按同一份列表逐个补缺,字幕相对路径由
 `pathmap.SubtitleRelative` 用与视频相同的段校验拼接源内相对目录与原名；已归属字幕
 的出现观察独立于目录资格。`internal/openlist.SubtitleDownloader` 以
 `pathmap.StableURL` 构造 `/d/` 地址执行无凭证 GET，实行 30 秒预算、5 次重定向与

@@ -1,7 +1,9 @@
 package openlist
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -26,6 +28,12 @@ const (
 	SubtitleMaxRedirects = 5
 	// SubtitleMaxBytes bounds the accepted response body of one subtitle.
 	SubtitleMaxBytes = int64(8 << 20)
+	// errorPageSniffBytes is the leading window of a streamed body inspected
+	// when the response content type claims something harmless. Subtitle
+	// formats never start with '<' or '{'; a '[' body is only an error page
+	// when the complete response is valid JSON, because an ASS subtitle starts
+	// with a section header.
+	errorPageSniffBytes = 512
 )
 
 // errSubtitle gives every download failure a fixed, non-secret reason. The
@@ -158,6 +166,9 @@ func resolveRedirect(current, location string) (string, error) {
 // content type is an error page, a declared length above the limit is
 // refused before any byte is stored, and the copy checks both the actual byte
 // count and read errors so a truncated or oversized body never completes.
+// The content type alone is not trusted: an error body answered as text/plain
+// is classified from the streamed bytes before the caller can publish them,
+// while a valid subtitle keeps its exact bytes.
 func readSubtitleBody(resp *http.Response, w io.Writer) error {
 	defer resp.Body.Close()
 	if isErrorPageContentType(resp.Header.Get("Content-Type")) {
@@ -166,9 +177,10 @@ func readSubtitleBody(resp *http.Response, w io.Writer) error {
 	if resp.ContentLength > SubtitleMaxBytes {
 		return errSubtitleTooLarge
 	}
+	sniff := &sniffWriter{w: w}
 	// One extra byte is admitted so an oversized body is detected instead of
 	// silently cut at the limit.
-	limited := &countingLimitWriter{w: w, remaining: SubtitleMaxBytes + 1}
+	limited := &countingLimitWriter{w: sniff, remaining: SubtitleMaxBytes + 1}
 	written, err := io.Copy(limited, resp.Body)
 	if written > SubtitleMaxBytes {
 		return errSubtitleTooLarge
@@ -188,7 +200,85 @@ func readSubtitleBody(resp *http.Response, w io.Writer) error {
 	if resp.ContentLength >= 0 && written < resp.ContentLength {
 		return errSubtitleTruncated
 	}
+	if sniff.isErrorPage() {
+		return errSubtitleErrorPage
+	}
 	return nil
+}
+
+// sniffWriter streams every byte to the destination while keeping just enough
+// of the body to recognise an error page after the copy. The first window
+// settles the leading byte; a '[' prefix additionally mirrors the remaining
+// bytes so a complete JSON document can be told apart from an ASS section
+// header. The mirrored copy exists only for that ambiguous prefix and stays
+// bounded by the subtitle byte limit.
+type sniffWriter struct {
+	w       io.Writer
+	prefix  []byte
+	mirror  *bytes.Buffer
+	settled bool
+}
+
+func (s *sniffWriter) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	if n > 0 {
+		chunk := p[:n]
+		if !s.settled && len(s.prefix) < errorPageSniffBytes {
+			take := chunk
+			if free := errorPageSniffBytes - len(s.prefix); len(take) > free {
+				take = take[:free]
+			}
+			s.prefix = append(s.prefix, take...)
+			chunk = chunk[len(take):]
+			if signature, ready := sniffSignature(s.prefix); ready {
+				s.settled = true
+				if signature == '[' {
+					s.mirror = &bytes.Buffer{}
+				}
+			}
+		}
+		if s.mirror != nil {
+			_, _ = s.mirror.Write(chunk)
+		}
+	}
+	return n, err
+}
+
+// sniffSignature returns the first non-space byte of the window and reports
+// whether the window already settles the signature: either a non-blank byte
+// was found or the window is full of blanks.
+func sniffSignature(window []byte) (byte, bool) {
+	if trimmed := bytes.TrimLeft(window, " \t\r\n"); len(trimmed) > 0 {
+		return trimmed[0], true
+	}
+	if len(window) >= errorPageSniffBytes {
+		return 0, true
+	}
+	return 0, false
+}
+
+// isErrorPage reports whether the streamed body is an HTML or JSON error
+// page. '<' and '{' can only be error documents in the subtitle whitelist;
+// a '[' body must be a complete JSON document to count, since a legal ASS
+// file starts with a section header.
+func (s *sniffWriter) isErrorPage() bool {
+	body := s.prefix
+	if s.mirror != nil {
+		body = make([]byte, 0, len(s.prefix)+s.mirror.Len())
+		body = append(body, s.prefix...)
+		body = append(body, s.mirror.Bytes()...)
+	}
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) == 0 {
+		return false
+	}
+	switch trimmed[0] {
+	case '<', '{':
+		return true
+	case '[':
+		return json.Valid(body)
+	}
+	return false
 }
 
 // isErrorPageContentType classifies a 200 response whose content type marks

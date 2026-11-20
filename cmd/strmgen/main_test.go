@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"strm-generator-go/internal/reconciler"
+	"strm-generator-go/internal/scheduler"
 )
 
 // startFakeAPI serves a minimal two-file tree.
@@ -723,5 +724,82 @@ func TestSubtitleReportCarriesDedicatedCounters(t *testing.T) {
 		if !strings.Contains(line, token) {
 			t.Fatalf("report line missing %s: %s", token, line)
 		}
+	}
+}
+
+// A mistyped sync.subtitles.enabled must fail with the fixed field name from
+// the strict parse entry, through the same exit code and redaction path every
+// other configuration error uses.
+func TestSubtitleEnabledTypeErrorFailsBeforeAnyRound(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := filepath.Join(t.TempDir(), "out-marker")
+	db := filepath.Join(t.TempDir(), "db-marker", "strmgen.db")
+	cfg := subtitleConfig(t, ts.URL, root, db, "  subtitles:\n    enabled: \"true\"")
+
+	for _, command := range [][]string{
+		{"sync", "--config", cfg},
+		{"serve", "--config", cfg},
+	} {
+		var out, errBuf bytes.Buffer
+		if code := run(command, &out, &errBuf); code != exitUsage {
+			t.Fatalf("%v exit = %d, want 2 (stderr=%s)", command, code, errBuf.String())
+		}
+		if !strings.Contains(errBuf.String(), "invalid sync.subtitles.enabled") {
+			t.Fatalf("%v diagnostic = %q", command, errBuf.String())
+		}
+		if _, err := os.Stat(root); err == nil {
+			t.Fatalf("%v created output before the configuration was rejected", command)
+		}
+		if _, err := os.Stat(db); err == nil {
+			t.Fatalf("%v created the database before the configuration was rejected", command)
+		}
+	}
+}
+
+// The serve summary aggregates the subtitle failure count the round already
+// reports, so a failing first tick is visible on the summary line.
+func TestServeSummaryCarriesSubtitleFailureCount(t *testing.T) {
+	report := &reconciler.Report{Sources: []reconciler.SourceResult{{
+		SourceIndex:         0,
+		Created:             1,
+		SubtitlesDownloaded: 1,
+		SubtitlesFailed:     2,
+	}}}
+	var out, errOut bytes.Buffer
+	printServeSummary(&out, &errOut, scheduler.Event{Kind: scheduler.Failure}, report)
+	line := out.String()
+	for _, token := range []string{"result: failure", "subtitle_downloaded=1", "subtitle_failed=2"} {
+		if !strings.Contains(line, token) {
+			t.Fatalf("serve summary missing %s: %s", token, line)
+		}
+	}
+}
+
+// Diagnostic lines escape control and bidirectional runes on their way to the
+// terminal; the stored diagnostic and the file name itself stay untouched.
+func TestDiagnosticLinesEscapeControlCharacters(t *testing.T) {
+	raw := "would download subtitle \u202eMovie.srt"
+	report := &reconciler.Report{Sources: []reconciler.SourceResult{{
+		SourceIndex: 0,
+		Diagnostics: []string{raw},
+	}}}
+	var out, errBuf bytes.Buffer
+	printReport(&out, &errBuf, report, true)
+	if strings.Contains(errBuf.String(), "\u202e") {
+		t.Fatalf("a raw direction control reached the terminal: %q", errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), `\u202E`) {
+		t.Fatalf("the escaped path is missing: %q", errBuf.String())
+	}
+	if report.Sources[0].Diagnostics[0] != raw {
+		t.Fatal("the stored diagnostic was rewritten")
+	}
+
+	var serveOut, serveErr bytes.Buffer
+	printServeSummary(&serveOut, &serveErr, scheduler.Event{Kind: scheduler.Success}, report)
+	if strings.Contains(serveErr.String(), "\u202e") ||
+		!strings.Contains(serveErr.String(), `\u202E`) {
+		t.Fatalf("serve diagnostics are not escaped: %q", serveErr.String())
 	}
 }

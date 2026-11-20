@@ -516,8 +516,9 @@ func (s *Syncer) noteObserved(ctx context.Context, src Source, rel string) error
 	cleared, err := s.store.ClearMissing(ctx, src.Key, rel)
 	// A committed N -> 0 reset stands on its own: the durable clear already
 	// happened, even when the private workspace cleanup or a later step of
-	// this round failed.
-	if cleared.RowFound && cleared.PriorMissing > 0 {
+	// this round failed. The fact stream carries STRM events only; a subtitle
+	// reappearance stays inside the command statistics.
+	if cleared.RowFound && cleared.PriorMissing > 0 && cleared.FileType == storage.FileSTRM {
 		s.emitFact(Fact{
 			SourceIndex:  src.Index,
 			Kind:         FactMissingCleared,
@@ -623,11 +624,12 @@ func (s *Syncer) handleDirectorySubtitles(ctx context.Context, src Source, dir, 
 
 // handleFile reconciles one media candidate. The boolean return reports a
 // usable result for this round: the target was newly published, updated, or
-// confirmed as a valid and reliably owned unchanged file. A dry-run reports
-// the same expected usability from its preview decisions. The counters of an
-// action that already happened keep standing even when a later directory or
-// ownership step fails, so the subtitle eligibility consumes the successful
-// result, not the round state.
+// confirmed as a valid and reliably owned unchanged file, and every ownership
+// step of that action completed. A dry-run reports the same expected
+// usability from its preview decisions. The counters of an action that
+// already happened keep standing even when a later directory or ownership
+// step fails, but such an incomplete action never becomes the usable result
+// the subtitle eligibility consumes.
 func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string, entry openlist.Entry, epoch int64, res *SourceResult) (bool, error) {
 	rel, err := pathmap.LocalRelative(relDir, entry.Name)
 	if err != nil {
@@ -736,6 +738,9 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			if err := refreshOwnership(); err != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
+				// Without a refreshed ownership record this target is not a
+				// usable result, even though the file itself is unchanged.
+				return false, nil
 			}
 			// A valid, reliably owned, unchanged target is a usable result.
 			return true, nil
@@ -758,11 +763,14 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 			if uerr != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("update failed for %s", rel))
-				return outcome.Replaced, nil
+				// The replaced bytes and the update fact stand, but the update
+				// did not complete, so it cannot qualify the directory.
+				return false, nil
 			}
 			if err := refreshOwnership(); err != nil {
 				res.Errors++
 				res.addDiagnostic(fmt.Sprintf("ownership mapping not refreshed: %s", rel))
+				return false, nil
 			}
 			return true, nil
 		}
@@ -789,15 +797,17 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 	if perr != nil {
 		res.Errors++
 		res.addDiagnostic(fmt.Sprintf("publish failed for %s", rel))
-		return outcome.Published, nil
+		// A target without its final bytes or durability flush is not a usable
+		// result for this round; the published fact still stands when set.
+		return false, nil
 	}
 	if s.store != nil {
 		if err := refreshOwnership(); err != nil {
 			// The file stays on disk but is not owned; a later run must treat
-			// it as an unowned conflict.
+			// it as an unowned conflict, and this round must not build on it.
 			res.Errors++
 			res.addDiagnostic(fmt.Sprintf("published but ownership not recorded: %s", rel))
-			return true, nil
+			return false, nil
 		}
 		// afterOwnershipRecord is inert in release builds. The optional
 		// strmgen_testhooks build can stop deterministically at exactly this
@@ -832,6 +842,7 @@ func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, ent
 	if statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			res.Conflicts++
+			res.SubtitlesFailed++
 			res.addDiagnostic(fmt.Sprintf("refusing subtitle target %s", rel))
 			return nil
 		}
@@ -885,6 +896,9 @@ func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, ent
 			FileType:     storage.FileSubtitle,
 		}, epoch); err != nil {
 			res.Errors++
+			// The publication itself stands and stays visible in the
+			// downloaded count; the failed registration is a failure too.
+			res.SubtitlesFailed++
 			res.addDiagnostic(fmt.Sprintf("subtitle ownership not recorded: %s", rel))
 			return nil
 		}

@@ -822,3 +822,20 @@ func TestSubtitlesUnknownFieldStillRejected(t *testing.T) {
 		t.Fatal("a misspelled subtitle field must still be rejected")
 	}
 }
+
+// A mistyped sync.subtitles.enabled is a field error, not a bare syntax
+// failure: the diagnostic names the field and echoes nothing else.
+func TestSubtitlesEnabledTypeDiagnosticNamesField(t *testing.T) {
+	for name, raw := range map[string]string{
+		"string true": `    enabled: "true"`,
+		"number":      `    enabled: 17`,
+	} {
+		_, err := Load(write(t, withSubtitles(raw)))
+		if err == nil {
+			t.Fatalf("%s must be rejected", name)
+		}
+		if diag := SafeDiagnostic(err); diag != "invalid sync.subtitles.enabled" {
+			t.Fatalf("%s diagnostic = %q", name, diag)
+		}
+	}
+}
