@@ -4,10 +4,10 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
-Implementation Head: f51db7b448e761569ea39eba83109efd51ec7a7a
+Implementation Head: 173293be70862e530201cccce548534169d9a431
 Independent B Review: FIX REQUIRED
 Difficulty: High
 Test Level: T4
@@ -235,6 +235,73 @@ NOT RUN,原因同上一轮审查记录,待用户明确授权的专用隔离源�
 **剩余风险**:错误正文判定依赖四种字幕格式的首字节约定(`.srt`/`.vtt` 不以 `<`/`{`
 开头,`.ass`/`.ssa` 段头需整段 JSON 校验);`[` 前缀正文判定期间在内存镜像整段(上限
 8 MiB、同一时间只有一份在途);诊断转义只作用于终端输出行,存储与数据库保持原字节。
+
+## 第二修正轮报告(2026-11-20 · Developer,回应 B-01 BOM 变体与 B-04 剩余项)
+
+实施 Head:`173293be70862e530201cccce548534169d9a431`(单个产品提交,提交身份 kentinya,
+父提交 `957d1df` 为上一轮报告)。相对上一轮审查的实施 Head `f51db7b`,其后只有
+`d47c06b`、`957d1df` 两个文档提交;本次修正是唯一新增产品代码提交,工作区干净,未 push。
+
+**逐项修正**
+
+| 编号 | 修正 | 位置 |
+|---|---|---|
+| B-01 | 正文分类先跳过 UTF-8 BOM 与空白:新增 `stripBodyPrefix`,同时用于签名判定与最终判定;`sniffSignature` 在窗口落在 BOM 中间时不落定,由后续字节决定标记是否完整,跨读分割的 BOM 不再把 `0xEF` 当成首字节;`[` 分支在去标记后的正文上执行 `json.Valid`;写入字节始终原样,不改写存储内容 | `internal/openlist/download.go` |
+| B-04 剩余 | `sync.subtitles` 非映射块与未知键改为固定字段消息(`sync.subtitles: must be a mapping`、`sync.subtitles: unknown field`,均不回显配置值),`safeFieldFromError` 增加 `sync.subtitles` 条目,`SafeDiagnostic` 输出 `invalid sync.subtitles`,退出码 2 与脱敏路径不变 | `internal/config/config.go` |
+
+**新增与扩展的验证(均走真实入口)**
+
+- `internal/openlist/download_test.go`:`TestSubtitleFetchRejectsBOMErrorPages`
+  (BOM HTML、空白+BOM HTML、BOM JSON 对象/数组/超窗口数组 × text/plain、
+  application/octet-stream、缺省类型);`TestSubtitleFetchRejectsBOMErrorPageSplitAcrossReads`
+  (首块只发3字节标记并 Flush,200ms 后再发正文,覆盖跨读分割);
+  `TestSubtitleFetchAcceptsBOMSubtitles`(BOM srt 与 BOM ASS 段头、均超窗口,原字节不变)。
+- `internal/config/config_test.go`:`TestSubtitlesBlockDiagnosticNamesField`(标量块、字符串块、
+  序列块、未知键 → `invalid sync.subtitles`)。
+- `cmd/strmgen/main_test.go`:`TestSubtitleBlockTypeErrorFailsBeforeAnyRound`(sync、
+  sync --dry-run、serve 三入口均退出 2、诊断 `configuration error: invalid sync.subtitles`、
+  不创建输出根与数据库)。
+- 驱动 `scripts/run_isolated_sync_integration.py` 的 `subtitles` 场景新增 `bom-error-body`
+  分支:BOM HTML 错误页首轮 exit 1、`subtitle_failed=1`、无成品/无归属行/无轮次与缺失证据,
+  同轮 BOM 字幕按原字节发布;地址恢复后只补1份、原字幕不变、轮次提交1次。
+
+**首次失败与反向对照(真实入口)**
+
+- 修复前:openlist 两条 BOM 用例 `error = <nil>`;config 用例 `invalid configuration`;
+  CLI 用例 `configuration error: invalid configuration`。
+- 驱动反向对照:把 `download.go` 还原到 `f51db7b` 并重建两个二进制后,`subtitles` 场景
+  FAIL于新分支(BOM 错误页被发布,`subtitle_downloaded=3 subtitle_failed=0`);恢复后重建,
+  二进制 SHA 与候选一致。
+
+**证据**(`artifacts/validation-evidence/`,索引 `task-7.1-fix2-INDEX.md`,日志 `task-7.1-fix2-5z6okg/`)
+
+- `python3 scripts/quality.py` PASS(48.6s);race 10 包 PASS(39.8s)。
+- sync 16/16 PASS `task-7.1-fix2-sync-Fi096A`(130.7s);serve 9/9 PASS
+  `task-7.1-fix2-serve-5Z81jQ`(25.1s)。
+- 容器 7/7 PASS(含 `arm64_oci`)`task-7.1-fix2-container-GnkCdm`(20.0s,镜像
+  `strmgen:task-7.1-fix2` = `sha256:9af3eab3…`);真实 OpenList 8 场景 + `cli_mirror` PASS
+  `task-7.1-fix2-real-openlist-WgUdf8`(110.5s,固定 digest 镜像)。
+- 双架构静态交叉构建、arm64 OCI 归档;二进制 build info
+  `vcs.revision=173293be70862e530201cccce548534169d9a431`、`vcs.modified=false`。
+
+**未运行与阻塞**
+
+- B-05 两段(真实 OpenList 字幕下载、Jellyfin 隔离库外部字幕轨)仍为 NOT RUN:本轮未获得
+  新的专用隔离源与媒体库授权;真实 OpenList 驱动只覆盖元数据路径,不能充当字幕证据。
+- ARM64 原生实机运行不在合同范围(仅交叉构建与 OCI 产物核对)。
+
+**时间与测试占比**
+
+本轮约 55 分钟;测试/验证命令(质量门、race、四套驱动、聚焦用例与反向对照)累计约
+7.5 分钟,连同双架构、镜像与 OCI 构建约 9 分钟,占比约 16%,低于 30% 上限。
+
+**剩余风险**
+
+- 正文分类只识别 UTF-8 标记与空白前缀;UTF-16 等其他编码的错误页按二进制字节接受。
+- 首字节约定(上一轮风险)不变:`<`/`{` 与整段 JSON 判定仍依赖四种字幕格式的开头形式。
+- `notifications.telegram` 的块级诊断仍为旧消息形态(本轮 B-04 只点名 `sync.subtitles`,
+  未改动,待 B 判断是否需要同一处理)。
+- 诊断转义仍只作用于终端输出行,存储诊断与磁盘文件名保持原字节。
 
 ## Independent B Review
 
