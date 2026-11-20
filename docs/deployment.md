@@ -1,7 +1,7 @@
 # 部署与运行包
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
-Slice 1–6 与通知排版修复 FIX-TG-01 均 PASS / CLOSED，当前无活动实施任务。
+Slice 1–7 与通知排版修复 FIX-TG-01 均 PASS / CLOSED，当前无活动实施任务。
 验收记录见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
 
 基础容器实测来自 Slice 3，通知增量另有 Slice 6 的 amd64 容器证据；arm64 仅有
@@ -16,8 +16,8 @@ Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
 [README](../README.md#下载二进制)。
 
 v1.2.0 增加可选 Telegram 通知；v1.2.1 改善摘要排版、图标和文件明细折叠。
-后续版本增加可选外挂字幕下载（`sync.subtitles`，默认关闭，兼容原配置）：
-首次可写同步会把状态库自动升级到含文件类型列的 schema，既有 STRM 归属、路径、
+当前源码已验收可选外挂字幕下载（`sync.subtitles`，默认关闭，兼容原配置）。
+使用含此功能的构建首次可写同步时，状态库自动升级到含文件类型列的 schema，既有 STRM 归属、路径、
 完整轮次与缺失计数保持不变，`--dry-run` 可直接读取升级前后的库，无需删除或重建数据库。
 字幕下载要求 `openlist.public_url + /d/` 稳定地址可被生成器直接访问且不使用
 OpenList token；要求临时签名或额外鉴权的挂载不满足使用前提。

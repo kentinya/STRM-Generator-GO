@@ -4,9 +4,9 @@
 
 当前实现支持 `sync`、`sync --dry-run`、定时 `serve`、全局自定义媒体扩展名、可选的
 外挂字幕按目录补下载与三轮清理，以及可选的 Telegram 运行通知（本地实现与真实
-文本／附件送达均已验收）。V4.4、Slice 5 与 Slice 6 增量均已交付，Slice 1–6 PASS / CLOSED。
+文本／附件送达均已验收）。Slice 1–7 均已 PASS / CLOSED。
 独立修复 FIX-TG-01 已独立 B PASS / CLOSED：新版 HTML 排版经本地回归、真实发送
-与用户最终确认，关闭记录见 [TASK](../TASK.md)；Slice 7 的外挂字幕实施状态见当前 [TASK](../TASK.md)。
+与用户最终确认，关闭记录见 [TASK](../TASK.md)。外挂字幕的验收见 [Slice 7](../SLICE.md#closure-packet)。
 Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记录](development-workflow.md#历史记录)。
 当前合同见 [SLICE](../SLICE.md)，已关闭结果、分层验收及未运行项见[路线图](roadmap.md)，
 完整合同与过程记录从[固定 Git 检查点](development-workflow.md#历史记录)查阅。

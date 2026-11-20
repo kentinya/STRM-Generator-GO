@@ -1,10 +1,10 @@
 # Slice 路线图
 
-V4.4、自定义扩展名与 Telegram 通知增量均已交付，Slice 1–6 PASS / CLOSED。
+V4.4、自定义扩展名、Telegram 通知与外挂字幕均已验收，Slice 1–7 PASS / CLOSED。
 独立修复 FIX-TG-01 已 B PASS / CLOSED：本地审查及回归通过，完整真实消息预览
 已发送并获用户满意确认。验收见 [TASK](../TASK.md#已关闭任务索引)。
-业务规则见[需求](requirements.md)，按目录下载与清理外挂字幕的当前合同见
-[Slice 7](../SLICE.md)，计划与审查历史见
+业务规则见[需求](requirements.md)，按目录下载与清理外挂字幕的合同与最终验收见
+[Slice 7](../SLICE.md#closure-packet)，计划与审查历史见
 [固定 Git 检查点](development-workflow.md#历史记录)。
 
 软件分发版本见 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases)：
@@ -20,7 +20,7 @@ v1.2.1 改善通知排版、图标与明细折叠。
 | 4 | 复用隔离资产的万文件与插件决策验收 | PASS / CLOSED | Slice 3 | 固定复用 10000 个 S3 文件、少量同步样本、原始 STRM 扫描、插件完整决策表 |
 | 5 | 通过配置自定义媒体扩展名 | PASS / CLOSED | Slice 1–4 已交付基线 | Task 5.1 B PASS、A 最终 PASS；默认兼容、显式替换、三入口筛选、排除清理与恢复 |
 | 6 | Telegram 运行结果与文件清理进度通知 | PASS / CLOSED | Slice 1–5 已交付基线 | B 本地审查及 A 完整范围／真实回执续审通过，RO-1..7 全部 PASS |
-| 7 | 按目录下载与清理外挂字幕 | READY FOR A REVIEW | Slice 1–6 已交付基线 | Task 7.1 已独立 B PASS，真实 OpenList 下载与清理、Jellyfin 原生外部字幕轨已验证。见 [Task 7.1](../TASK.md) |
+| 7 | 按目录下载与清理外挂字幕 | PASS / CLOSED | Slice 1–6 已交付基线 | 独立 B／A 审查通过，RO-1..6 全部 PASS。真实 OpenList 下载与延迟清理、Jellyfin 原生外部字幕轨已验证。见 [关闭记录](../SLICE.md#closure-packet) |
 
 ## 独立修复 FIX-TG-01 已关闭记录
 
