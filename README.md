@@ -223,4 +223,5 @@ v1.2.1 兼容 v1.1.0／v1.2.0 配置。Telegram 通知仍默认关闭，已启�
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-Slice 1–6 与独立修复 FIX-TG-01 均已 PASS / CLOSED，当前无活动实施任务；新版通知已实发并获用户确认，验收见 [TASK](TASK.md)。
+Slice 1–6 与独立修复 FIX-TG-01 均已 PASS / CLOSED，新版通知已实发并获用户确认。
+Slice 7 的外挂字幕任务处于计划阶段，见 [TASK](TASK.md)。
