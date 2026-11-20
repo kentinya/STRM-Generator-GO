@@ -4,11 +4,11 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
-Implementation Head: eefbef028b60eabaad29e75c9f94e2eee8ee518d
-Independent B Review: FIX REQUIRED
+Implementation Head: f51db7b448e761569ea39eba83109efd51ec7a7a
+Independent B Review: PENDING
 Difficulty: High
 Test Level: T4
 ```
@@ -175,6 +175,66 @@ STRM、同轮下载匹配名字幕的样片，在该视频的字幕轨列表查�
 
 本轮次实施约 50 分钟，其中测试／验证（含全部驱动、race、质量门、容器与双架构
 构建）约 11 分钟，占比约 22%，低于 30% 上限。
+
+## 修正轮报告(2026-11-20 · Developer,回应 B-01..B-04)
+
+实施 Head:`f51db7b448e761569ea39eba83109efd51ec7a7a`(单个产品提交,提交身份 kentinya)。
+相对 B 审查的实施 Head `eefbef0…`,其后只有 `adbb8d0`(Developer 报告)与 `ca05810`
+(B 审查)两个文档提交;本次修正是唯一新增产品代码提交,工作区干净,未 push。
+
+**逐项修正**
+
+| 编号 | 修正 | 位置 |
+|---|---|---|
+| B-01 | 200 响应在内容类型之外按流式字节判定错误正文:`sniffWriter` 保留前 512 字节窗口,`<`/`{` 前缀判为 HTML/JSON 错误页;`[` 前缀只有完整响应为合法 JSON 才判错(否则会误伤 ASS 段头)。判定在完整性检查之后、调用方发布临时文件之前,有效字幕字节仍原样流式保存 | `internal/openlist/download.go` |
+| B-02 | `handleFile` 只有创建、更新或有效归属确认全部完成才返回可用:未变化分支刷新归属失败、更新分支写入失败或刷新失败、发布分支发布失败或归属登记失败均返回不可用;已发生的 Created/Updated 计数与事实保留 | `internal/reconciler/syncer.go` |
+| B-03 | `storage.ClearResult` 增加 `FileType`(同一条 SELECT),`noteObserved` 仅对 `file_type=STRM` 发出 `FactMissingCleared`,字幕列表重现清零不再进入事实流;STRM 路径不变 | `internal/storage/storage.go`、`internal/reconciler/syncer.go` |
+| B-04a | `serve` 摘要聚合并输出 `subtitle_failed`;同名链接/非普通文件冲突与字幕发布后归属登记失败同时计入 `SubtitlesFailed`,实际发布计数保留 | `cmd/strmgen/main.go`、`internal/reconciler/syncer.go` |
+| B-04b | 终端诊断行统一经 `notify.EscapeText` 输出(控制字符与双向控制字符转 `\uXXXX`),存储的诊断与磁盘文件名不变;覆盖 `printReport` 与 `printServeSummary` | `cmd/strmgen/main.go` |
+| B-04c | `sync.subtitles` 严格解码:`enabled` 非布尔/空值与未知键返回字段命名错误,`Load` 只放行已命名固定字段的解码错误,`SafeDiagnostic` 输出 `invalid sync.subtitles.enabled`,退出码 2 与脱敏不变 | `internal/config/config.go` |
+
+**新增与扩展的验证(均走真实入口)**
+
+- `internal/openlist/download_test.go`:普通/缺省 Content-Type 下的 HTML、JSON 对象、
+  JSON 数组(含超窗口)错误正文拒绝;ASS 段头正文(超窗口)接受且字节不变;在途读体
+  取消(首块字节已到达写入方后取消);30 秒预算真实截断在途读体(30.03s,常量用例保留)。
+- `internal/reconciler/subtitle_test.go`:唯一视频归属登记失败时字幕内容请求为 0、同目录
+  另一部视频完成时正常下载;更新分支归属刷新失败、发布分支目录同步失败均不取得资格;
+  字幕重现清零不进事实流而 STRM 重现照常;同一失败轮同时冻结已达阈值的 STRM 与字幕,
+  恢复轮一起补齐并删除。
+- `internal/config/config_test.go`、`cmd/strmgen/main_test.go`:`enabled: "true"`/数字 →
+  `invalid sync.subtitles.enabled`、退出 2、不创建输出与库;`printServeSummary` 含
+  `subtitle_failed`;诊断转义且存储诊断不变。
+- 驱动: `subtitles` 新增纯文本错误正文两轮恢复、归属阻断(唯一视频 0 下载 / 兄弟视频
+  正常下载 / 字幕登记失败双计数)、链接冲突计数、方向控制字符预览转义;
+  `notifications` 新增字幕重现无消息、STRM 重现有消息;`serve_subtitles` 新增 404 首轮
+  摘要含 `subtitle_failed=1` 且恢复轮补下载。
+
+**证据**(`artifacts/validation-evidence/`,索引 `task-7.1-fix-INDEX.md`)
+
+- `python3 scripts/quality.py` PASS(48s);race 全包 PASS(39s);Python 125 项 PASS。
+- sync 16/16 PASS `task-7.1-fix-full-sync-Ydc97z`(130s);serve 9/9 PASS
+  `task-7.1-fix-full-serve-nr3Iwa`(25s)。
+- 容器 7/7 PASS(含 `arm64_oci`)`task-7.1-fix-container2-9e4e5b`;真实 OpenList 8 场景 +
+  `cli_mirror` PASS `task-7.1-fix-real-openlist2-zoD02R`(108s)。
+- 双架构静态交叉构建、arm64 OCI 归档、镜像 `strmgen:task-7.1-fix`;二进制 build info
+  `vcs.revision=f51db7b…`、`vcs.modified=false`。
+
+**首次失败与重跑**:见索引 —— vet 报新用例未使用变量后补齐;容器首跑漏传
+`--hooks-binary`(用法错误,补参整轮复跑通过);真实 OpenList 首跑缺固定镜像,按 digest
+拉取环境固定镜像后通过;`exact-limit` 用例首字节固定为测试调整(引入正文分类后随机首
+字节可能落入判定),断言未变。反向对照:把 `syncer.go`/`config.go` 还原到 `adbb8d0` 后
+三条新增用例全部 FAIL,恢复后 PASS,证明用例走真实入口而非构造场景。
+
+**未运行与阻塞**:B-05 两段(真实 OpenList 字幕下载、Jellyfin 隔离库外部字幕轨)仍为
+NOT RUN,原因同上一轮审查记录,待用户明确授权的专用隔离源与媒体库;ARM64 原生实机
+不在合同范围。
+
+**时间**:本轮约 75 分钟,测试/验证约 10 分钟,占比约 13%,低于 30% 上限。
+
+**剩余风险**:错误正文判定依赖四种字幕格式的首字节约定(`.srt`/`.vtt` 不以 `<`/`{`
+开头,`.ass`/`.ssa` 段头需整段 JSON 校验);`[` 前缀正文判定期间在内存镜像整段(上限
+8 MiB、同一时间只有一份在途);诊断转义只作用于终端输出行,存储与数据库保持原字节。
 
 ## Independent B Review
 
