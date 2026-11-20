@@ -3,9 +3,9 @@
 ```text
 Slice ID: 7
 Owner: A
-Status: ACTIVE
+Status: READY FOR A REVIEW
 Base SHA: 11b51b9ec4708f553671eefcb9d3b06dd43d0845
-Implementation Head: NOT SET
+Implementation Head: 173293be70862e530201cccce548534169d9a431
 ```
 
 用户要求在生成 STRM 的同时，按目录和扩展名下载对应 OpenList 目录下的字幕。
@@ -100,3 +100,18 @@ sync:
 | 审查 | 按 T4 运行相关产品回归、故障恢复和适用的打包验证，记录准确源码、命令、夹具、原始证据与限制。独立 B 复核完整改动，A 逐项核对 RO 后作关闭决定。 |
 
 真实服务验证使用明确授权的专用隔离夹具。须分别记录各层结果及 NOT RUN／BLOCKED 情况。
+
+## Closure Packet
+
+Task 7.1 已独立 B PASS，B-01 至 B-05 关闭，无剩余阻塞。A 审查范围从本 Slice 的
+Base `11b51b9ec4708f553671eefcb9d3b06dd43d0845` 到实现 Head
+`173293be70862e530201cccce548534169d9a431`，并查看后续审查记录。
+六项 RO 的 B 复评与证据索引见 [Task 7.1](TASK.md#independent-b-review)。
+
+从真实 OpenList 首轮下载两份字幕并原样保留，第二轮跳过已有文件。移除任意名字幕后，
+三次完整轮均保留文件，dry-run 只预览，后续正式轮重核后删除。Jellyfin 原生扫描在
+同轮 STRM 的视频详情中实际列出匹配名的中文外部字幕轨。候选回归覆盖默认兼容、已有文件
+保护、输出边界、失败恢复、完整轮清理和现有 STRM 通知。
+
+打包覆盖 amd64 隔离容器及 arm64 交叉构建与 OCI 核对。ARM64 实机运行、客户端播放和
+正式发布为 NOT RUN。B 未提出需另列的 P2 或延期项。Slice 的最终决定由 A 记录。

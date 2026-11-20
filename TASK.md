@@ -4,11 +4,11 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: FIX REQUIRED
+Status: PASS
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Implementation Head: 173293be70862e530201cccce548534169d9a431
-Independent B Review: FIX REQUIRED
+Independent B Review: PASS
 Difficulty: High
 Test Level: T4
 ```
@@ -443,6 +443,35 @@ Mirror 使用同一发布二进制。容器及真实元数据回归沿用 Develo
 移除字幕后三次完整轮保留和下一轮重核删除。在字幕尚在时，让隔离 Jellyfin 库通过正常
 扫描读取同轮生成的 STRM 和匹配字幕，并在对应视频详情查看外部字幕轨。分别保存两段
 实际结果。Slice 7 继续 ACTIVE。
+
+### 2026-11-20 · 独立 B 最终审查 · PASS
+
+完整审查范围为
+`e59af5280f11c0d69e735d4cbc951cf0f521bedb..173293be70862e530201cccce548534169d9a431`。
+综合前三次完整范围和修复差异的独立复核，以及本轮真实服务结果，B-01 至 B-05 全部关闭。
+`173293b` 之后到 `4be30d9` 的差异仅为 Task 报告和审查记录。
+
+| RO | B 最终结果 |
+|---|---|
+| RO-1 | PASS。旧配置保持关闭，三个命令入口共用配置。错误字幕配置在同步前退出并指出对应字段。 |
+| RO-2 | PASS。合成回归验证合格目录及多视频只处理一次。真实 OpenList 首轮在嵌套目录生成一份 STRM，按原名下载 `Movie.zh.srt` 和 `中 文.srt`。 |
+| RO-3 | PASS。两份字幕的无签名稳定地址均返回 HTTP 200，源、响应和发布文件的字节一致。沿用同一候选的限额、原子发布和已有文件保护证据。 |
+| RO-4 | PASS。重跑跳过两份字幕，字节与 mtime 均保持原值。移除 `中 文.srt` 后，前三个完整轮的缺失计数逐次为 1、2、3，文件保留。dry-run 预览一项且保持文件、原库及轮次。第四轮正式同步按当前远端状态重核后只删除目标字幕与对应归属。旧库升级、失败冻结和恢复沿用本地证据。 |
+| RO-5 | PASS。真实 CLI 区分下载、已有跳过、预计清理和实际删除。本地回归覆盖失败、serve 摘要、诊断转义和 STRM 通知边界。 |
+| RO-6 | B PASS，待 A 最终审查。示例配置与说明已核对，适用 T4 验证及两段真实服务证据齐备。隔离 Jellyfin 12.3.0 经原生媒体库扫描，在同轮生成的 `Movie.strm` 条目详情列出 `Movie.zh.srt`，显示为中文 SubRip 外部字幕轨。 |
+
+本轮经用户授权创建专用 OpenList v4.2.7 和 Jellyfin 12.3.0 实例。OpenList 初次请求收到
+HTTP 401，随后按稳定下载地址的使用条件关闭该隔离实例的全局下载签名要求。
+Jellyfin 验收使用原生向导、建库、扫描和视频详情接口，媒体库只读挂载本轮输出。
+首次失败和夹具调整均留档，完整用户旅程在 `attempt-9` 一次跑通，退出 0，约 31.6 秒。
+全部隔离测试（含重试）约 108 秒，少于本轮总时间的一半。隔离容器和专用网络均已清理。
+
+真实服务原始结果、命令、构建摘要、字幕字节摘要和逐轮状态见
+`artifacts/validation-evidence/task-7.1-b-services-NEJauV/INDEX.md`。
+质量、race、sync 16/16、serve 9/9、容器 7/7、故障恢复和双架构产物核对沿用上轮
+已匹配的候选证据。真实 OpenList 元数据和 CLI Mirror 回归沿用 Developer 的记录。
+
+**B 决定为 PASS，无阻塞项。** Slice 7 已交 A 最终审查，验收边界见 [Slice 交接](SLICE.md#closure-packet)。
 
 ## 已关闭任务索引
 

@@ -264,4 +264,4 @@ v1.2.1 兼容 v1.1.0／v1.2.0 配置。Telegram 通知仍默认关闭，已启�
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
 Slice 1–6 与独立修复 FIX-TG-01 均已 PASS / CLOSED，新版通知已实发并获用户确认。
-Slice 7 的外挂字幕任务已实施并交独立 B 审查，见 [TASK](TASK.md)。
+Slice 7 的外挂字幕任务已独立 B PASS，等待 A 最终审查。见 [TASK](TASK.md)。
