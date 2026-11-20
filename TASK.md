@@ -4,7 +4,7 @@
 Task ID: 7.1
 Parent Slice: 7
 Owner: B
-Status: READY FOR B REVIEW
+Status: FIX REQUIRED
 Task Base: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Contract Checkpoint: e59af5280f11c0d69e735d4cbc951cf0f521bedb
 Implementation Head: 173293be70862e530201cccce548534169d9a431
@@ -413,6 +413,36 @@ CLI 退出 0，报告下载 1 份并登记文件归属。下载服务恢复后�
   真实服务。
 - B 证据位于 `artifacts/validation-evidence/task-7.1-b-recheck-EsGagt/`。
   按各测试命令时长相加约 60 秒，少于本轮复核耗时的一半。
+
+### 2026-11-20 · 第三次独立审查 · 本地通过，真实服务验收待补
+
+审查范围为
+`e59af5280f11c0d69e735d4cbc951cf0f521bedb..173293be70862e530201cccce548534169d9a431`。
+在前两次审查基础上核对全部新增差异。后续提交
+`03fb38e27afd71d91b8b8b1552609d9bf464a307` 只更新任务报告。
+**Task 决定为 FIX REQUIRED，B-01 至 B-04 关闭。B-05 是唯一剩余验收项。**
+
+| RO | 本轮结果 |
+|---|---|
+| RO-1 | PASS。默认关闭和三入口共用配置。把字幕块写成标量或拼错键，退出 2 并指出 `sync.subtitles`。 |
+| RO-2 | 本地 PASS。同目录多视频只补齐一次，字幕原名与镜像路径保留。真实 OpenList 下载见 B-05。 |
+| RO-3 | 本地 PASS。稳定地址、传输限额、已有文件保护和原子发布有候选证据。带 UTF-8 BOM 的 HTML／JSON 错误页被拒绝，合法 BOM 字幕字节保留。真实服务见 B-05。 |
+| RO-4 | 本地 PASS。错误页轮次未发布失败字幕、登记归属或提交轮次。地址恢复后只补缺件。三轮计数、下一轮重核、dry-run 和清零通过。真实清理见 B-05。 |
+| RO-5 | PASS。sync 和 serve 字幕统计、路径转义及 STRM 通知边界通过。 |
+| RO-6 | BLOCKED。配置示例、文档及本地回归已核对。真实字幕下载和 Jellyfin 原生字幕轨仍为 NOT RUN。 |
+
+独立 B 复跑了三个 Go 包的聚焦用例和串行 CLI 场景 `subtitles`、`subtitles_cleanup`，
+全部通过，合计约 13 秒，少于本轮耗时的一半。证据在
+`artifacts/validation-evidence/task-7.1-b-final-local-fJ4OIX/`。核对 Developer 的
+质量、race、sync 16/16、serve 9/9、容器 7/7 和真实 OpenList 元数据／Mirror 记录。
+sync、serve 的两个二进制摘要与带干净 `173293b` 构建标记的产物一致，真实 OpenList
+Mirror 使用同一发布二进制。容器及真实元数据回归沿用 Developer 记录。
+
+**B-05 等待专用隔离环境授权。** 获授权后，用同一候选 CLI 同步隔离 OpenList 的视频、
+匹配名字幕 `Movie.zh.srt` 和一份含中文或空格的任意名字幕。核对下载字节、重跑跳过、
+移除字幕后三次完整轮保留和下一轮重核删除。在字幕尚在时，让隔离 Jellyfin 库通过正常
+扫描读取同轮生成的 STRM 和匹配字幕，并在对应视频详情查看外部字幕轨。分别保存两段
+实际结果。Slice 7 继续 ACTIVE。
 
 ## 已关闭任务索引
 
