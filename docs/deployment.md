@@ -1,8 +1,8 @@
 # 部署与运行包
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
-Slice 1–7 与通知排版修复 FIX-TG-01 均 PASS / CLOSED，当前无活动实施任务。
-验收记录见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
+Slice 1–7 与通知排版修复 FIX-TG-01 均 PASS / CLOSED。
+当前任务与验收记录见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
 
 基础容器实测来自 Slice 3，通知增量另有 Slice 6 的 amd64 容器证据；arm64 仅有
 交叉构建、OCI manifest／digest 与 ELF 架构核对，未做原生实机验收。

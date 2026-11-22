@@ -1,9 +1,7 @@
-# NO ACTIVE IMPLEMENTATION TASK
+# FIX-SUB-01 — 字幕下载兼容与 Telegram 分类统计
 
-Slice 1–7 和独立修复 FIX-TG-01 均已关闭。以下独立修复仅完成规划，尚未开始产品实施，
-不重开 Slice 7，也不改写其历史验收。
-
-## FIX-SUB-01 — 字幕下载兼容与 Telegram 分类统计
+FIX-SUB-01 已激活，当前状态为 `IN PROGRESS`。Slice 1–7 和独立修复 FIX-TG-01 的
+验收记录见[已关闭任务索引](#已关闭任务索引)。
 
 ```text
 Task ID: FIX-SUB-01
@@ -11,7 +9,7 @@ Task Type: standalone-fix
 Parent Slice: NONE
 Related Slice: 7
 Owner: B（任务规划职责；非独立产品审查结论）
-Status: PLANNED
+Status: IN PROGRESS
 Task Base: 05a8bddcabcc9ad517d509316a0938237309b81d
 Contract Checkpoint: a306e6b8703ae09c69fa100c8c2cc3ae65fa9c39
 Implementation Head: NOT SET
@@ -198,6 +196,12 @@ Task Base 为规划前真实 HEAD，关联 Slice 实现为其祖先，历史关�
 再次修订：按用户要求将扩展名过滤统一为一项，采用两份有效配置列表的并集判定。
 原计划及第一次修订分别保存在 `83bde7933e459250cc023dacc7f742f388ca6147` 和
 `e9aa2e9eb73d8765ad90648e76a7c338ccf99faa`。本次仍处于 PLANNED。
+
+### 激活记录
+
+用户要求激活 FIX-SUB-01，任务进入 `IN PROGRESS`。
+实施范围采用已提交的计划 `a306e6b8703ae09c69fa100c8c2cc3ae65fa9c39`。
+本次提交记录任务生效，Implementation Head 为 `NOT SET`，独立 B 审查为 `PENDING`。
 
 ## 已关闭任务索引
 
