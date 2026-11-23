@@ -1,7 +1,6 @@
 # 部署与运行包
 
 本文件说明 Linux amd64／arm64 镜像、Compose 运行、状态与恢复；命令按仓库根目录执行。
-Slice 1–7 与通知排版修复 FIX-TG-01 均 PASS / CLOSED。
 当前任务与验收记录见 [TASK](../TASK.md)，分层验收入口见[路线图](roadmap.md)。
 
 基础容器实测来自 Slice 3，通知增量另有 Slice 6 的 amd64 容器证据；arm64 仅有
@@ -15,14 +14,11 @@ Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
 `config.example.yaml`，无需运行时 Go SDK；下载、校验和初次配置见
 [README](../README.md#下载二进制)。
 
-已发布的 v1.3.0 标签增加可选外挂字幕下载，`sync.subtitles` 默认关闭，兼容旧配置；
-该标签是 FIX-SUB-01 修复前版本。FIX-SUB-01 候选增加字幕下载间隔
-（`download_interval_seconds`，默认 1 秒、最小 0.5 秒）与协议开关
-（`use_http2`，默认 `false`，字幕下载客户端使用 HTTP/1.1）；两个字段即使字幕关闭
-也会被校验，旧配置无需修改。Telegram 摘要把 STRM 与字幕统计分开显示，扩展名过滤
-单独计数。候选能力以本分支的验证证据为准，尚未随 v1.3.0 发布。
-首次可写同步将状态库升级至 schema 3，保留既有 STRM 归属、路径、完整轮次和缺失计数。
-`--dry-run` 可读取升级前后的库。
+v1.3.1 可沿用 v1.3.0 的配置和 schema 3 状态库。外挂字幕默认关闭。启用后，下载尝试
+默认至少间隔 1 秒，字幕客户端默认使用 HTTP/1.1。可选字段的取值和重启生效时机见
+[外挂字幕配置](../README.md#外挂字幕)，摘要口径见 [Telegram 通知](../README.md#telegram-通知)。
+从 v1.2.1 升级时，首次可写同步将状态库升级至 schema 3，保留既有 STRM 归属、路径、
+完整轮次和缺失计数。`--dry-run` 可读取升级前后的库。
 字幕下载要求 `openlist.public_url + /d/` 稳定地址可被生成器直接访问且不使用
 OpenList token；要求临时签名或额外鉴权的挂载不满足使用前提。
 升级前停止生成器，备份输出、配置与完整状态目录；替换程序或镜像时保留这些目录和

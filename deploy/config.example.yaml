@@ -44,9 +44,7 @@ sync:
   # omitted enabled keeps historical behavior. When enabled, directories whose
   # videos produced a usable STRM this round also copy their missing selected
   # subtitle files beside the STRM, keeping the remote file names and bytes.
-  # The two fields below belong to the FIX-SUB-01 candidate; the published
-  # v1.3.0 tag is the pre-fix release and does not support these fields or the
-  # classified Telegram statistics.
+  # download_interval_seconds and use_http2 are available starting in v1.3.1.
   # Downloads use the stable openlist.public_url + /d/ address without the API
   # token: the mount behind public_url must serve /d/ to the container (in
   # compose the same URL Jellyfin consumers use). At most one subtitle is in

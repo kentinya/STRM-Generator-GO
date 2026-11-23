@@ -29,8 +29,7 @@ Telegram 通知增量已通过 A 最终审查并 PASS / CLOSED。Task 6.1 本地
 ## 外挂字幕
 
 R-15 是 Slice 7 已验收的字幕增量，完整合同和最终决定见 [SLICE](../SLICE.md#closure-packet)。
-下载间隔、默认 HTTP/1.1 字幕客户端与 Telegram 分类统计属于 FIX-SUB-01 候选增量，尚未发布。以下规则与
-既有 STRM 协议、比较规则、来源身份、同步锁和 Telegram 事件边界一致，不另造状态机。
+下载间隔、默认 HTTP/1.1 字幕客户端与 Telegram 分类统计自 v1.3.1 起适用。
 
 ### 配置与目录资格
 
@@ -38,7 +37,7 @@ R-15 是 Slice 7 已验收的字幕增量，完整合同和最终决定见 [SLIC
    读取配置，重启生效。`extensions` 省略时为四项白名单 `.srt` `.ass` `.ssa` `.vtt`，
    显式列表完整替换且只能取其中任意子集，规范化、去重与错误结构沿用媒体扩展名规则，
    错误配置在网络访问或本地准备前以退出码 2 给出脱敏字段诊断。开启时字幕扩展名与
-   `sync.media_extensions` 需互斥；关闭时列表仍被校验但不生效。
+   `sync.media_extensions` 需互斥。关闭字幕时，列表仍用于校验和 Telegram 扩展名过滤统计。
    `download_interval_seconds` 省略为 1 秒，接受整数或有限小数，最小 0.5 秒，拒绝
    更小值、负数、字符串、布尔、null、容器、NaN、无穷和时长溢出；`use_http2` 省略为
    `false`，显式值只接受 YAML 布尔。两个新字段即使字幕关闭也会校验，重复键与未知

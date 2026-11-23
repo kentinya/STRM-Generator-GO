@@ -4,7 +4,7 @@
 独立 Go 命令行工具，支持 **Linux amd64 / arm64**、Docker Compose 和二进制运行。
 可配合 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe) 使用。
 
-**当前发布版本 v1.3.0**（该标签对应 FIX-SUB-01 修复前版本） · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
+**发布版本 v1.3.1** · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/tag/v1.3.1) ·
 [快速开始](#快速开始) · [配置](#配置) · [Telegram 通知](#telegram-通知) · [升级](#升级)
 
 ## 特性
@@ -39,10 +39,10 @@ flowchart LR
 
 从 [Releases](https://github.com/kentinya/STRM-Generator-GO/releases) 下载对应架构的压缩包和
 `SHA256SUMS.txt`。预编译包只需 Linux 运行环境，无需安装 Go 或 Python。
-在新的安装目录内下载 v1.3.0 并校验压缩包。
+在新的安装目录内下载 v1.3.1 并校验压缩包。
 
 ```bash
-version=v1.3.0
+version=v1.3.1
 mkdir "strmgen-${version}"
 cd "strmgen-${version}"
 case "$(uname -m)" in
@@ -75,7 +75,7 @@ export OPENLIST_TOKEN='替换为你的 OpenList token'
 ```bash
 git clone https://github.com/kentinya/STRM-Generator-GO.git
 cd STRM-Generator-GO
-git checkout v1.3.0
+git checkout v1.3.1
 docker buildx build --load --tag strmgen:local .
 cp deploy/config.example.yaml deploy/config.yaml
 mkdir -p deploy/data/output deploy/data/state deploy/data/locks
@@ -118,8 +118,8 @@ Token 只通过环境变量注入，不写入 YAML。
 | `sync.directory_workers` | 默认 `4`，范围 `1–32` |
 | `sync.media_extensions` | 省略时使用内置 11 项；显式列表完整替换默认值 |
 | `sync.subtitles.enabled` / `sync.subtitles.extensions` | 默认 `false`；后缀省略时为 `.srt` `.ass` `.ssa` `.vtt` 白名单，显式列表只能取其子集且开启时不得与媒体后缀重叠 |
-| `sync.subtitles.download_interval_seconds` | FIX-SUB-01 候选；默认 `1`；接受整数或有限小数，最小 `0.5` 秒，是一轮内所有字幕下载尝试之间的最小开始间隔 |
-| `sync.subtitles.use_http2` | FIX-SUB-01 候选；默认 `false`；字幕下载客户端使用 HTTP/1.1，显式 `true` 才允许 HTTPS 协商 HTTP/2 |
+| `sync.subtitles.download_interval_seconds` | 自 v1.3.1 起可用。默认 `1`，接受整数或有限小数，最小 `0.5` 秒，是一轮内所有字幕下载尝试之间的最小开始间隔 |
+| `sync.subtitles.use_http2` | 自 v1.3.1 起可用。默认 `false`，字幕下载客户端使用 HTTP/1.1，显式 `true` 才允许 HTTPS 协商 HTTP/2 |
 | `sync.mirror` | 默认 `true`；清理另需显式开启 |
 | `cleanup.enabled` / `cleanup.missing_confirmations` | 默认 `false` / `3`，阈值最低 `3` |
 | `notifications.telegram.enabled` | 默认 `false` |
@@ -235,12 +235,10 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 
 ## 升级
 
-已发布的 v1.3.0 标签是 FIX-SUB-01 修复前版本，不包含字幕下载间隔、默认 HTTP/1.1
-字幕客户端与分类统计。本分支描述 FIX-SUB-01 候选：新增
-`sync.subtitles.download_interval_seconds`（默认 1 秒、最低 0.5 秒）、
-`sync.subtitles.use_http2`（默认 `false`，字幕客户端使用 HTTP/1.1），并把 Telegram
-摘要的 STRM／字幕统计分开、扩展名过滤单列。两个示例配置中的新字段同属该候选；
-候选尚未发布，不能把 v1.3.0 标签或当前 Release 附件当作这些能力的发布证据。
+从 v1.3.0 升级到 v1.3.1 可以继续使用已有配置和状态库。启用外挂字幕时，每轮下载
+默认间隔 1 秒，字幕下载默认走 HTTP/1.1。下载间隔和协议均可单独配置。Telegram
+摘要分别显示 STRM、字幕及两份扩展名列表之外的文件数。配置见[外挂字幕](#外挂字幕)，
+修复范围见[独立审查记录](TASK.md#独立-b-最终复评)。
 先停止生成器并备份输出、状态目录（含 SQLite sidecar）和配置，再替换二进制或镜像。
 保留原数据库、输出映射和共享锁目录，先运行 `sync --dry-run`，核对后恢复同步。
 
@@ -290,6 +288,5 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 | [AGENTS](AGENTS.md) | 仓库开发约束 |
 | [CLAUDE](CLAUDE.md) | 开发工具入口 |
 
-Slice 1–7 与独立修复 FIX-TG-01 均已 PASS / CLOSED，新版通知已实发并获用户确认。
 Slice 7 已验证真实 OpenList 字幕下载与延迟清理，以及 Jellyfin 原生扫描识别外部字幕轨。
-验收范围见 [Slice 7 关闭记录](SLICE.md#closure-packet)。
+历史验收与 v1.3.1 修复的分层证据见[路线图](docs/roadmap.md)。
