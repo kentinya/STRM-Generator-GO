@@ -793,6 +793,34 @@ func TestSubtitleTransportExplicitHTTP2NegotiatesH2(t *testing.T) {
 	}
 }
 
+// B-SUB-03: an explicit use_http2: true must stay usable against an HTTPS
+// service that offers only HTTP/1.1. The production constructor is used and
+// the server records the actual protocol, so the fallback is observed rather
+// than inferred from a successful download.
+func TestSubtitleTransportHTTP2EnabledFallsBackToHTTP1(t *testing.T) {
+	var protos []string
+	var mu sync.Mutex
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		protos = append(protos, strings.ToLower(r.Proto))
+		mu.Unlock()
+		w.Write([]byte("1\n00:00:01,000 --> 00:00:02,000\nfallback\n"))
+	}))
+	// EnableHTTP2 stays false: the TLS server advertises only HTTP/1.1.
+	ts.StartTLS()
+	t.Cleanup(ts.Close)
+	d := NewSubtitleDownloader(ts.URL, 0, true).WithRootCAs(mustServerPool(t, ts))
+	var out strings.Builder
+	if err := d.Fetch(context.Background(), "/Movies/Movie.zh.srt", &out); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(protos) != 1 || protos[0] != "http/1.1" {
+		t.Fatalf("negotiated protocols = %v, want [http/1.1]", protos)
+	}
+}
+
 // SUB-3: the default transport stays isolated: the subtitle client keeps its
 // own transport, never mutates the shared default, and every hop of a
 // cross-domain HTTPS redirect chain uses the same HTTP/1.1-only client.

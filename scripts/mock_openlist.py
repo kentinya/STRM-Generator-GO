@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import posixpath
+import threading
 import time
 import urllib.parse
 
@@ -26,6 +27,8 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
     files = data.get("files", {})
     downloads = []
     download_times = []
+    download_stats = {"active": 0, "max": 0}
+    download_lock = threading.Lock()
     hooks = hooks or {}
     accepted_tokens = {TOKEN}
     accepted_tokens.update(token for token in hooks.get("tokens", []) if isinstance(token, str))
@@ -57,29 +60,39 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
                 return
             remote = urllib.parse.unquote(self.path[len("/d/"):])
             remote = "/" + remote.lstrip("/")
-            downloads.append(remote)
-            download_times.append(time.time())
-            entry = files.get(remote)
-            if entry is None:
-                # A real HTTP 404, not the JSON API envelope.
-                self.send_response(404)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            if isinstance(entry, dict):
-                body, content_type = entry.get("body", ""), entry.get("content_type", "application/octet-stream")
-            else:
-                body, content_type = entry, "text/plain; charset=utf-8"
-            if isinstance(body, str):
-                body = body.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
+            with download_lock:
+                downloads.append(remote)
+                download_times.append(time.time())
+                download_stats["active"] += 1
+                download_stats["max"] = max(download_stats["max"], download_stats["active"])
             try:
-                self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+                entry = files.get(remote)
+                if entry is None:
+                    # A real HTTP 404, not the JSON API envelope.
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if isinstance(entry, dict):
+                    body, content_type = entry.get("body", ""), entry.get("content_type", "application/octet-stream")
+                    delay = entry.get("delay", 0)
+                else:
+                    body, content_type, delay = entry, "text/plain; charset=utf-8", 0
+                if isinstance(body, str):
+                    body = body.encode("utf-8")
+                if delay:
+                    time.sleep(delay)
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            finally:
+                with download_lock:
+                    download_stats["active"] -= 1
 
         def do_POST(self):
             if self.headers.get("Authorization") not in accepted_tokens:
@@ -149,6 +162,7 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
     # it to observe the real pacing of the subtitle downloader; it never
     # affects the served responses.
     server.download_timeline = download_times
+    server.download_stats = download_stats
     return server
 
 

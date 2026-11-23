@@ -1192,10 +1192,12 @@ func TestBuildMessageSeparatesSTRMAndSubtitleSections(t *testing.T) {
 	text, _ := BuildMessage(info, nil)
 	body := visible(text)
 	for _, want := range []string{
+		"📄 STRM",
 		"➕ 新增 2 · ✏️ 更新 1",
 		"⏭️ 未变化跳过 4",
 		"🔎 扩展名过滤 3",
-		"🎬 字幕：📥 下载 1 · ⏭️ 已有跳过 2",
+		"🎬 字幕",
+		"📥 下载 1 · ⏭️ 已有跳过 2",
 		"❌ 处理失败 3 · 🗑️ 实际删除 1 · ♻️ 归属回收 2",
 	} {
 		if !strings.Contains(body, want) {
@@ -1209,6 +1211,33 @@ func TestBuildMessageSeparatesSTRMAndSubtitleSections(t *testing.T) {
 		t.Fatalf("an enabled feature must not show the closed note:\n%s", body)
 	}
 	assertEntitiesIntact(t, text)
+}
+
+// B-SUB-02: a body that actually carries file events still states their
+// scope, so a STRM event preview cannot be mistaken for subtitle activity.
+func TestBuildMessageEventScopeWithEvents(t *testing.T) {
+	c, err := NewCollector("scope", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	c.Record(Event{SourceIndex: 0, Kind: KindCreated, RelativePath: "Movie.strm"})
+	info := RunInfo{
+		InstanceName: "S", Mode: "sync", Outcome: OutcomeSuccess,
+		SourceCount: 1, CompletedSources: 1, StatsAvailable: true,
+		Stats: Stats{Created: 1}, Threshold: 3,
+	}
+	text, _ := BuildMessage(info, c)
+	body := visible(text)
+	if !strings.Contains(body, "📄 STRM") {
+		t.Fatalf("the STRM section title is missing:\n%s", body)
+	}
+	if !strings.Contains(body, "文件事件仅记录 STRM 变化。") {
+		t.Fatalf("the event scope note is missing with events:\n%s", body)
+	}
+	if strings.Contains(body, "本轮无新增") {
+		t.Fatalf("a round with an event must not claim there was none:\n%s", body)
+	}
 }
 
 // SUB-7: with the feature off the summary renders the fixed closed note and

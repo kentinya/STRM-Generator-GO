@@ -856,12 +856,14 @@ func TestSubtitleIntervalAndHTTP2ConfigErrorsFailBeforeAnyRound(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "out-marker")
 	db := filepath.Join(t.TempDir(), "db-marker", "strmgen.db")
 	for name, block := range map[string]string{
-		"below floor": "  subtitles:\n    enabled: true\n    download_interval_seconds: 0.4",
-		"negative":    "  subtitles:\n    enabled: true\n    download_interval_seconds: -1",
-		"string":      "  subtitles:\n    enabled: true\n    download_interval_seconds: \"1\"",
-		"null":        "  subtitles:\n    enabled: true\n    download_interval_seconds: null",
-		"http2 str":   "  subtitles:\n    enabled: true\n    use_http2: \"true\"",
-		"http2 null":  "  subtitles:\n    enabled: true\n    use_http2: null",
+		"below floor":           "  subtitles:\n    enabled: true\n    download_interval_seconds: 0.4",
+		"negative":              "  subtitles:\n    enabled: true\n    download_interval_seconds: -1",
+		"string":                "  subtitles:\n    enabled: true\n    download_interval_seconds: \"1\"",
+		"null":                  "  subtitles:\n    enabled: true\n    download_interval_seconds: null",
+		"http2 str":             "  subtitles:\n    enabled: true\n    use_http2: \"true\"",
+		"http2 null":            "  subtitles:\n    enabled: true\n    use_http2: null",
+		"duration overflow":     "  subtitles:\n    enabled: true\n    download_interval_seconds: 9223372036.854776",
+		"duration int overflow": "  subtitles:\n    enabled: true\n    download_interval_seconds: 9223372037",
 	} {
 		cfg := subtitleConfig(t, ts.URL, root, db, block)
 		field := "invalid sync.subtitles.download_interval_seconds"
@@ -894,12 +896,18 @@ func TestSubtitleIntervalAndHTTP2ConfigErrorsFailBeforeAnyRound(t *testing.T) {
 func TestSubtitleLegacyBlockStillSucceeds(t *testing.T) {
 	ts := startFakeAPI(t)
 	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
-	root := t.TempDir()
-	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
-	cfg := subtitleConfig(t, ts.URL, root, db, "  subtitles:\n    enabled: true")
-	var out, errBuf bytes.Buffer
-	if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitOK {
-		t.Fatalf("exit=%d stderr=%s", code, errBuf.String())
+	for name, block := range map[string]string{
+		"legacy block":        "  subtitles:\n    enabled: true",
+		"YAML hex interval":   "  subtitles:\n    enabled: true\n    download_interval_seconds: 0x1",
+		"YAML octal interval": "  subtitles:\n    enabled: true\n    download_interval_seconds: 0o7",
+	} {
+		root := t.TempDir()
+		db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+		cfg := subtitleConfig(t, ts.URL, root, db, block)
+		var out, errBuf bytes.Buffer
+		if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitOK {
+			t.Fatalf("%s: exit=%d stderr=%s", name, code, errBuf.String())
+		}
 	}
 }
 
@@ -911,7 +919,10 @@ func TestBuildRunInfoCarriesSubtitleClassification(t *testing.T) {
 	report := &reconciler.Report{
 		DryRun: false,
 		Sources: []reconciler.SourceResult{
-			{SourceIndex: 0, Created: 2, Filtered: 5,
+			{SourceIndex: 0, Created: 2, Filtered: 5, ExtensionFiltered: 2,
+				Errors: 2, SubtitleErrors: 1, RoundErrors: 1,
+				Conflicts: 1, SubtitleConflicts: 1,
+				Retained: 2, SubtitleRetained: 1,
 				SubtitlesDownloaded: 1, SubtitlesSkipped: 2, SubtitlesFailed: 3},
 			{SourceIndex: 1, Deleted: 1, Reclaimed: 1,
 				SubtitlesDeleted: 4, SubtitlesReclaimed: 5, Partial: true},
@@ -925,8 +936,13 @@ func TestBuildRunInfoCarriesSubtitleClassification(t *testing.T) {
 	if info.Subtitles != want {
 		t.Fatalf("subtitle stats = %+v, want %+v", info.Subtitles, want)
 	}
-	if info.Stats.Filtered != 5 {
-		t.Fatalf("filtered = %d, want 5", info.Stats.Filtered)
+	// Telegram uses the dual-list count; subtitle-specific errors, conflicts
+	// and retained rows never leak into the STRM section.
+	if info.Stats.Filtered != 2 {
+		t.Fatalf("extension filtered = %d, want 2", info.Stats.Filtered)
+	}
+	if info.Stats.Errors != 0 || info.Stats.Conflicts != 0 || info.Stats.Retained != 1 {
+		t.Fatalf("STRM-specific stats = %+v, want errors=0 conflicts=0 retained=1", info.Stats)
 	}
 	if info.IncompleteSources != 1 {
 		t.Fatalf("incomplete sources = %d, want 1", info.IncompleteSources)

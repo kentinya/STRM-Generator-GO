@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/url"
 	"os"
 	"path"
@@ -93,8 +94,12 @@ type Subtitles struct {
 // SubtitleIntervalSeconds is a strictly finite YAML number of seconds with the
 // fixed 0.5-second lower bound. The default yaml.v3 float decode would accept
 // NaN, infinities and values that overflow the duration conversion, so this
-// type rejects them at parse time instead of naming them at use time.
-type SubtitleIntervalSeconds float64
+// type rejects them at parse time instead of naming them at use time, and
+// carries the checked duration so the resolved configuration never performs an
+// unchecked float-to-Duration conversion.
+type SubtitleIntervalSeconds struct {
+	duration time.Duration
+}
 
 // minSubtitleIntervalSeconds is the configuration lower bound; it equals the
 // fixed minimum pacing interval of the download contract.
@@ -106,25 +111,15 @@ const minSubtitleIntervalSeconds = 0.5
 // diagnostic. YAML null never reaches this method (yaml.v3 skips custom
 // unmarshalers for null), so the null rejection lives in the block decoder.
 func (s *SubtitleIntervalSeconds) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.ScalarNode {
+	if node.Kind != yaml.ScalarNode || (node.Tag != "!!int" && node.Tag != "!!float") {
 		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a number"}
 	}
+	// Decode through the YAML numeric decoder so every representable YAML
+	// integer form (for example 0x1, 0o7, 1_000) and finite decimal is read
+	// with the YAML value the operator wrote, not a base-10-only spelling.
 	var value float64
-	switch node.Tag {
-	case "!!int":
-		iv, err := strconv.ParseInt(node.Value, 10, 64)
-		if err != nil {
-			return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
-		}
-		value = float64(iv)
-	case "!!float":
-		fv, err := strconv.ParseFloat(node.Value, 64)
-		if err != nil {
-			return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
-		}
-		value = fv
-	default:
-		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a number"}
+	if err := node.Decode(&value); err != nil {
+		return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
 	}
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a finite number"}
@@ -132,11 +127,33 @@ func (s *SubtitleIntervalSeconds) UnmarshalYAML(node *yaml.Node) error {
 	if value < minSubtitleIntervalSeconds {
 		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be at least 0.5"}
 	}
-	if value*float64(time.Second) > float64(math.MaxInt64) {
+	duration, ok := checkedSubtitleInterval(value)
+	if !ok {
 		return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
 	}
-	*s = SubtitleIntervalSeconds(value)
+	*s = SubtitleIntervalSeconds{duration: duration}
 	return nil
+}
+
+// checkedSubtitleInterval converts one finite YAML number of seconds into a
+// Duration only when the exact product fits Int64 nanoseconds. Comparing the
+// exact float value avoids the rounding trap at the upper boundary: the
+// nearest float to 9223372036.854776 seconds would round to 2^63 nanoseconds
+// in an unchecked multiplication and wrap into a negative Duration.
+func checkedSubtitleInterval(seconds float64) (time.Duration, bool) {
+	ratio := new(big.Rat).SetFloat64(seconds)
+	if ratio == nil {
+		return 0, false
+	}
+	ratio.Mul(ratio, new(big.Rat).SetInt64(int64(time.Second)))
+	if ratio.Cmp(new(big.Rat).SetInt64(math.MaxInt64)) > 0 {
+		return 0, false
+	}
+	nanos := new(big.Int).Quo(ratio.Num(), ratio.Denom())
+	if !nanos.IsInt64() {
+		return 0, false
+	}
+	return time.Duration(nanos.Int64()), true
 }
 
 // strictFieldError marks a decode error whose message already names one fixed
@@ -548,7 +565,7 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	// behind enabled: false.
 	subtitleInterval := DefaultSubtitleDownloadInterval
 	if cfg.Sync.Subtitles != nil && cfg.Sync.Subtitles.DownloadIntervalSeconds != nil {
-		subtitleInterval = time.Duration(float64(*cfg.Sync.Subtitles.DownloadIntervalSeconds) * float64(time.Second))
+		subtitleInterval = cfg.Sync.Subtitles.DownloadIntervalSeconds.duration
 	}
 	subtitleUseHTTP2 := cfg.Sync.Subtitles != nil && cfg.Sync.Subtitles.UseHTTP2 != nil && *cfg.Sync.Subtitles.UseHTTP2
 	if subtitlesEnabled {

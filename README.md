@@ -4,7 +4,7 @@
 独立 Go 命令行工具，支持 **Linux amd64 / arm64**、Docker Compose 和二进制运行。
 可配合 [jellyfin-strm-probe](https://github.com/kentinya/jellyfin-strm-probe) 使用。
 
-**当前版本 v1.3.0** · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
+**当前发布版本 v1.3.0**（该标签对应 FIX-SUB-01 修复前版本） · [下载 Release](https://github.com/kentinya/STRM-Generator-GO/releases/latest) ·
 [快速开始](#快速开始) · [配置](#配置) · [Telegram 通知](#telegram-通知) · [升级](#升级)
 
 ## 特性
@@ -118,8 +118,8 @@ Token 只通过环境变量注入，不写入 YAML。
 | `sync.directory_workers` | 默认 `4`，范围 `1–32` |
 | `sync.media_extensions` | 省略时使用内置 11 项；显式列表完整替换默认值 |
 | `sync.subtitles.enabled` / `sync.subtitles.extensions` | 默认 `false`；后缀省略时为 `.srt` `.ass` `.ssa` `.vtt` 白名单，显式列表只能取其子集且开启时不得与媒体后缀重叠 |
-| `sync.subtitles.download_interval_seconds` | 默认 `1`；接受整数或有限小数，最小 `0.5` 秒，是一轮内所有字幕下载尝试之间的最小开始间隔 |
-| `sync.subtitles.use_http2` | 默认 `false`；字幕下载客户端使用 HTTP/1.1，显式 `true` 才允许 HTTPS 协商 HTTP/2 |
+| `sync.subtitles.download_interval_seconds` | FIX-SUB-01 候选；默认 `1`；接受整数或有限小数，最小 `0.5` 秒，是一轮内所有字幕下载尝试之间的最小开始间隔 |
+| `sync.subtitles.use_http2` | FIX-SUB-01 候选；默认 `false`；字幕下载客户端使用 HTTP/1.1，显式 `true` 才允许 HTTPS 协商 HTTP/2 |
 | `sync.mirror` | 默认 `true`；清理另需显式开启 |
 | `cleanup.enabled` / `cleanup.missing_confirmations` | 默认 `false` / `3`，阈值最低 `3` |
 | `notifications.telegram.enabled` | 默认 `false` |
@@ -235,9 +235,12 @@ export TELEGRAM_CHAT_ID='替换为目标 Chat ID'
 
 ## 升级
 
-v1.3.0 兼容旧配置，外挂字幕默认关闭。启用方法见[外挂字幕](#外挂字幕)。字幕下载
-新增可配置间隔（默认 1 秒）并默认使用 HTTP/1.1；Telegram 摘要把 STRM 与字幕统计
-分开显示，扩展名过滤单独计数。
+已发布的 v1.3.0 标签是 FIX-SUB-01 修复前版本，不包含字幕下载间隔、默认 HTTP/1.1
+字幕客户端与分类统计。本分支描述 FIX-SUB-01 候选：新增
+`sync.subtitles.download_interval_seconds`（默认 1 秒、最低 0.5 秒）、
+`sync.subtitles.use_http2`（默认 `false`，字幕客户端使用 HTTP/1.1），并把 Telegram
+摘要的 STRM／字幕统计分开、扩展名过滤单列。两个示例配置中的新字段同属该候选；
+候选尚未发布，不能把 v1.3.0 标签或当前 Release 附件当作这些能力的发布证据。
 先停止生成器并备份输出、状态目录（含 SQLite sidecar）和配置，再替换二进制或镜像。
 保留原数据库、输出映射和共享锁目录，先运行 `sync --dry-run`，核对后恢复同步。
 

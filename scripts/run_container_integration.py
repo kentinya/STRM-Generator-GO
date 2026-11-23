@@ -60,6 +60,7 @@ ALL_SCENARIOS = [
     "cross_container_busy",
     "compose_lifecycle",
     "notifications",
+    "subtitle_lifecycle",
 ]
 _LIVE_HARNESSES = []
 
@@ -146,11 +147,12 @@ def snapshot(root):
     return result
 
 
-def config_document(api_url, output="/output/Movies", interval_minutes=60):
+def config_document(api_url, output="/output/Movies", interval_minutes=60, subtitles=None,
+                    public=None):
     return "\n".join([
         "openlist:",
         f'  api_url: "{api_url}"',
-        f'  public_url: "{DEFAULT_PUBLIC}"',
+        f'  public_url: "{public or DEFAULT_PUBLIC}"',
         '  token_env: "OPENLIST_TOKEN"',
         "sources:",
         '  - remote: "/Movies"',
@@ -158,6 +160,11 @@ def config_document(api_url, output="/output/Movies", interval_minutes=60):
         "sync:",
         f"  interval_minutes: {interval_minutes}",
         "  directory_workers: 4",
+        *(["  subtitles:",
+           f"    enabled: {'true' if subtitles.get('enabled', True) else 'false'}",
+           f"    download_interval_seconds: {subtitles.get('download_interval_seconds', 1)}",
+           f"    use_http2: {'true' if subtitles.get('use_http2') else 'false'}"]
+           if subtitles is not None else []),
         "cleanup:",
         "  enabled: false",
         "database:",
@@ -188,8 +195,10 @@ class Harness:
         _LIVE_HARNESSES.append(self)
 
     # -- service -----------------------------------------------------------
-    def server(self, directories=None, hooks=None):
+    def server(self, directories=None, files=None, hooks=None):
         fixture = {"directories": directories if directories is not None else base_directories()}
+        if files is not None:
+            fixture["files"] = files
         # The driver injects SECRET_MARKER as the runtime token. The synthetic
         # service accepts it so the container can authenticate; the marker never
         # appears in an image, a committed file or the evidence index.
@@ -205,6 +214,9 @@ class Harness:
         self._thread = thread
         return f"http://host.docker.internal:{server.server_port}"
 
+    def download_calls(self):
+        return list(getattr(self._server, "download_calls", []))
+
     def stop_server(self):
         if getattr(self, "_server", None) is not None:
             self._server.shutdown()
@@ -213,9 +225,10 @@ class Harness:
             self._server = None
 
     # -- configuration -----------------------------------------------------
-    def write_config(self, name, api_url, interval_minutes=60):
+    def write_config(self, name, api_url, interval_minutes=60, subtitles=None, public=None):
         path = self.cfg_dir / f"{name}.yaml"
-        path.write_text(config_document(api_url, interval_minutes=interval_minutes), encoding="utf-8")
+        path.write_text(config_document(api_url, interval_minutes=interval_minutes,
+                                        subtitles=subtitles, public=public), encoding="utf-8")
         os.chmod(path, 0o444)
         return path
 
@@ -767,6 +780,59 @@ notifications:
     }
 
 
+def scenario_subtitle_lifecycle(h, results, image):
+    """Subtitle download, mid-wait stop and lock-releasing recovery inside the
+    product container boundary."""
+    dirs = {"/Movies": [
+        {"name": "Sample.mkv", "is_dir": False, "size": 10,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "A.srt", "is_dir": False, "size": 40, "hash_info": None},
+        {"name": "B.srt", "is_dir": False, "size": 40, "hash_info": None},
+    ]}
+    files = {
+        "/Movies/A.srt": "1\n00:00:01,000 --> 00:00:02,000\nA\n",
+        "/Movies/B.srt": "1\n00:00:01,000 --> 00:00:02,000\nB\n",
+    }
+    api = h.server(directories=dirs, files=files)
+    cfg = h.write_config("subtitle-cancel", api, public=api,
+                         subtitles={"enabled": True, "download_interval_seconds": 5})
+    name = h.start_detached(cfg, f"strmgen-3-2-subtitle-{h.run_id}")
+    check(wait_for(lambda: (h.out / "Movies" / "A.srt").exists(), 90,
+                   "container subtitle round did not publish A.srt"),
+          "the first subtitle was not published")
+    check(not (h.out / "Movies" / "B.srt").exists(),
+          "the container downloaded B.srt before the stop")
+    time.sleep(0.2)
+    started = time.monotonic()
+    exit_code = h.stop(name, timeout=10)
+    elapsed = time.monotonic() - started
+    check(exit_code != 0, f"stopped subtitle container must exit non-zero, got {exit_code}")
+    check(elapsed < 5.0, f"container stop took {elapsed:.2f}s, want prompt cancellation")
+    check(h.download_calls() == ["/Movies/A.srt"],
+          f"the cancelled container requested another subtitle: {h.download_calls()}")
+    check(not (h.out / "Movies" / "B.srt").exists(), "the cancelled container published B.srt")
+    state = read_db(h.state / "strmgen.db")
+    check("B.srt" not in {row[1] for row in state["ownership"]},
+          f"the cancelled container registered B.srt: {state}")
+    check(state["rounds"] == [], f"the cancelled container committed a round: {state}")
+
+    retry_cfg = h.write_config("subtitle-retry", api, public=api,
+                               subtitles={"enabled": True, "download_interval_seconds": 0.5})
+    retry = h.run_once(retry_cfg, f"strmgen-3-2-subtitle-retry-{h.run_id}", timeout=120)
+    check(retry.returncode == 0,
+          f"post-stop subtitle sync failed: {retry.returncode} {retry.stdout} {retry.stderr}")
+    check("subtitle_downloaded=1" in retry.stdout and "subtitle_skipped=1" in retry.stdout,
+          f"post-stop subtitle counters: {retry.stdout}")
+    check((h.out / "Movies" / "B.srt").exists(), "the post-stop sync did not fill B.srt")
+    check((h.out / "Movies" / "A.srt").read_bytes() == files["/Movies/A.srt"].encode(),
+          "the post-stop sync changed A.srt")
+    check(epoch(h.state / "strmgen.db") == 1, "the post-stop sync did not commit round 1")
+    results["subtitle_lifecycle"] = {
+        "stop_exit": exit_code, "stop_seconds": round(elapsed, 3),
+        "requests": h.download_calls(), "retry_exit": retry.returncode,
+    }
+
+
 SCENARIOS = {
     "image_static": scenario_image_static,
     "minimal_run": scenario_minimal_run,
@@ -774,6 +840,7 @@ SCENARIOS = {
     "cross_container_busy": scenario_cross_container_busy,
     "compose_lifecycle": scenario_compose_lifecycle,
     "notifications": scenario_container_notifications,
+    "subtitle_lifecycle": scenario_subtitle_lifecycle,
 }
 
 

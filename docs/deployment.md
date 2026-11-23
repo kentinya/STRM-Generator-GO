@@ -15,11 +15,12 @@ Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
 `config.example.yaml`，无需运行时 Go SDK；下载、校验和初次配置见
 [README](../README.md#下载二进制)。
 
-v1.3.0 增加可选外挂字幕下载，`sync.subtitles` 默认关闭，兼容旧配置。
-FIX-SUB-01 增加字幕下载间隔（`download_interval_seconds`，默认 1 秒、最小 0.5 秒）
-与协议开关（`use_http2`，默认 `false`，字幕下载客户端使用 HTTP/1.1）；两个字段
-即使字幕关闭也会被校验，旧配置无需修改。Telegram 摘要把 STRM 与字幕统计分开显示，
-扩展名过滤单独计数。
+已发布的 v1.3.0 标签增加可选外挂字幕下载，`sync.subtitles` 默认关闭，兼容旧配置；
+该标签是 FIX-SUB-01 修复前版本。FIX-SUB-01 候选增加字幕下载间隔
+（`download_interval_seconds`，默认 1 秒、最小 0.5 秒）与协议开关
+（`use_http2`，默认 `false`，字幕下载客户端使用 HTTP/1.1）；两个字段即使字幕关闭
+也会被校验，旧配置无需修改。Telegram 摘要把 STRM 与字幕统计分开显示，扩展名过滤
+单独计数。候选能力以本分支的验证证据为准，尚未随 v1.3.0 发布。
 首次可写同步将状态库升级至 schema 3，保留既有 STRM 归属、路径、完整轮次和缺失计数。
 `--dry-run` 可读取升级前后的库。
 字幕下载要求 `openlist.public_url + /d/` 稳定地址可被生成器直接访问且不使用

@@ -877,6 +877,10 @@ func TestSubtitleDownloadIntervalDefaultsAndValues(t *testing.T) {
 		"half":              {"    enabled: true\n    download_interval_seconds: 0.5", 500 * time.Millisecond},
 		"one":               {"    enabled: true\n    download_interval_seconds: 1", time.Second},
 		"one and a half":    {"    enabled: true\n    download_interval_seconds: 1.5", 1500 * time.Millisecond},
+		"YAML hex integer":  {"    enabled: true\n    download_interval_seconds: 0x1", time.Second},
+		"YAML octal":        {"    enabled: true\n    download_interval_seconds: 0o7", 7 * time.Second},
+		"YAML underscore":   {"    enabled: true\n    download_interval_seconds: 1_000", 1000 * time.Second},
+		"largest integral":  {"    enabled: true\n    download_interval_seconds: 9223372036", 9223372036 * time.Second},
 		"disabled default":  {"    enabled: false", DefaultSubtitleDownloadInterval},
 		"disabled explicit": {"    enabled: false\n    download_interval_seconds: 0.5", 500 * time.Millisecond},
 		"no block":          {"", DefaultSubtitleDownloadInterval},
@@ -897,18 +901,20 @@ func TestSubtitleDownloadIntervalDefaultsAndValues(t *testing.T) {
 // false. The diagnostic never echoes the configured value.
 func TestSubtitleDownloadIntervalRejectsInvalidInput(t *testing.T) {
 	cases := map[string]string{
-		"below floor":  "    download_interval_seconds: 0.4",
-		"zero":         "    download_interval_seconds: 0",
-		"negative":     "    download_interval_seconds: -1",
-		"string":       `    download_interval_seconds: "1"`,
-		"boolean":      "    download_interval_seconds: true",
-		"null":         "    download_interval_seconds: null",
-		"sequence":     "    download_interval_seconds: [1]",
-		"mapping":      "    download_interval_seconds: {a: 1}",
-		"not a number": "    download_interval_seconds: nan",
-		"positive inf": "    download_interval_seconds: .inf",
-		"overflow":     "    download_interval_seconds: 1e300",
-		"str overflow": "    download_interval_seconds: 1e400",
+		"below floor":        "    download_interval_seconds: 0.4",
+		"zero":               "    download_interval_seconds: 0",
+		"negative":           "    download_interval_seconds: -1",
+		"string":             `    download_interval_seconds: "1"`,
+		"boolean":            "    download_interval_seconds: true",
+		"null":               "    download_interval_seconds: null",
+		"sequence":           "    download_interval_seconds: [1]",
+		"mapping":            "    download_interval_seconds: {a: 1}",
+		"not a number":       "    download_interval_seconds: nan",
+		"positive inf":       "    download_interval_seconds: .inf",
+		"overflow":           "    download_interval_seconds: 1e300",
+		"str overflow":       "    download_interval_seconds: 1e400",
+		"just over duration": "    download_interval_seconds: 9223372036.854776",
+		"over duration int":  "    download_interval_seconds: 9223372037",
 	}
 	for name, raw := range cases {
 		for _, enabled := range []string{"    enabled: false\n", ""} {
@@ -920,6 +926,18 @@ func TestSubtitleDownloadIntervalRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("%s diagnostic = %q", name, diag)
 			}
 		}
+	}
+}
+
+// B-SUB-01: the nearest accepted value just below the Duration ceiling must
+// load without wrapping into a negative interval.
+func TestSubtitleDownloadIntervalAcceptsJustInsideDuration(t *testing.T) {
+	r, err := Load(write(t, withSubtitles("    enabled: true\n    download_interval_seconds: 9223372036.854775")))
+	if err != nil {
+		t.Fatalf("load just inside duration: %v", err)
+	}
+	if r.SubtitleDownloadInterval <= 0 || r.SubtitleDownloadInterval > time.Duration(math.MaxInt64) {
+		t.Fatalf("interval = %v", r.SubtitleDownloadInterval)
 	}
 }
 

@@ -1183,10 +1183,11 @@ func mustRead(t *testing.T, path string) string {
 	return string(raw)
 }
 
-// SUB-7: the extension filter count covers exactly the scanned non-directory
-// entries that match neither configured list, case-insensitively on the last
-// extension. Subtitle entries are excluded from the count even while the
-// subtitle feature is off, and directories are never counted.
+// SUB-7: Filtered keeps the command line's historical count of every scanned
+// non-directory non-media entry. ExtensionFiltered is the Telegram count that
+// covers exactly the entries matching neither configured list, case-
+// insensitively on the last extension. Subtitle entries are excluded from the
+// latter even while the subtitle feature is off, and directories never count.
 func TestExtensionFilterCountsOnlyUnmatchedEntries(t *testing.T) {
 	newTree := func() *fakeLister {
 		return &fakeLister{
@@ -1209,9 +1210,9 @@ func TestExtensionFilterCountsOnlyUnmatchedEntries(t *testing.T) {
 			listErr: map[string]error{},
 		}
 	}
-	// Feature off, default lists: the two subtitle entries and the two media
-	// entries match a configured list; only notes.txt and cover.jpg count,
-	// once each, across both directories.
+	// Feature off, default lists: the five subtitle entries are still
+	// non-media for the historical CLI count, while only notes.txt and
+	// cover.jpg count for the dual-list Telegram count.
 	root := t.TempDir()
 	report, err := New(newTree(), newStore(t), Options{PublicPrefix: "https://openlist.example.invalid"}).
 		Run(context.Background(), []Source{sourceFor(root)})
@@ -1219,8 +1220,11 @@ func TestExtensionFilterCountsOnlyUnmatchedEntries(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	res := report.Sources[0]
-	if res.Filtered != 2 {
-		t.Fatalf("feature off: filtered = %d, want 2: %+v", res.Filtered, res)
+	if res.Filtered != 5 {
+		t.Fatalf("feature off: historical filtered = %d, want 5: %+v", res.Filtered, res)
+	}
+	if res.ExtensionFiltered != 2 {
+		t.Fatalf("feature off: extension filtered = %d, want 2: %+v", res.ExtensionFiltered, res)
 	}
 	if res.Created != 3 {
 		t.Fatalf("feature off: created = %d, want 3 (case-insensitive media match): %+v", res.Created, res)
@@ -1238,8 +1242,11 @@ func TestExtensionFilterCountsOnlyUnmatchedEntries(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	res2 := report.Sources[0]
-	if res2.Filtered != 3 {
-		t.Fatalf("explicit subtitle list: filtered = %d, want 3: %+v", res2.Filtered, res2)
+	if res2.Filtered != 5 {
+		t.Fatalf("explicit subtitle list: historical filtered = %d, want 5: %+v", res2.Filtered, res2)
+	}
+	if res2.ExtensionFiltered != 3 {
+		t.Fatalf("explicit subtitle list: extension filtered = %d, want 3: %+v", res2.ExtensionFiltered, res2)
 	}
 
 	// Feature on: the counting is identical; the eligibility and the download
@@ -1255,8 +1262,11 @@ func TestExtensionFilterCountsOnlyUnmatchedEntries(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	res3 := report.Sources[0]
-	if res3.Filtered != 3 {
-		t.Fatalf("feature on: filtered = %d, want 3: %+v", res3.Filtered, res3)
+	if res3.Filtered != 5 {
+		t.Fatalf("feature on: historical filtered = %d, want 5: %+v", res3.Filtered, res3)
+	}
+	if res3.ExtensionFiltered != 3 {
+		t.Fatalf("feature on: extension filtered = %d, want 3: %+v", res3.ExtensionFiltered, res3)
 	}
 	if res3.SubtitlesDownloaded != 2 {
 		t.Fatalf("feature on: downloaded = %d, want 2: %+v", res3.SubtitlesDownloaded, res3)

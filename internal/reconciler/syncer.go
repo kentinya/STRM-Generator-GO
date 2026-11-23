@@ -216,13 +216,21 @@ type SubtitleFetcher interface {
 
 // SourceResult summarizes one source round.
 type SourceResult struct {
-	SourceIndex        int
-	Remote             string
-	Created            int
-	Updated            int
-	Skipped            int
-	Conflicts          int
-	Filtered           int
+	SourceIndex int
+	Remote      string
+	Created     int
+	Updated     int
+	Skipped     int
+	Conflicts   int
+	// Filtered retains the historical CLI meaning: every scanned
+	// non-directory entry whose extension is not a media candidate. It is
+	// reported by the command summary and is not the Telegram classification.
+	Filtered int
+	// ExtensionFiltered counts each scanned non-directory entry whose last
+	// extension matches neither the resolved media list nor the resolved
+	// subtitle list. Telegram uses this count; the feature switch and the
+	// directory/download results never change it.
+	ExtensionFiltered  int
 	Errors             int
 	Partial            bool
 	Diagnostics        []string
@@ -251,6 +259,21 @@ type SourceResult struct {
 	// SubtitlesFailed counts subtitle downloads or publications that failed in
 	// this round. Every failure also freezes the source round.
 	SubtitlesFailed int
+	// SubtitleErrors counts the subset of Errors caused by the subtitle
+	// pipeline so the Telegram STRM section can exclude them; the CLI keeps the
+	// historical total Errors meaning.
+	SubtitleErrors int
+	// SubtitleConflicts counts the subset of Conflicts caused by a subtitle
+	// target so the Telegram STRM section can exclude them.
+	SubtitleConflicts int
+	// SubtitleRetained counts the subset of Retained ownership rows that are
+	// subtitles, letting the STRM section exclude a subtitle-specific
+	// preservation reason.
+	SubtitleRetained int
+	// RoundErrors counts the subset of Errors caused by source-root, listing,
+	// workspace or commit failures. They stay in the source diagnostics and are
+	// not classified as file operation errors in the Telegram STRM section.
+	RoundErrors int
 	// SubtitlesDeleted counts subtitle files actually unlinked by cleanup.
 	SubtitlesDeleted int
 	// SubtitlesReclaimed counts subtitle ownership rows dropped for targets
@@ -266,6 +289,37 @@ const maxDiagnosticSamples = 100
 
 // pendingBatchSize bounds every ownership enumeration and staged insert batch.
 const pendingBatchSize = 200
+
+// subtitleFailure records one subtitle-pipeline error. The historical total
+// Errors and SubtitlesFailed counters stay unchanged for the CLI and the
+// source failure gate; SubtitleErrors lets the notification classify it.
+func (r *SourceResult) subtitleFailure() {
+	r.Errors++
+	r.SubtitleErrors++
+	r.SubtitlesFailed++
+}
+
+// subtitleConflict records one safety conflict whose target is a subtitle.
+func (r *SourceResult) subtitleConflict() {
+	r.Conflicts++
+	r.SubtitleConflicts++
+	r.SubtitlesFailed++
+}
+
+// roundFailure records one source-root, listing, workspace or commit failure.
+func (r *SourceResult) roundFailure() {
+	r.Errors++
+	r.RoundErrors++
+}
+
+// retainRow records one preserved ownership row and, for a subtitle row, the
+// subtitle-specific part used by the notification classification.
+func (r *SourceResult) retainRow(fileType storage.FileType) {
+	r.Retained++
+	if fileType == storage.FileSubtitle {
+		r.SubtitleRetained++
+	}
+}
 
 func (r *SourceResult) addDiagnostic(message string) {
 	if len(r.Diagnostics) < maxDiagnosticSamples {
@@ -380,13 +434,13 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 			res.Err = errors.New("source round cancelled")
 		}
 		res.Partial = true
-		res.Errors++
+		res.roundFailure()
 		res.addDiagnostic("sync cancelled before reading the source root; no round committed")
 		return res
 	default:
 		res.Err = fmt.Errorf("read source root: %s", reason)
 		res.Partial = true
-		res.Errors++
+		res.roundFailure()
 		res.addDiagnostic("source root not readable as a directory; no round committed")
 		return res
 	}
@@ -398,7 +452,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		if err != nil {
 			res.Err = err
 			res.Partial = true
-			res.Errors++
+			res.roundFailure()
 			res.addDiagnostic("round lookup failed; source round not committed")
 			return res
 		}
@@ -407,7 +461,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		if err := s.store.ResetRound(ctx, src.Key); err != nil {
 			res.Err = err
 			res.Partial = true
-			res.Errors++
+			res.roundFailure()
 			res.addDiagnostic("round workspace reset failed; source round not committed")
 			return res
 		}
@@ -424,7 +478,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 	if err := traversal.run(ctx); err != nil {
 		res.Err = err
 		res.Partial = true
-		res.Errors++
+		res.roundFailure()
 		res.addDiagnostic("incomplete traversal; no round committed")
 		return res
 	}
@@ -436,7 +490,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 	if ctx.Err() != nil {
 		res.Err = ctx.Err()
 		res.Partial = true
-		res.Errors++
+		res.roundFailure()
 		res.addDiagnostic("sync cancelled; no round committed")
 		return res
 	}
@@ -445,7 +499,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 			if err := s.previewCleanup(ctx, src, &res); err != nil {
 				res.Err = err
 				res.Partial = true
-				res.Errors++
+				res.roundFailure()
 				res.addDiagnostic("cleanup preview stopped; no round committed")
 			}
 		}
@@ -455,7 +509,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		if err := s.confirmAndCleanup(ctx, src, &res); err != nil {
 			res.Err = err
 			res.Partial = true
-			res.Errors++
+			res.roundFailure()
 			res.addDiagnostic("cleanup stopped; source round not committed")
 			return res
 		}
@@ -467,7 +521,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		if err := s.confirmSubtitlePresence(ctx, src); err != nil {
 			res.Err = err
 			res.Partial = true
-			res.Errors++
+			res.roundFailure()
 			res.addDiagnostic("subtitle presence confirmation stopped; source round not committed")
 			return res
 		}
@@ -477,7 +531,7 @@ func (s *Syncer) runSource(ctx context.Context, src Source) SourceResult {
 		if err != nil {
 			res.Err = err
 			res.Partial = true
-			res.Errors++
+			res.roundFailure()
 			if cr.Committed {
 				// The round and its counts are durable; the failure came from a
 				// later workspace cleanup step. The diagnostic must never claim
@@ -554,10 +608,14 @@ func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir st
 		// and the feature switch, directory eligibility and processing results
 		// never change the count.
 		isMedia := s.media.IsMedia(entry.Name)
-		if !isMedia && !s.subtitles.IsMedia(entry.Name) {
-			res.Filtered++
-		}
 		if !isMedia {
+			// Keep the command summary's historical filtered count (every
+			// non-directory non-media entry), and separately record the
+			// Telegram count that excludes both configured lists.
+			res.Filtered++
+			if !s.subtitles.IsMedia(entry.Name) {
+				res.ExtensionFiltered++
+			}
 			continue
 		}
 		rel, err := pathmap.LocalRelative(relDir, entry.Name)
@@ -836,23 +894,20 @@ func (s *Syncer) handleFile(ctx context.Context, src Source, dir, relDir string,
 // unowned file that a later run skips instead of claiming.
 func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, entry openlist.Entry, rel string, epoch int64, res *SourceResult) error {
 	if s.opts.SubtitleFetcher == nil {
-		res.Errors++
-		res.SubtitlesFailed++
+		res.subtitleFailure()
 		res.addDiagnostic("subtitle download transport is unavailable")
 		return nil
 	}
 	remotePath := config.JoinRemote(dir, entry.Name)
 	info, statErr := s.opts.FS.Lstat(src.Output, rel)
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		res.Errors++
-		res.SubtitlesFailed++
+		res.subtitleFailure()
 		res.addDiagnostic(fmt.Sprintf("cannot stat subtitle %s", rel))
 		return nil
 	}
 	if statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			res.Conflicts++
-			res.SubtitlesFailed++
+			res.subtitleConflict()
 			res.addDiagnostic(fmt.Sprintf("refusing subtitle target %s", rel))
 			return nil
 		}
@@ -867,8 +922,7 @@ func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, ent
 		return nil
 	}
 	if err := s.opts.FS.EnsureDir(src.Output, parentDir(rel)); err != nil {
-		res.Errors++
-		res.SubtitlesFailed++
+		res.subtitleFailure()
 		res.addDiagnostic(fmt.Sprintf("cannot create directory for subtitle %s", rel))
 		return nil
 	}
@@ -884,8 +938,7 @@ func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, ent
 		res.SubtitlesDownloaded++
 	}
 	if perr != nil {
-		res.Errors++
-		res.SubtitlesFailed++
+		res.subtitleFailure()
 		if fetchErr != nil {
 			res.addDiagnostic(fmt.Sprintf("subtitle download failed for %s", rel))
 		} else {
@@ -905,10 +958,9 @@ func (s *Syncer) handleSubtitle(ctx context.Context, src Source, dir string, ent
 			RemotePath:   remotePath,
 			FileType:     storage.FileSubtitle,
 		}, epoch); err != nil {
-			res.Errors++
 			// The publication itself stands and stays visible in the
 			// downloaded count; the failed registration is a failure too.
-			res.SubtitlesFailed++
+			res.subtitleFailure()
 			res.addDiagnostic(fmt.Sprintf("subtitle ownership not recorded: %s", rel))
 			return nil
 		}
@@ -1150,12 +1202,12 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 			}
 			expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
 			if !ok || row.AbsolutePath != expected {
-				res.Retained++
+				res.retainRow(row.FileType)
 				res.addDiagnostic("ownership record is outside the configured output boundary; preserved")
 				continue
 			}
 			if row.RemotePath == "" {
-				res.Retained++
+				res.retainRow(row.FileType)
 				res.addDiagnostic("ownership record lacks an exact remote mapping; preserved")
 				continue
 			}
@@ -1190,7 +1242,7 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 					return err
 				}
 				if current.result.Reason == openlist.ReasonTargetTypeConflict {
-					res.Retained++
+					res.retainRow(row.FileType)
 					res.addDiagnostic(fmt.Sprintf("target type conflict preserved: %s", row.RelativePath))
 				}
 			case openlist.AbsenceMissing:
@@ -1215,7 +1267,7 @@ func (s *Syncer) confirmMissing(ctx context.Context, src Source, res *SourceResu
 				case openlist.ReasonRootUnavailable:
 					return errRootUnavailable
 				default:
-					res.Retained++
+					res.retainRow(row.FileType)
 					res.addDiagnostic(fmt.Sprintf("unconfirmed ownership preserved: %s", row.RelativePath))
 				}
 			}
@@ -1269,7 +1321,7 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 	}
 	expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
 	if !ok || row.AbsolutePath != expected {
-		res.Retained++
+		res.retainRow(row.FileType)
 		res.addDiagnostic("cleanup candidate is outside the configured output boundary; preserved")
 		return nil
 	}
@@ -1304,7 +1356,7 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 			return err
 		}
 		if current.result.Reason == openlist.ReasonTargetTypeConflict {
-			res.Retained++
+			res.retainRow(row.FileType)
 			res.addDiagnostic(fmt.Sprintf("target type conflict preserved: %s", row.RelativePath))
 		}
 		return nil
@@ -1319,14 +1371,14 @@ func (s *Syncer) deleteCandidate(ctx context.Context, src Source, row storage.Ow
 		case openlist.ReasonRootUnavailable:
 			return errRootUnavailable
 		default:
-			res.Retained++
+			res.retainRow(row.FileType)
 			res.addDiagnostic(fmt.Sprintf("cleanup candidate could not be reconfirmed; preserved: %s", row.RelativePath))
 			return nil
 		}
 	}
 	if err := s.opts.FS.InspectDeletable(ctx, src.Output, row.RelativePath); err != nil {
 		if errors.Is(err, ErrStagingPresent) || errors.Is(err, ErrNotDeletable) {
-			res.Retained++
+			res.retainRow(row.FileType)
 			res.addDiagnostic(fmt.Sprintf("local target is not safely deletable; preserved: %s", row.RelativePath))
 			return nil
 		}
@@ -1422,7 +1474,7 @@ func (s *Syncer) previewCleanup(ctx context.Context, src Source, res *SourceResu
 			}
 			expected, ok := expectedTarget(src.Output, row.RelativePath, row.FileType)
 			if !ok || row.AbsolutePath != expected {
-				res.Retained++
+				res.retainRow(row.FileType)
 				res.addDiagnostic("cleanup candidate is outside the configured output boundary; preserved")
 				continue
 			}
@@ -1451,14 +1503,14 @@ func (s *Syncer) previewCleanup(ctx context.Context, src Source, res *SourceResu
 				case openlist.ReasonRootUnavailable:
 					return errRootUnavailable
 				default:
-					res.Retained++
+					res.retainRow(row.FileType)
 					res.addDiagnostic(fmt.Sprintf("preview candidate could not be reconfirmed; preserved: %s", row.RelativePath))
 					continue
 				}
 			}
 			if err := s.opts.FS.InspectDeletable(ctx, src.Output, row.RelativePath); err != nil {
 				if errors.Is(err, ErrStagingPresent) || errors.Is(err, ErrNotDeletable) {
-					res.Retained++
+					res.retainRow(row.FileType)
 					res.addDiagnostic(fmt.Sprintf("local target is not safely deletable; preserved: %s", row.RelativePath))
 					continue
 				}

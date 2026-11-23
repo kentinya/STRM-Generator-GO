@@ -157,6 +157,12 @@ class Harness:
         self._thread = thread
         return f"http://127.0.0.1:{server.server_port}", fixture["directories"]
 
+    def download_calls(self):
+        return list(getattr(self._server, "download_calls", []))
+
+    def download_stats(self):
+        return dict(getattr(self._server, "download_stats", {}))
+
     def stop_server(self):
         if getattr(self, "_server", None) is not None:
             self._server.shutdown()
@@ -188,6 +194,10 @@ class Harness:
             if subtitles.get("extensions") is not None:
                 rendered = ", ".join(json.dumps(ext) for ext in subtitles["extensions"])
                 lines.append(f"    extensions: [{rendered}]")
+            if subtitles.get("download_interval_seconds") is not None:
+                lines.append(f"    download_interval_seconds: {subtitles['download_interval_seconds']}")
+            if subtitles.get("use_http2") is not None:
+                lines.append(f"    use_http2: {'true' if subtitles['use_http2'] else 'false'}")
         lines.append("cleanup:")
         lines.append("  enabled: false")
         lines.append("database:")
@@ -810,6 +820,60 @@ def scenario_serve_subtitles(h, results):
     check(fail_code != 0, f"cancelled serve must be non-zero, got {fail_code}")
     results["serve_subtitles"]["failure_summary_subtitles_failed"] = True
     results["serve_subtitles"]["failure_recovery"] = True
+
+    # A serve round stopped during the pacing wait must exit promptly, leave
+    # the already published first subtitle in place, and never request, publish
+    # or own the second one or commit the incomplete round. The lock must be
+    # released so a normal rerun fills the remaining gap.
+    cancel_entries = [
+        {"name": "Sample.mkv", "is_dir": False, "size": 10,
+         "hash_info": {"sha1": "a" * 40}},
+        {"name": "A.srt", "is_dir": False, "size": 40, "hash_info": None},
+        {"name": "B.srt", "is_dir": False, "size": 40, "hash_info": None},
+    ]
+    cancel_api, cancel_dirs = h.server(directories={"/Movies": cancel_entries}, files={
+        "/Movies/A.srt": "1\n00:00:01,000 --> 00:00:02,000\nA\n",
+        "/Movies/B.srt": "1\n00:00:01,000 --> 00:00:02,000\nB\n",
+    })
+    cancel_root = h.workdir / "out-subtitle-cancel"
+    cancel_db = h.workdir / "data-subtitle-cancel" / "strmgen.db"
+    cancel_out = h.workdir / "serve-subtitle-cancel.out"
+    cancel_err = h.workdir / "serve-subtitle-cancel.err"
+    cancel_cfg = h.config("subtitles-cancel", cancel_api, [("/Movies", cancel_root)], cancel_db,
+                          public=cancel_api, subtitles={"enabled": True,
+                                                        "download_interval_seconds": 5})
+    cancel_proc = h.start_serve(cancel_cfg, extra_env={"STRMGEN_TEST_SERVE_INTERVAL_MS": "1200"},
+                                stdout_path=cancel_out, stderr_path=cancel_err)
+    check(wait_for(lambda: (cancel_root / "A.srt").exists(), 30,
+                   "serve did not publish the first subtitle before the wait"),
+          f"first subtitle missing: {read_lines(cancel_err)}")
+    time.sleep(0.1)  # ensure the first publication finished and the next wait began
+    cancel_start = time.monotonic()
+    cancel_code, _, _ = stop_serve(cancel_proc, timeout=10)
+    cancel_elapsed = time.monotonic() - cancel_start
+    check(cancel_code != 0, f"cancelled serve must be non-zero, got {cancel_code}")
+    check(cancel_elapsed < 2.0, f"cancelled serve took {cancel_elapsed:.2f}s, want prompt exit")
+    cancel_requests = h.download_calls()
+    check(cancel_requests == ["/Movies/A.srt"],
+          f"wait cancellation requested another subtitle: {cancel_requests}")
+    check(not (cancel_root / "B.srt").exists(), "the cancelled wait published B.srt")
+    cancel_state = read_db(cancel_db)
+    check("B.srt" not in {row[1] for row in cancel_state["ownership"]},
+          f"the cancelled wait registered B.srt: {cancel_state}")
+    check(cancel_state["rounds"] == [], f"cancelled serve committed a round: {cancel_state}")
+    retry_cfg = h.config("subtitles-cancel-retry", cancel_api, [("/Movies", cancel_root)], cancel_db,
+                         public=cancel_api, subtitles={"enabled": True,
+                                                       "download_interval_seconds": 0.5})
+    retry = h.sync(retry_cfg, timeout=30)
+    check(retry.returncode == 0, f"post-cancel sync failed: {retry.stdout} {retry.stderr}")
+    check("subtitle_downloaded=1" in retry.stdout and "subtitle_skipped=1" in retry.stdout,
+          f"post-cancel sync counters: {retry.stdout}")
+    check((cancel_root / "B.srt").exists(), "the post-cancel sync did not fill B.srt")
+    check(read_db(cancel_db)["rounds"][0][1] == 1, "the post-cancel sync did not commit a round")
+    results["serve_subtitles"]["wait_cancellation"] = {
+        "exit": cancel_code, "elapsed_seconds": round(cancel_elapsed, 3),
+        "requests": cancel_requests, "retry_exit": retry.returncode,
+    }
 
 SCENARIOS = {
     "serve_release_first_round": scenario_serve_release_first_round,

@@ -51,7 +51,8 @@ const (
 // Stats mirrors the existing per-round report counters. Each item keeps its
 // established meaning; failure counts, diagnostic counts and staged missing
 // observations are never mixed into these numbers. Filtered counts the scanned
-// non-directory entries that match neither configured extension list.
+// non-directory entries that match neither configured extension list; the
+// command line keeps its separate historical filtered count.
 type Stats struct {
 	Created   int
 	Updated   int
@@ -359,6 +360,7 @@ func headWithInstance(info RunInfo, instance string) string {
 		b.WriteString("统计：不可用\n")
 	} else {
 		s := info.Stats
+		b.WriteString("📄 STRM\n")
 		fmt.Fprintf(b, "➕ 新增 %d · ✏️ 更新 %d\n", s.Created, s.Updated)
 		fmt.Fprintf(b, "🗑️ 实际删除 %d · ♻️ 归属回收 %d\n", s.Deleted, s.Reclaimed)
 		fmt.Fprintf(b, "⏭️ 未变化跳过 %d\n", s.Skipped)
@@ -369,7 +371,8 @@ func headWithInstance(info RunInfo, instance string) string {
 		fmt.Fprintf(b, "🔎 扩展名过滤 %d\n", s.Filtered)
 		if info.SubtitlesEnabled {
 			st := info.Subtitles
-			fmt.Fprintf(b, "🎬 字幕：📥 下载 %d · ⏭️ 已有跳过 %d\n", st.Downloaded, st.Skipped)
+			b.WriteString("🎬 字幕\n")
+			fmt.Fprintf(b, "📥 下载 %d · ⏭️ 已有跳过 %d\n", st.Downloaded, st.Skipped)
 			fmt.Fprintf(b, "❌ 处理失败 %d · 🗑️ 实际删除 %d · ♻️ 归属回收 %d\n", st.Failed, st.Deleted, st.Reclaimed)
 		} else {
 			b.WriteString("🎬 字幕已关闭\n")
@@ -508,8 +511,11 @@ func buildTail(info RunInfo, c *Collector, shownEvents int, totalEvents int, omi
 	b.WriteString("\n")
 	if totalEvents == 0 {
 		b.WriteString("文件事件仅记录 STRM 变化：本轮无新增、更新、删除或归属回收事件。\n")
-	} else if totalEvents > shownEvents {
-		fmt.Fprintf(b, "正文预览 %d 条，另有 %d 条未展示。\n", shownEvents, totalEvents-shownEvents)
+	} else {
+		b.WriteString("文件事件仅记录 STRM 变化。\n")
+		if totalEvents > shownEvents {
+			fmt.Fprintf(b, "正文预览 %d 条，另有 %d 条未展示。\n", shownEvents, totalEvents-shownEvents)
+		}
 	}
 	switch {
 	case omittedSources > 0 && c.LimitReached():

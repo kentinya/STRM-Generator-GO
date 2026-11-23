@@ -28,7 +28,8 @@ Telegram 通知增量已通过 A 最终审查并 PASS / CLOSED。Task 6.1 本地
 
 ## 外挂字幕
 
-R-15 是 Slice 7 已验收的字幕增量，完整合同和最终决定见 [SLICE](../SLICE.md#closure-packet)。以下规则与
+R-15 是 Slice 7 已验收的字幕增量，完整合同和最终决定见 [SLICE](../SLICE.md#closure-packet)。
+下载间隔、默认 HTTP/1.1 字幕客户端与 Telegram 分类统计属于 FIX-SUB-01 候选增量，尚未发布。以下规则与
 既有 STRM 协议、比较规则、来源身份、同步锁和 Telegram 事件边界一致，不另造状态机。
 
 ### 配置与目录资格

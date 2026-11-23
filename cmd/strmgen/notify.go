@@ -232,12 +232,16 @@ func buildRunInfo(n *notifier, mode string, started time.Time, syncDuration time
 		info.Stats.Created += src.Created
 		info.Stats.Updated += src.Updated
 		info.Stats.Skipped += src.Skipped
-		info.Stats.Filtered += src.Filtered
+		// Telegram uses the dual-list extension count; the historical CLI
+		// filtered field keeps its separate meaning and is never reused here.
+		info.Stats.Filtered += src.ExtensionFiltered
 		info.Stats.Deleted += src.Deleted
 		info.Stats.Reclaimed += src.Reclaimed
-		info.Stats.Retained += src.Retained
-		info.Stats.Conflicts += src.Conflicts
-		info.Stats.Errors += src.Errors
+		// Known subtitle-specific safety/error facts belong to the subtitle
+		// counters or its diagnostics, not to the STRM section.
+		info.Stats.Retained += src.Retained - src.SubtitleRetained
+		info.Stats.Conflicts += src.Conflicts - src.SubtitleConflicts
+		info.Stats.Errors += src.Errors - src.SubtitleErrors - src.RoundErrors
 		info.Subtitles.Downloaded += src.SubtitlesDownloaded
 		info.Subtitles.Skipped += src.SubtitlesSkipped
 		info.Subtitles.Failed += src.SubtitlesFailed

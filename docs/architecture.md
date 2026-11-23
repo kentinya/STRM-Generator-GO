@@ -34,7 +34,7 @@ Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记�
 `internal/config` 以与媒体扩展名相同的原始 YAML 节点机制解析 `sync.subtitles`：
 整段或 `enabled` 省略保持关闭，`extensions` 只能取四项白名单子集，开启时与媒体列表
 查重，错误在准备输出／数据库前以退出码 2 返回脱敏字段名。
-`download_interval_seconds` 由专用标量类型解析：只接受有限整数或小数、下限 0.5 秒，
+FIX-SUB-01 候选的 `download_interval_seconds` 由专用标量类型解析：只接受有限整数或小数、下限 0.5 秒，
 拒绝 NaN、无穷、字符串、布尔、null、容器和时长溢出；`use_http2` 只接受显式 YAML
 布尔。两个新字段即使字幕关闭也被校验。三个命令入口在
 `config.Load` 后一次构建字幕扩展集并放入 `roundDeps`，运行中的 `serve` 不热加载。
