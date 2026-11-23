@@ -1,7 +1,7 @@
 # FIX-SUB-01 — 字幕下载兼容与 Telegram 分类统计
 
-FIX-SUB-01 的独立 B 审查结论为 `FIX REQUIRED`。Slice 1–7 和独立修复 FIX-TG-01 的
-验收记录见[已关闭任务索引](#已关闭任务索引)。
+FIX-SUB-01 的上一轮独立 B 审查结论为 `FIX REQUIRED`；本轮修正后交独立 B 复评。
+Slice 1–7 和独立修复 FIX-TG-01 的验收记录见[已关闭任务索引](#已关闭任务索引)。
 
 ```text
 Task ID: FIX-SUB-01
@@ -9,11 +9,11 @@ Task Type: standalone-fix
 Parent Slice: NONE
 Related Slice: 7
 Owner: B（任务规划职责；非独立产品审查结论）
-Status: FIX REQUIRED
+Status: READY FOR B REVIEW
 Task Base: 05a8bddcabcc9ad517d509316a0938237309b81d
 Contract Checkpoint: a306e6b8703ae09c69fa100c8c2cc3ae65fa9c39
-Implementation Head: d7324eef56ab8fe11cacf0b79f598c2078100d2d
-Independent B Review: FIX REQUIRED
+Implementation Head: 981f05ce5435763be207727ad8d8d227b54be606
+Independent B Review: PENDING
 Difficulty: Medium
 Test Level: T4
 ```
@@ -305,6 +305,45 @@ Blockers: B-SUB-01, B-SUB-02, B-SUB-03
 少于本轮复核用时一半。实施报告的 sync／serve 摘要与原二进制摘要一致，原二进制
 记录为激活提交上的未提交构建。真实 OpenList／115、真实 Telegram、Jellyfin／插件、
 万文件与 ARM64 原生实机在本轮均为 NOT RUN。
+
+### 修正实施报告（2026-11-23，Developer）
+
+针对独立 B 审查的 B-SUB-01、B-SUB-02、B-SUB-03 完成修正，状态转为
+`READY FOR B REVIEW`。产品实现提交为 `7c452c0`；随后 `981f05c` 仅修正证据脚本的
+取消请求计数，最终 Implementation Head 为 `981f05c`。范围未扩大，未改变 STRM 协议、
+目录资格、已有文件保护、原子发布、归属 schema、清理门槛与删除前重核、通知事实流或调度。
+
+- **B-SUB-01**：`download_interval_seconds` 改用 YAML 数值解码，接受 `0x1`、`0o7`、
+  `1_000` 等可表示整数和有限小数；解析时用精确有理数完成一次受检 Duration 转换，
+  `9223372036.854776`、`9223372037` 及更大的值在触碰网络／输出／数据库前退出 2。
+  新增配置与 CLI 回归，最终 CLI 复现记录为 `exit=2`、固定字段诊断、无输出根／数据库。
+- **B-SUB-02**：`SourceResult.Filtered` 恢复 CLI 历史口径；新增
+  `ExtensionFiltered` 只统计两份有效配置列表都未匹配的非目录条目，`buildRunInfo`
+  只把后者交给 Telegram。消息分别显示 `📄 STRM` 与 `🎬 字幕`；
+  `SubtitleErrors`／`SubtitleConflicts`／`SubtitleRetained`／`RoundErrors`
+  把已知字幕与轮次问题从 STRM 统计剔除并留在对应字幕统计或来源诊断；有 STRM 事件时
+  正文同样写明清单纯记录 STRM。混合样本 CLI 的 `filtered=4/1` 对应 Telegram 单列
+  `🔎 扩展名过滤 2`，字幕失败只在字幕段出现一次；显式 `.ass` 替换默认列表、字幕关闭、
+  大小写 `.SRT`、跨来源、来源根失败与仅字幕轮次均有同轮对照。字幕清理结果不再被通知
+  场景覆盖。
+- **B-SUB-03**：sync 下限 0.5 秒场景跨两来源与嵌套目录，首份 404 失败后仍在下一份前
+  占用间隔，服务端最大在途为 1；默认与 1.5 秒间隔按实际请求时间断言，全部已存在时不
+  请求。SIGTERM 等待取消在 sync 与 serve 均不请求／发布／登记下一份、冻结旧字幕计数、
+  释放锁并由正常重跑补齐；容器新增 `subtitle_lifecycle`，停止期间只请求 A、退出及时、
+  重跑补齐 B 并提交轮次。新增显式 `use_http2: true` 对仅 HTTP/1.1 的 HTTPS 服务回退
+  测试，仍走生产构造路径并断言实际协商协议。
+
+验证采用 T4，最终候选退出码均为 0：`check_governance.py`（质量门内）、
+`scripts/quality.py`、全包 race（10 包）、sync 19/19、serve 9/9、容器 7/7；
+Linux amd64／arm64 静态产物构建自最终 Head，容器镜像 revision 与最终 Head 相符。
+最终证据目录 `artifacts/validation-evidence/fix-sub-01-fix2-20261123T083140Z/`，
+含源码／构建身份、命令日志、请求时间线与协议、取消恢复、CLI、HTML、磁盘与归属对照。
+本轮产品测试合计约 8 分钟（含中间聚焦与最终全套），低于本轮开发用时 30%。
+
+剩余限制：真实 OpenList／115 根因复现与开关前后对比 NOT RUN（需用户另行授权专用隔离
+样本），本修复不承诺消除所有提供方下载失败；真实 Telegram 发送、Jellyfin／插件、
+万文件与 ARM64 原生实机 NOT RUN。节流只保证同一生成器进程同一轮，不保证跨轮、
+跨进程或与其他下载软件的全局速率。独立 B 审查保持 PENDING，实施者不自签 PASS。
 
 ## 已关闭任务索引
 
