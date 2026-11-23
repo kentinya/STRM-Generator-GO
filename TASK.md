@@ -9,10 +9,10 @@ Task Type: standalone-fix
 Parent Slice: NONE
 Related Slice: 7
 Owner: B（任务规划职责；非独立产品审查结论）
-Status: IN PROGRESS
+Status: READY FOR B REVIEW
 Task Base: 05a8bddcabcc9ad517d509316a0938237309b81d
 Contract Checkpoint: a306e6b8703ae09c69fa100c8c2cc3ae65fa9c39
-Implementation Head: NOT SET
+Implementation Head: d7324eef56ab8fe11cacf0b79f598c2078100d2d
 Independent B Review: PENDING
 Difficulty: Medium
 Test Level: T4
@@ -202,6 +202,43 @@ Task Base 为规划前真实 HEAD，关联 Slice 实现为其祖先，历史关�
 用户要求激活 FIX-SUB-01，任务进入 `IN PROGRESS`。
 实施范围采用已提交的计划 `a306e6b8703ae09c69fa100c8c2cc3ae65fa9c39`。
 本次提交记录任务生效，Implementation Head 为 `NOT SET`，独立 B 审查为 `PENDING`。
+
+### 实施报告（2026-11-23，Developer）
+
+实施完成于 `d7324eef56ab8fe11cacf0b79f598c2078100d2d`，状态 `READY FOR B REVIEW`。
+范围与计划一致，未改变 STRM 协议、目录资格、已有文件保护、原子发布、归属 schema、
+清理门槛与删除前重核、通知事实流或调度。
+
+- **配置**：`sync.subtitles.download_interval_seconds`（专用标量类型，默认 1 秒、下限
+  0.5 秒，拒绝更小值、负数、字符串、布尔、null、容器、NaN、无穷和溢出）与
+  `sync.subtitles.use_http2`（仅显式 YAML 布尔，默认 `false`）在三个命令入口共用严格
+  解析；两字段在字幕关闭时同样校验，错误为脱敏字段诊断，CLI 在任何副作用前退出码 2。
+- **节流**：每轮在 `runRound` 构造一个共享 `SubtitleDownloader`，内部节流器用单调时间
+  与实际开始时间保证相邻字幕下载尝试至少间隔配置秒数；首份立即、慢下载不额外等待、
+  空闲不突发、失败也占用间隔；等待可被轮次取消且不计入 30 秒预算；dry-run、功能关闭
+  或全部已存在时不等待。节流状态不跨轮持久化；轮次结束释放空闲连接。
+- **协议**：字幕客户端使用独立 transport，`http.Protocols` 显式配置；默认仅 HTTP/1
+  （TLS ALPN 不提议 h2），显式 `true` 允许 HTTPS 协商 HTTP/2 并保留 HTTP/1.1 回退；
+  共享默认 transport、API 客户端、Telegram 客户端与消费链路未触碰。
+- **分类统计**：`handleDirectory` 的扩展名过滤改为按两份有效配置列表的并集判定，
+  每个非目录条目至多计一次，与字幕开关和结果无关；`RunInfo` 新增字幕计数与开关，
+  Telegram 摘要分别渲染「STRM」与「字幕」段、字幕关闭时显示「字幕已关闭」，
+  「🔎 扩展名过滤」单独显示一次；文件事件尾注明确仅记录 STRM。CLI 字段口径、
+  来源失败判定、通知触发策略与 3500 UTF-16 预算不变。
+
+验证（T4，全部退出码 0）：`check_governance.py`、`quality.py`、全包 race、
+dual-arch smoke、sync 驱动 18/18（含新增 `subtitle_pacing`、`notify_classification`）、
+serve 驱动 9/9、容器 4 场景（image_static/minimal_run/serve_lifecycle/notifications，
+amd64 镜像 `strmgen:fix-sub-01`）。协议断言使用支持 HTTP/2 的本地 TLS 服务器并先证
+明显式 true 的对照端确实协商 h2，生产构造路径未绕过。真实 CLI 请求时间线核对默认
+1s、0.5s、1.5s 间隔与全部已存在时不等待。证据索引与运行目录：
+`artifacts/validation-evidence/fix-sub-01-dev/INDEX.md`。
+
+剩余限制与边界：真实 OpenList／115 的根因复现与开关前后对比 NOT RUN（需用户另行
+授权专用隔离样本）；本任务不承诺消除所有提供方下载失败。真实 Telegram 发送、
+Jellyfin/插件、万文件与 ARM64 原生实机 NOT RUN。节流不保证跨进程或与其他下载软件
+之间的全局速率。验收表 SUB-1..SUB-8 的规划时状态保持原样；执行证据以本报告与
+证据目录为准，独立 B 审查 PENDING。
 
 ## 已关闭任务索引
 
