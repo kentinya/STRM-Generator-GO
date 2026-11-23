@@ -808,8 +808,9 @@ def scenario_subtitle_lifecycle(h, results, image):
     elapsed = time.monotonic() - started
     check(exit_code != 0, f"stopped subtitle container must exit non-zero, got {exit_code}")
     check(elapsed < 5.0, f"container stop took {elapsed:.2f}s, want prompt cancellation")
-    check(h.download_calls() == ["/Movies/A.srt"],
-          f"the cancelled container requested another subtitle: {h.download_calls()}")
+    cancel_requests = h.download_calls()
+    check(cancel_requests == ["/Movies/A.srt"],
+          f"the cancelled container requested another subtitle: {cancel_requests}")
     check(not (h.out / "Movies" / "B.srt").exists(), "the cancelled container published B.srt")
     state = read_db(h.state / "strmgen.db")
     check("B.srt" not in {row[1] for row in state["ownership"]},
@@ -829,7 +830,8 @@ def scenario_subtitle_lifecycle(h, results, image):
     check(epoch(h.state / "strmgen.db") == 1, "the post-stop sync did not commit round 1")
     results["subtitle_lifecycle"] = {
         "stop_exit": exit_code, "stop_seconds": round(elapsed, 3),
-        "requests": h.download_calls(), "retry_exit": retry.returncode,
+        "requests_during_cancel": cancel_requests,
+        "requests_recovery_total": h.download_calls(), "retry_exit": retry.returncode,
     }
 
 

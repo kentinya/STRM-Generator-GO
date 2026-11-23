@@ -3875,6 +3875,7 @@ def scenario_subtitle_cancel_recovery(h, results):
     check(elapsed < 2.0, f"the waiting sync took {elapsed:.2f}s to exit")
     check(len(hh.download_calls()) == beforeEach + 1,
           f"the cancelled wait requested another subtitle: {hh.download_calls()[beforeEach:]}")
+    cancelled_requests = len(hh.download_calls())
     check(not (root / "D.srt").exists(), "the cancelled wait published D.srt")
     details = ownership_details(db)
     check("D.srt" not in details, f"the cancelled wait registered D.srt: {details}")
@@ -3901,7 +3902,8 @@ def scenario_subtitle_cancel_recovery(h, results):
     observed["cancel_exit"] = proc.returncode
     observed["cancel_elapsed_seconds"] = round(elapsed, 3)
     observed["requests_before_cancel"] = beforeEach
-    observed["requests_after_cancel"] = len(hh.download_calls()) - beforeEach
+    observed["requests_during_cancel"] = cancelled_requests - beforeEach
+    observed["requests_recovery_total"] = len(hh.download_calls()) - beforeEach
     observed["old_count_frozen"] = 3
     observed["retry_exit"] = retry.returncode
     observed["retry_deleted_old"] = True
