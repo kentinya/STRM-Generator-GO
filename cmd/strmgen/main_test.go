@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"strm-generator-go/internal/notify"
 	"strm-generator-go/internal/reconciler"
 	"strm-generator-go/internal/scheduler"
 )
@@ -842,5 +844,91 @@ func TestSubtitleBlockTypeErrorFailsBeforeAnyRound(t *testing.T) {
 				t.Fatalf("%s %v created the database before the configuration was rejected", name, command)
 			}
 		}
+	}
+}
+
+// SUB-1: the new subtitle fields share the strict configuration contract of
+// the existing subtitle block: a mistyped value exits 2 with the fixed field
+// name through sync and serve, before any output, database or network action.
+func TestSubtitleIntervalAndHTTP2ConfigErrorsFailBeforeAnyRound(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := filepath.Join(t.TempDir(), "out-marker")
+	db := filepath.Join(t.TempDir(), "db-marker", "strmgen.db")
+	for name, block := range map[string]string{
+		"below floor": "  subtitles:\n    enabled: true\n    download_interval_seconds: 0.4",
+		"negative":    "  subtitles:\n    enabled: true\n    download_interval_seconds: -1",
+		"string":      "  subtitles:\n    enabled: true\n    download_interval_seconds: \"1\"",
+		"null":        "  subtitles:\n    enabled: true\n    download_interval_seconds: null",
+		"http2 str":   "  subtitles:\n    enabled: true\n    use_http2: \"true\"",
+		"http2 null":  "  subtitles:\n    enabled: true\n    use_http2: null",
+	} {
+		cfg := subtitleConfig(t, ts.URL, root, db, block)
+		field := "invalid sync.subtitles.download_interval_seconds"
+		if strings.HasPrefix(name, "http2") {
+			field = "invalid sync.subtitles.use_http2"
+		}
+		var out, errBuf bytes.Buffer
+		if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitUsage {
+			t.Fatalf("%s: sync exit = %d, want 2 (stderr=%s)", name, code, errBuf.String())
+		}
+		if !strings.Contains(errBuf.String(), field) {
+			t.Fatalf("%s: diagnostic = %s", name, errBuf.String())
+		}
+		if _, err := os.Stat(root); err == nil {
+			t.Fatalf("%s: an invalid config must fail before any output", name)
+		}
+		var serveOut, serveErr bytes.Buffer
+		if code := run([]string{"serve", "--config", cfg}, &serveOut, &serveErr); code != exitUsage {
+			t.Fatalf("%s: serve exit = %d, want 2", name, code)
+		}
+		if _, err := os.Stat(db); err == nil {
+			t.Fatalf("%s: an invalid config must fail before the database", name)
+		}
+	}
+}
+
+// SUB-1: a configuration that enables subtitles without the new fields still
+// runs a complete round: the defaults (one second interval, HTTP/2 off) are
+// resolved without rejecting the historical subtitle block.
+func TestSubtitleLegacyBlockStillSucceeds(t *testing.T) {
+	ts := startFakeAPI(t)
+	t.Setenv("STRMGEN_TEST_TOKEN", "tok")
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "data", "strmgen.db")
+	cfg := subtitleConfig(t, ts.URL, root, db, "  subtitles:\n    enabled: true")
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"sync", "--config", cfg}, &out, &errBuf); code != exitOK {
+		t.Fatalf("exit=%d stderr=%s", code, errBuf.String())
+	}
+}
+
+// SUB-8: buildRunInfo carries the subtitle classification counters and the
+// resolved feature switch into the summary inputs. A partial round still
+// counts the actions that actually happened.
+func TestBuildRunInfoCarriesSubtitleClassification(t *testing.T) {
+	n := &notifier{threshold: 3, sources: 1, subtitlesEnabled: true}
+	report := &reconciler.Report{
+		DryRun: false,
+		Sources: []reconciler.SourceResult{
+			{SourceIndex: 0, Created: 2, Filtered: 5,
+				SubtitlesDownloaded: 1, SubtitlesSkipped: 2, SubtitlesFailed: 3},
+			{SourceIndex: 1, Deleted: 1, Reclaimed: 1,
+				SubtitlesDeleted: 4, SubtitlesReclaimed: 5, Partial: true},
+		},
+	}
+	info := buildRunInfo(n, "serve", time.Now(), time.Second, report)
+	if !info.SubtitlesEnabled {
+		t.Fatal("the resolved feature switch must reach the summary")
+	}
+	want := notify.SubtitleStats{Downloaded: 1, Skipped: 2, Failed: 3, Deleted: 4, Reclaimed: 5}
+	if info.Subtitles != want {
+		t.Fatalf("subtitle stats = %+v, want %+v", info.Subtitles, want)
+	}
+	if info.Stats.Filtered != 5 {
+		t.Fatalf("filtered = %d, want 5", info.Stats.Filtered)
+	}
+	if info.IncompleteSources != 1 {
+		t.Fatalf("incomplete sources = %d, want 1", info.IncompleteSources)
 	}
 }

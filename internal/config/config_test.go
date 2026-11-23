@@ -864,3 +864,121 @@ func TestSubtitlesBlockDiagnosticNamesField(t *testing.T) {
 		}
 	}
 }
+
+// SUB-1: the subtitle download interval defaults to one second, accepts
+// integral and finite fractional seconds down to the 0.5-second floor and is
+// resolved independently of the feature switch.
+func TestSubtitleDownloadIntervalDefaultsAndValues(t *testing.T) {
+	cases := map[string]struct {
+		raw  string
+		want time.Duration
+	}{
+		"omitted":           {"    enabled: true", DefaultSubtitleDownloadInterval},
+		"half":              {"    enabled: true\n    download_interval_seconds: 0.5", 500 * time.Millisecond},
+		"one":               {"    enabled: true\n    download_interval_seconds: 1", time.Second},
+		"one and a half":    {"    enabled: true\n    download_interval_seconds: 1.5", 1500 * time.Millisecond},
+		"disabled default":  {"    enabled: false", DefaultSubtitleDownloadInterval},
+		"disabled explicit": {"    enabled: false\n    download_interval_seconds: 0.5", 500 * time.Millisecond},
+		"no block":          {"", DefaultSubtitleDownloadInterval},
+	}
+	for name, tc := range cases {
+		r, err := Load(write(t, withSubtitles(tc.raw)))
+		if err != nil {
+			t.Fatalf("%s: load: %v", name, err)
+		}
+		if r.SubtitleDownloadInterval != tc.want {
+			t.Fatalf("%s: interval = %v, want %v", name, r.SubtitleDownloadInterval, tc.want)
+		}
+	}
+}
+
+// SUB-1: every non-accepting input is rejected with a fixed field diagnostic,
+// even while the feature is disabled so no value can hide behind enabled:
+// false. The diagnostic never echoes the configured value.
+func TestSubtitleDownloadIntervalRejectsInvalidInput(t *testing.T) {
+	cases := map[string]string{
+		"below floor":  "    download_interval_seconds: 0.4",
+		"zero":         "    download_interval_seconds: 0",
+		"negative":     "    download_interval_seconds: -1",
+		"string":       `    download_interval_seconds: "1"`,
+		"boolean":      "    download_interval_seconds: true",
+		"null":         "    download_interval_seconds: null",
+		"sequence":     "    download_interval_seconds: [1]",
+		"mapping":      "    download_interval_seconds: {a: 1}",
+		"not a number": "    download_interval_seconds: nan",
+		"positive inf": "    download_interval_seconds: .inf",
+		"overflow":     "    download_interval_seconds: 1e300",
+		"str overflow": "    download_interval_seconds: 1e400",
+	}
+	for name, raw := range cases {
+		for _, enabled := range []string{"    enabled: false\n", ""} {
+			_, err := Load(write(t, withSubtitles(enabled+raw)))
+			if err == nil {
+				t.Fatalf("%s (enabled=%q) must be rejected", name, enabled)
+			}
+			if diag := SafeDiagnostic(err); diag != "invalid sync.subtitles.download_interval_seconds" {
+				t.Fatalf("%s diagnostic = %q", name, diag)
+			}
+		}
+	}
+}
+
+// SUB-1: use_http2 defaults to false and only accepts an explicit YAML
+// boolean, validated even while the feature is disabled.
+func TestSubtitleUseHTTP2Validation(t *testing.T) {
+	for _, raw := range []string{
+		"    enabled: false",
+		"    enabled: false\n    use_http2: false",
+		"    enabled: true\n    use_http2: false",
+	} {
+		r, err := Load(write(t, withSubtitles(raw)))
+		if err != nil {
+			t.Fatalf("load %q: %v", raw, err)
+		}
+		if r.SubtitleUseHTTP2 {
+			t.Fatalf("%q: HTTP/2 must stay off by default", raw)
+		}
+	}
+	r, err := Load(write(t, withSubtitles("    enabled: false\n    use_http2: true")))
+	if err != nil {
+		t.Fatalf("explicit true must load even while disabled: %v", err)
+	}
+	if !r.SubtitleUseHTTP2 {
+		t.Fatal("explicit use_http2: true must resolve true")
+	}
+	for name, raw := range map[string]string{
+		"null": "    use_http2: null",
+		"str":  `    use_http2: "true"`,
+		"num":  "    use_http2: 1",
+		"list": "    use_http2: [true]",
+		"map":  "    use_http2: {a: true}",
+	} {
+		_, err := Load(write(t, withSubtitles("    enabled: false\n"+raw)))
+		if err == nil {
+			t.Fatalf("%s must be rejected", name)
+		}
+		if diag := SafeDiagnostic(err); diag != "invalid sync.subtitles.use_http2" {
+			t.Fatalf("%s diagnostic = %q", name, diag)
+		}
+	}
+}
+
+// SUB-1: the new fields keep the strict known-field contract and the safe
+// diagnostic never echoes a configured value.
+func TestSubtitleNewFieldsStrictness(t *testing.T) {
+	_, err := Load(write(t, withSubtitles("    enabled: true\n    download_interval: 1")))
+	if err == nil {
+		t.Fatal("a misspelled new field must still be rejected")
+	}
+	if diag := SafeDiagnostic(err); diag != "invalid sync.subtitles" {
+		t.Fatalf("unknown field diagnostic = %q", diag)
+	}
+	marker := "PRIVATE_INTERVAL_MARKER_20261122"
+	_, err = Load(write(t, withSubtitles("    enabled: true\n    download_interval_seconds: \""+marker+"\"")))
+	if err == nil {
+		t.Fatal("marker input must be rejected")
+	}
+	if strings.Contains(SafeDiagnostic(err), marker) {
+		t.Fatalf("diagnostic echoed the configured value: %q", SafeDiagnostic(err))
+	}
+}

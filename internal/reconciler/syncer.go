@@ -544,10 +544,20 @@ func (s *Syncer) handleDirectory(ctx context.Context, src Source, dir, relDir st
 	byRel := map[string][]string{}
 	var candidates []candidate
 	for _, entry := range entries {
-		if entry.IsDir || !s.media.IsMedia(entry.Name) {
-			if !entry.IsDir {
-				res.Filtered++
-			}
+		if entry.IsDir {
+			continue
+		}
+		// The extension filter count covers exactly the scanned non-directory
+		// entries that match neither configured list (the last extension,
+		// case-insensitive). A subtitle entry is excluded from the count even
+		// while the subtitle feature is off: both resolved lists always apply,
+		// and the feature switch, directory eligibility and processing results
+		// never change the count.
+		isMedia := s.media.IsMedia(entry.Name)
+		if !isMedia && !s.subtitles.IsMedia(entry.Name) {
+			res.Filtered++
+		}
+		if !isMedia {
 			continue
 		}
 		rel, err := pathmap.LocalRelative(relDir, entry.Name)

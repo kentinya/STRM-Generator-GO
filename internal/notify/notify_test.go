@@ -152,7 +152,9 @@ func TestBuildMessageSuccessWithoutEvents(t *testing.T) {
 		"🏷️ 家庭媒体 · serve",
 		"➕ 新增 0 · ✏️ 更新 0",
 		"🗑️ 实际删除 0 · ♻️ 归属回收 0",
-		"⏭️ 未变化跳过 4 · 🔎 扩展名过滤 1",
+		"⏭️ 未变化跳过 4",
+		"🔎 扩展名过滤 1",
+		"🎬 字幕已关闭",
 		"🛡️ 安全保留 0 · ⚠️ 冲突 0 · ❌ 处理错误 0",
 		"📂 来源 2 · 完成 2 / 未完成 0",
 		"⏱️ 同步耗时 10.0 秒",
@@ -1167,5 +1169,96 @@ func TestBuildMessageLimitWarningStaysOutsideBlock(t *testing.T) {
 	}
 	if strings.Contains(text, "📎 完整清单") {
 		t.Fatalf("a capped listing must not be promised as complete:\n%s", text)
+	}
+}
+
+// SUB-7: the single summary shows the STRM counters and the subtitle counters
+// in separate labeled sections, with the extension filter count standing alone
+// exactly once outside both sections.
+func TestBuildMessageSeparatesSTRMAndSubtitleSections(t *testing.T) {
+	info := RunInfo{
+		InstanceName:      "S",
+		Mode:              "sync",
+		Outcome:           OutcomeSourceFailure,
+		SourceCount:       1,
+		IncompleteSources: 1,
+		StatsAvailable:    true,
+		Stats:             Stats{Created: 2, Updated: 1, Skipped: 4, Filtered: 3, Conflicts: 1},
+		Subtitles:         SubtitleStats{Downloaded: 1, Skipped: 2, Failed: 3, Deleted: 1, Reclaimed: 2},
+		SubtitlesEnabled:  true,
+		Threshold:         3,
+		Sources:           []SourceStatus{{Index: 0, Notes: []string{"subtitle download failed for Movie.zh.srt"}}},
+	}
+	text, _ := BuildMessage(info, nil)
+	body := visible(text)
+	for _, want := range []string{
+		"➕ 新增 2 · ✏️ 更新 1",
+		"⏭️ 未变化跳过 4",
+		"🔎 扩展名过滤 3",
+		"🎬 字幕：📥 下载 1 · ⏭️ 已有跳过 2",
+		"❌ 处理失败 3 · 🗑️ 实际删除 1 · ♻️ 归属回收 2",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+	if got := strings.Count(body, "扩展名过滤"); got != 1 {
+		t.Fatalf("extension filter must appear exactly once, got %d:\n%s", got, body)
+	}
+	if strings.Contains(body, "字幕已关闭") {
+		t.Fatalf("an enabled feature must not show the closed note:\n%s", body)
+	}
+	assertEntitiesIntact(t, text)
+}
+
+// SUB-7: with the feature off the summary renders the fixed closed note and
+// never renders subtitle counters as zero activity. The shared filter count
+// still appears.
+func TestBuildMessageSubtitlesClosedNote(t *testing.T) {
+	info := RunInfo{
+		InstanceName:     "S",
+		Mode:             "sync",
+		Outcome:          OutcomeSuccess,
+		SourceCount:      1,
+		CompletedSources: 1,
+		StatsAvailable:   true,
+		Stats:            Stats{Filtered: 5},
+		SubtitlesEnabled: false,
+		Threshold:        3,
+	}
+	text, _ := BuildMessage(info, nil)
+	body := visible(text)
+	if !strings.Contains(body, "🎬 字幕已关闭") {
+		t.Fatalf("closed note missing:\n%s", body)
+	}
+	if strings.Contains(body, "📥 下载") {
+		t.Fatalf("a disabled feature must not show subtitle counters:\n%s", body)
+	}
+	if !strings.Contains(body, "🔎 扩展名过滤 5") {
+		t.Fatalf("the shared filter count must still appear:\n%s", body)
+	}
+	assertEntitiesIntact(t, text)
+}
+
+// SUB-8: an initialization failure renders neither the STRM nor the subtitle
+// counters and never fabricates zero activity for either pipeline.
+func TestBuildMessageInitFailureHidesBothSections(t *testing.T) {
+	info := RunInfo{
+		InstanceName:     "S",
+		Mode:             "sync",
+		Outcome:          OutcomeInitFailure,
+		SourceCount:      2,
+		Subtitles:        SubtitleStats{Downloaded: 7},
+		SubtitlesEnabled: true,
+	}
+	text, _ := BuildMessage(info, nil)
+	if strings.Contains(text, "📥 下载 7") {
+		t.Fatalf("init failure must not render subtitle counters:\n%s", text)
+	}
+	if strings.Contains(text, "扩展名过滤") {
+		t.Fatalf("init failure must not render the filter count:\n%s", text)
+	}
+	if !strings.Contains(text, "统计：不可用") {
+		t.Fatalf("init failure must mark statistics unavailable:\n%s", text)
 	}
 }

@@ -16,6 +16,10 @@ Linux amd64／arm64 压缩包与 `SHA256SUMS.txt`。每个包包含 `strmgen`、
 [README](../README.md#下载二进制)。
 
 v1.3.0 增加可选外挂字幕下载，`sync.subtitles` 默认关闭，兼容旧配置。
+FIX-SUB-01 增加字幕下载间隔（`download_interval_seconds`，默认 1 秒、最小 0.5 秒）
+与协议开关（`use_http2`，默认 `false`，字幕下载客户端使用 HTTP/1.1）；两个字段
+即使字幕关闭也会被校验，旧配置无需修改。Telegram 摘要把 STRM 与字幕统计分开显示，
+扩展名过滤单独计数。
 首次可写同步将状态库升级至 schema 3，保留既有 STRM 归属、路径、完整轮次和缺失计数。
 `--dry-run` 可读取升级前后的库。
 字幕下载要求 `openlist.public_url + /d/` 稳定地址可被生成器直接访问且不使用
@@ -172,6 +176,11 @@ STRMGEN_LOCK_DIR=/srv/strmgen/shared-locks STRMGEN_OUTPUT=/srv/strmgen/output ..
   （例如 `Movie.zh.srt`）；任意命名的字幕仅按原名复制，是否展示由 Jellyfin 决定。
 - **关闭功能**：把 `sync.subtitles.enabled` 改为 `false`（或删除该段）并重启即可；
   已下载字幕与原计数保留，不新增计数也不删除。
+- **下载间隔与协议**：默认每秒最多开始一份字幕下载（`download_interval_seconds`，
+  最小 0.5 秒）；115 等对高频请求敏感的提供方建议保持默认或更大间隔。字幕下载
+  客户端默认使用 HTTP/1.1（`use_http2: false`），在协商层禁用 HTTP/2；只有确认
+  提供方与中间链路都支持 HTTP/2 时才显式开启。间隔与协议开关由 `serve` 在启动时
+  读取，修改后需重启生效。
 
 ## 边界与 NOT RUN
 

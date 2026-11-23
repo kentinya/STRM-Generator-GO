@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"strm-generator-go/internal/openlist"
+	"strm-generator-go/internal/pathmap"
 	"strm-generator-go/internal/securepath"
 	"strm-generator-go/internal/storage"
 	"strm-generator-go/internal/strm"
@@ -1180,4 +1181,84 @@ func mustRead(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+// SUB-7: the extension filter count covers exactly the scanned non-directory
+// entries that match neither configured list, case-insensitively on the last
+// extension. Subtitle entries are excluded from the count even while the
+// subtitle feature is off, and directories are never counted.
+func TestExtensionFilterCountsOnlyUnmatchedEntries(t *testing.T) {
+	newTree := func() *fakeLister {
+		return &fakeLister{
+			dirs: map[string][]openlist.Entry{
+				"/Movies": {
+					dir("Nested"),
+					media("Movie.mkv", 100, shaA),
+					media("Other.MKV", 100, shaA),
+					subtitleEntry("Movie.zh.srt"),
+					subtitleEntry("Movie.SRT"),
+					{Name: "notes.txt", Size: int64Ptr(1)},
+					{Name: "cover.jpg", Size: int64Ptr(1)},
+				},
+				"/Movies/Nested": {
+					media("Inner.mp4", 100, shaA),
+					{Name: "Inner.ass", Size: int64Ptr(1)},
+				},
+			},
+			getErr:  map[string]error{},
+			listErr: map[string]error{},
+		}
+	}
+	// Feature off, default lists: the two subtitle entries and the two media
+	// entries match a configured list; only notes.txt and cover.jpg count,
+	// once each, across both directories.
+	root := t.TempDir()
+	report, err := New(newTree(), newStore(t), Options{PublicPrefix: "https://openlist.example.invalid"}).
+		Run(context.Background(), []Source{sourceFor(root)})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	res := report.Sources[0]
+	if res.Filtered != 2 {
+		t.Fatalf("feature off: filtered = %d, want 2: %+v", res.Filtered, res)
+	}
+	if res.Created != 3 {
+		t.Fatalf("feature off: created = %d, want 3 (case-insensitive media match): %+v", res.Created, res)
+	}
+
+	// Feature off with an explicit subtitle list: the resolved lists, not the
+	// feature switch, decide the count. The explicit subtitle list reduces the
+	// union, so the .ass entry becomes a filter hit.
+	store := newStore(t)
+	opts := Options{PublicPrefix: "https://openlist.example.invalid",
+		SubtitleExtensions: pathmap.NewMediaSet([]string{".srt"})}
+	root2 := t.TempDir()
+	report, err = New(newTree(), store, opts).Run(context.Background(), []Source{sourceFor(root2)})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	res2 := report.Sources[0]
+	if res2.Filtered != 3 {
+		t.Fatalf("explicit subtitle list: filtered = %d, want 3: %+v", res2.Filtered, res2)
+	}
+
+	// Feature on: the counting is identical; the eligibility and the download
+	// results never change it.
+	fetcher := &staticFetcher{bodies: map[string]string{"/Movies/Movie.zh.srt": "srt\n", "/Movies/Movie.SRT": "srt\n", "/Movies/Nested/Inner.ass": "ass\n"}}
+	root3 := t.TempDir()
+	report, err = New(newTree(), newStore(t), func() Options {
+		o := subtitleOptions(fetcher)
+		o.SubtitleExtensions = pathmap.NewMediaSet([]string{".srt"})
+		return o
+	}()).Run(context.Background(), []Source{sourceFor(root3)})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	res3 := report.Sources[0]
+	if res3.Filtered != 3 {
+		t.Fatalf("feature on: filtered = %d, want 3: %+v", res3.Filtered, res3)
+	}
+	if res3.SubtitlesDownloaded != 2 {
+		t.Fatalf("feature on: downloaded = %d, want 2: %+v", res3.SubtitlesDownloaded, res3)
+	}
 }

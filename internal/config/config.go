@@ -69,13 +69,74 @@ type Sync struct {
 	Subtitles *Subtitles `yaml:"subtitles"`
 }
 
+// DefaultSubtitleDownloadInterval is the subtitle download interval used when
+// sync.subtitles.download_interval_seconds is omitted.
+const DefaultSubtitleDownloadInterval = time.Second
+
 // Subtitles is the optional sync.subtitles block. An omitted block or an
 // omitted enabled keeps the feature off; extensions default to the four-entry
 // subtitle whitelist and are validated even while disabled so an invalid
-// value can never hide behind enabled: false.
+// value can never hide behind enabled: false. The download interval and the
+// HTTP/2 switch are validated the same way even while the feature is off.
 type Subtitles struct {
 	Enabled    *bool     `yaml:"enabled"`
 	Extensions yaml.Node `yaml:"extensions"`
+	// DownloadIntervalSeconds is the minimum start-to-start spacing between
+	// subtitle download attempts inside one round. Omitted keeps
+	// DefaultSubtitleDownloadInterval.
+	DownloadIntervalSeconds *SubtitleIntervalSeconds `yaml:"download_interval_seconds"`
+	// UseHTTP2 allows HTTPS HTTP/2 negotiation for the subtitle content
+	// client. Omitted keeps HTTP/1.1 only.
+	UseHTTP2 *bool `yaml:"use_http2"`
+}
+
+// SubtitleIntervalSeconds is a strictly finite YAML number of seconds with the
+// fixed 0.5-second lower bound. The default yaml.v3 float decode would accept
+// NaN, infinities and values that overflow the duration conversion, so this
+// type rejects them at parse time instead of naming them at use time.
+type SubtitleIntervalSeconds float64
+
+// minSubtitleIntervalSeconds is the configuration lower bound; it equals the
+// fixed minimum pacing interval of the download contract.
+const minSubtitleIntervalSeconds = 0.5
+
+// UnmarshalYAML accepts only a finite int or float scalar of at least 0.5
+// seconds whose duration conversion cannot overflow. Strings, booleans,
+// containers and out-of-range values are rejected with a fixed field
+// diagnostic. YAML null never reaches this method (yaml.v3 skips custom
+// unmarshalers for null), so the null rejection lives in the block decoder.
+func (s *SubtitleIntervalSeconds) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.ScalarNode {
+		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a number"}
+	}
+	var value float64
+	switch node.Tag {
+	case "!!int":
+		iv, err := strconv.ParseInt(node.Value, 10, 64)
+		if err != nil {
+			return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
+		}
+		value = float64(iv)
+	case "!!float":
+		fv, err := strconv.ParseFloat(node.Value, 64)
+		if err != nil {
+			return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
+		}
+		value = fv
+	default:
+		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a number"}
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a finite number"}
+	}
+	if value < minSubtitleIntervalSeconds {
+		return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be at least 0.5"}
+	}
+	if value*float64(time.Second) > float64(math.MaxInt64) {
+		return strictFieldError{message: "sync.subtitles.download_interval_seconds: value out of range"}
+	}
+	*s = SubtitleIntervalSeconds(value)
+	return nil
 }
 
 // strictFieldError marks a decode error whose message already names one fixed
@@ -98,7 +159,10 @@ func (s *Subtitles) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.MappingNode {
 		return strictFieldError{message: "sync.subtitles: must be a mapping"}
 	}
-	allowed := map[string]bool{"enabled": true, "extensions": true}
+	allowed := map[string]bool{
+		"enabled": true, "extensions": true,
+		"download_interval_seconds": true, "use_http2": true,
+	}
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		key, val := value.Content[i], value.Content[i+1]
 		if !allowed[key.Value] {
@@ -106,6 +170,15 @@ func (s *Subtitles) UnmarshalYAML(value *yaml.Node) error {
 		}
 		if key.Value == "enabled" && val.Tag != "!!bool" && val.Tag != "!!null" {
 			return strictFieldError{message: "sync.subtitles.enabled: must be a boolean"}
+		}
+		// yaml.v3 never calls a custom unmarshaler for a null scalar, so an
+		// explicit null for either new field is rejected here instead of
+		// silently falling back to the default.
+		if key.Value == "download_interval_seconds" && val.Tag != "!!int" && val.Tag != "!!float" {
+			return strictFieldError{message: "sync.subtitles.download_interval_seconds: must be a number"}
+		}
+		if key.Value == "use_http2" && val.Tag != "!!bool" {
+			return strictFieldError{message: "sync.subtitles.use_http2: must be a boolean"}
 		}
 	}
 	type plainSubtitles Subtitles
@@ -265,6 +338,14 @@ type Resolved struct {
 	// explicit subset when provided; when SubtitlesEnabled is false the list is
 	// still validated but never used.
 	SubtitleExtensions []string
+	// SubtitleDownloadInterval is the minimum start-to-start spacing between
+	// two subtitle download attempts inside one round. It defaults to
+	// DefaultSubtitleDownloadInterval and is resolved regardless of the
+	// feature switch so both entry points share one value.
+	SubtitleDownloadInterval time.Duration
+	// SubtitleUseHTTP2 reports whether the subtitle content client may
+	// negotiate HTTPS HTTP/2. The zero value keeps HTTP/1.1 only.
+	SubtitleUseHTTP2 bool
 	// Notifications is the resolved notification configuration. Disabled is the
 	// zero value; enabled notifications still require the runtime credentials.
 	Notifications NotificationConfig
@@ -343,6 +424,7 @@ func safeFieldFromError(message string) string {
 		"openlist.api_url", "openlist.public_url", "openlist.token_env",
 		"sync.directory_workers", "sync.interval_minutes", "sync.atomic_write", "sync.skip_unchanged", "sync.mirror",
 		"sync.media_extensions", "sync.subtitles.enabled", "sync.subtitles.extensions",
+		"sync.subtitles.download_interval_seconds", "sync.subtitles.use_http2",
 		"sync.subtitles",
 		"cleanup.enabled", "cleanup.missing_confirmations", "database.path",
 		"notifications.telegram.enabled", "notifications.telegram.instance_name",
@@ -461,6 +543,14 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The interval and the protocol switch are validated by their decoders
+	// even while the feature stays off, so an invalid value can never hide
+	// behind enabled: false.
+	subtitleInterval := DefaultSubtitleDownloadInterval
+	if cfg.Sync.Subtitles != nil && cfg.Sync.Subtitles.DownloadIntervalSeconds != nil {
+		subtitleInterval = time.Duration(float64(*cfg.Sync.Subtitles.DownloadIntervalSeconds) * float64(time.Second))
+	}
+	subtitleUseHTTP2 := cfg.Sync.Subtitles != nil && cfg.Sync.Subtitles.UseHTTP2 != nil && *cfg.Sync.Subtitles.UseHTTP2
 	if subtitlesEnabled {
 		// A selected extension can never be both a video candidate and a
 		// subtitle candidate in the same directory listing.
@@ -474,20 +564,22 @@ func validate(cfg *Config, baseDir string) (*Resolved, error) {
 	}
 
 	resolved := &Resolved{
-		APIURL:               apiURL,
-		PublicPrefix:         publicPrefix,
-		TokenEnv:             cfg.OpenList.TokenEnv,
-		DirectoryWorkers:     workers,
-		Mirror:               mirror,
-		CleanupEnabled:       cleanupEnabled,
-		MissingConfirmations: missingConfirmations,
-		IntervalMinutes:      intervalMinutes,
-		Interval:             interval,
-		MediaExtensions:      mediaExtensions,
-		SubtitlesEnabled:     subtitlesEnabled,
-		SubtitleExtensions:   subtitleExtensions,
-		Notifications:        notifications,
-		baseDir:              baseDir,
+		APIURL:                   apiURL,
+		PublicPrefix:             publicPrefix,
+		TokenEnv:                 cfg.OpenList.TokenEnv,
+		DirectoryWorkers:         workers,
+		Mirror:                   mirror,
+		CleanupEnabled:           cleanupEnabled,
+		MissingConfirmations:     missingConfirmations,
+		IntervalMinutes:          intervalMinutes,
+		Interval:                 interval,
+		MediaExtensions:          mediaExtensions,
+		SubtitlesEnabled:         subtitlesEnabled,
+		SubtitleExtensions:       subtitleExtensions,
+		SubtitleDownloadInterval: subtitleInterval,
+		SubtitleUseHTTP2:         subtitleUseHTTP2,
+		Notifications:            notifications,
+		baseDir:                  baseDir,
 	}
 
 	seenOutputs := map[string]int{}

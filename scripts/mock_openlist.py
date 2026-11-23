@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import posixpath
+import time
 import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,7 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
     # serves exactly these bytes, never list metadata.
     files = data.get("files", {})
     downloads = []
+    download_times = []
     hooks = hooks or {}
     accepted_tokens = {TOKEN}
     accepted_tokens.update(token for token in hooks.get("tokens", []) if isinstance(token, str))
@@ -56,6 +58,7 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
             remote = urllib.parse.unquote(self.path[len("/d/"):])
             remote = "/" + remote.lstrip("/")
             downloads.append(remote)
+            download_times.append(time.time())
             entry = files.get(remote)
             if entry is None:
                 # A real HTTP 404, not the JSON API envelope.
@@ -142,6 +145,10 @@ def make_server(host="127.0.0.1", port=15244, fixture=None, hooks=None):
 
     server = ThreadingHTTPServer((host, port), Handler)
     server.download_calls = downloads
+    # Wall-clock timestamps for every /d/ request, in call order. Scenarios use
+    # it to observe the real pacing of the subtitle downloader; it never
+    # affects the served responses.
+    server.download_timeline = download_times
     return server
 
 

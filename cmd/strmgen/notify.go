@@ -77,6 +77,10 @@ type notifier struct {
 	instance  string
 	policy    string
 	threshold int
+	// subtitlesEnabled is the resolved subtitle switch of the running
+	// configuration. It decides between the subtitle section and the fixed
+	// closed note in the summary; it is never re-read from disk.
+	subtitlesEnabled bool
 	// sources is the configured source count; it stays known even when a
 	// round never produced a report.
 	sources int
@@ -89,7 +93,7 @@ type notifier struct {
 // notifications for this process. dry-run never reads the credential
 // environment variables.
 func setupNotifications(resolved *config.Resolved, dryRun bool, stderr io.Writer) *notifier {
-	n := &notifier{stderr: stderr, threshold: resolved.MissingConfirmations, sources: len(resolved.Sources)}
+	n := &notifier{stderr: stderr, threshold: resolved.MissingConfirmations, sources: len(resolved.Sources), subtitlesEnabled: resolved.SubtitlesEnabled}
 	if dryRun || !resolved.Notifications.Enabled {
 		return n
 	}
@@ -216,6 +220,7 @@ func buildRunInfo(n *notifier, mode string, started time.Time, syncDuration time
 		return info
 	}
 	info.StatsAvailable = true
+	info.SubtitlesEnabled = n.subtitlesEnabled
 	for _, src := range report.Sources {
 		info.SourceCount++
 		incomplete := src.Partial || src.Err != nil
@@ -233,6 +238,11 @@ func buildRunInfo(n *notifier, mode string, started time.Time, syncDuration time
 		info.Stats.Retained += src.Retained
 		info.Stats.Conflicts += src.Conflicts
 		info.Stats.Errors += src.Errors
+		info.Subtitles.Downloaded += src.SubtitlesDownloaded
+		info.Subtitles.Skipped += src.SubtitlesSkipped
+		info.Subtitles.Failed += src.SubtitlesFailed
+		info.Subtitles.Deleted += src.SubtitlesDeleted
+		info.Subtitles.Reclaimed += src.SubtitlesReclaimed
 		if incomplete {
 			info.Sources = append(info.Sources, sourceStatus(src, false))
 		} else if src.Retained > 0 || src.Conflicts > 0 {

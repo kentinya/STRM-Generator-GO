@@ -46,16 +46,25 @@ sync:
   # subtitle files beside the STRM, keeping the remote file names and bytes.
   # Downloads use the stable openlist.public_url + /d/ address without the API
   # token: the mount behind public_url must serve /d/ to the container (in
-  # compose the same URL Jellyfin consumers use). Each file gets a 30-second
-  # budget, at most five HTTP(S) redirects and an 8 MiB response ceiling.
-  # Successfully published subtitles are owned like STRM files and share the
-  # cleanup switches and the three-round confirmation. extensions defaults to
-  # the four-entry whitelist .srt .ass .ssa .vtt; an explicit list may only
-  # pick a subset and must not overlap media_extensions while enabled.
+  # compose the same URL Jellyfin consumers use). At most one subtitle is in
+  # flight; consecutive download attempts start at least
+  # download_interval_seconds apart (default 1, minimum 0.5, integral or finite
+  # fractional values such as 0.5/1/1.5). Each file gets a 30-second budget
+  # counted from the actual download start, at most five HTTP(S) redirects and
+  # an 8 MiB response ceiling. The subtitle client uses its own transport;
+  # use_http2 defaults to false and keeps every hop on HTTP/1.1 even when the
+  # HTTPS service supports HTTP/2; an explicit true allows HTTPS HTTP/2 with an
+  # HTTP/1.1 fallback. Successfully published subtitles are owned like STRM
+  # files and share the cleanup switches and the three-round confirmation.
+  # extensions defaults to the four-entry whitelist .srt .ass .ssa .vtt; an
+  # explicit list may only pick a subset and must not overlap media_extensions
+  # while enabled. The new fields are validated even while the feature is off.
   # serve reads this file at startup; a change requires a restart.
   subtitles:
     enabled: false
     extensions: [".srt", ".ass", ".ssa", ".vtt"]
+    download_interval_seconds: 1
+    use_http2: false
 
 cleanup:
   # Cleanup stays off unless explicitly enabled together with mirror: true.

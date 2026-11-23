@@ -3,10 +3,13 @@ package openlist
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -58,27 +61,68 @@ var errSubtitleLimitReached = errors.New("subtitle byte limit reached")
 
 // SubtitleDownloader fetches one subtitle file over the stable public /d/
 // address. It never sends the OpenList token: metadata keeps using the API
-// client, while the download is an unauthenticated HTTP(S) GET.
+// client, while the download is an unauthenticated HTTP(S) GET. Every round
+// builds exactly one downloader, so its pacer and transport are shared by all
+// sources and directories of that round and never persist across rounds.
 type SubtitleDownloader struct {
 	publicPrefix string
 	http         *http.Client
+	transport    *http.Transport
+	pacer        *downloadPacer
+}
+
+// newSubtitleTransport builds the dedicated subtitle transport. It never
+// touches http.DefaultTransport or any other client: the subtitle feature has
+// its own connection pool whose lifetime is bounded by one round. The HTTP
+// protocol set is configured explicitly on this fixed Go toolchain, so the
+// negotiation layer really changes: with h2 disabled the transport allows
+// HTTP/1 only and the TLS handshake carries no ALPN protocol offer, so an
+// HTTPS service that also supports HTTP/2 still negotiates HTTP/1.1; plain
+// HTTP stays HTTP/1.1 and h2c is never attempted. With h2 enabled the
+// transport explicitly allows HTTP/2 over TLS while HTTP/1.1 stays available
+// as the fallback for HTTP/1.1-only services.
+func newSubtitleTransport(allowHTTP2 bool) *http.Transport {
+	t := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:          16,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+	t.Protocols = new(http.Protocols)
+	t.Protocols.SetHTTP1(true)
+	if allowHTTP2 {
+		t.Protocols.SetHTTP2(true)
+	}
+	return t
 }
 
 // NewSubtitleDownloader builds a downloader for the validated public prefix.
-func NewSubtitleDownloader(publicPrefix string) *SubtitleDownloader {
+// interval is the minimum start-to-start spacing between two subtitle
+// download attempts of the same round; the configuration layer guarantees a
+// value of at least 0.5 seconds. allowHTTP2=false keeps the whole redirect
+// chain on HTTP/1.1 even when the HTTPS service supports HTTP/2.
+func NewSubtitleDownloader(publicPrefix string, interval time.Duration, allowHTTP2 bool) *SubtitleDownloader {
+	transport := newSubtitleTransport(allowHTTP2)
 	return &SubtitleDownloader{
 		publicPrefix: publicPrefix,
+		transport:    transport,
 		http: &http.Client{
+			Transport: transport,
 			// Redirects are followed manually so the count and the scheme stay
 			// under this package's control instead of the transport default.
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
+		pacer: &downloadPacer{interval: interval},
 	}
 }
 
-// WithHTTPClient replaces the underlying HTTP client (used by tests).
+// WithHTTPClient replaces the underlying HTTP client (used by tests). The
+// pacer and the transport stay untouched so the pacing contract still applies
+// to the replaced client.
 func (d *SubtitleDownloader) WithHTTPClient(hc *http.Client) *SubtitleDownloader {
 	hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -87,13 +131,40 @@ func (d *SubtitleDownloader) WithHTTPClient(hc *http.Client) *SubtitleDownloader
 	return d
 }
 
-// Fetch streams exactly one subtitle file into w. It returns only after the
-// complete body was copied or a failure was classified; a partial write never
-// reaches a published file because the caller stages into a temporary name.
+// WithRootCAs replaces the transport root CA pool. It exists only for tests
+// against local TLS servers and never touches the protocol configuration, so
+// a test that injects trust anchors still exercises the production protocol
+// and pacing path.
+func (d *SubtitleDownloader) WithRootCAs(pool *x509.CertPool) *SubtitleDownloader {
+	if d.transport.TLSClientConfig == nil {
+		d.transport.TLSClientConfig = &tls.Config{RootCAs: pool}
+		return d
+	}
+	d.transport.TLSClientConfig.RootCAs = pool
+	return d
+}
+
+// CloseIdleConnections releases the idle connections of the dedicated
+// subtitle transport. runRound calls it after the round so a long-lived serve
+// process never accumulates idle connections from finished rounds.
+func (d *SubtitleDownloader) CloseIdleConnections() {
+	d.transport.CloseIdleConnections()
+}
+
+// Fetch streams exactly one subtitle file into w. It first waits for the
+// round-shared download slot: the first subtitle starts immediately and the
+// next one starts at least interval after the previous attempt started, with
+// no burst catch-up after an idle period or a fast download. The 30-second
+// transfer budget starts only after the wait, so it still covers every
+// redirect hop and the body read but never the wait itself.
 func (d *SubtitleDownloader) Fetch(ctx context.Context, remotePath string, w io.Writer) error {
 	target, err := pathmap.StableURL(d.publicPrefix, remotePath)
 	if err != nil {
 		return errSubtitleURL
+	}
+	if err := d.pacer.wait(ctx); err != nil {
+		// A cancelled wait never issues a request and never publishes a file.
+		return errSubtitleTransport
 	}
 	// One budget covers the redirects and the body read of this file.
 	fetchCtx, cancel := context.WithTimeout(ctx, SubtitleDownloadBudget)
@@ -144,6 +215,66 @@ func isRedirect(status int) bool {
 		return true
 	}
 	return false
+}
+
+// downloadPacer spaces the subtitle download attempts of one round. last is
+// the monotonic start time of the most recent actual attempt (success or
+// failure); it is never advanced by skips, filtered entries or local failures
+// that issued no content request, and it never accumulates credit: after a
+// long idle period the next attempt starts immediately.
+type downloadPacer struct {
+	interval time.Duration
+	// now is the monotonic clock source; nil keeps time.Now. Tests replace it
+	// to keep the scheduling math deterministic without real sleeps.
+	now func() time.Time
+	// sleep blocks until the delay elapses or ctx ends; nil keeps the real
+	// cancellable timer. Tests replace it to observe the computed delay.
+	sleep func(ctx context.Context, delay time.Duration) error
+	last  time.Time
+}
+
+// realSleep waits on a real timer that a round cancellation interrupts. The
+// wait is part of neither the 30-second budget nor any request.
+func realSleep(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// wait blocks until the next attempt may start and records that start.
+// The wait is cancellable: a cancelled wait returns without recording an
+// attempt and without issuing a request.
+func (p *downloadPacer) wait(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if p == nil || p.interval <= 0 {
+		return nil
+	}
+	nowFn := p.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn()
+	if !p.last.IsZero() {
+		if delay := p.interval - now.Sub(p.last); delay > 0 {
+			sleep := p.sleep
+			if sleep == nil {
+				sleep = realSleep
+			}
+			if err := sleep(ctx, delay); err != nil {
+				return err
+			}
+			now = nowFn()
+		}
+	}
+	p.last = now
+	return nil
 }
 
 // resolveRedirect resolves one redirect target against the current address

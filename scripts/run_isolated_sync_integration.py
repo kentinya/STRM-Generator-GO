@@ -58,6 +58,8 @@ ALL_SCENARIOS = [
     "notifications_cleanup",
     "subtitles",
     "subtitles_cleanup",
+    "subtitle_pacing",
+    "notify_classification",
 ]
 
 # Every Harness registers here so a failing scenario cannot leak a locked or
@@ -121,6 +123,10 @@ class Harness:
     def download_calls(self):
         return list(getattr(self._server, "download_calls", []))
 
+    def download_timeline(self):
+        """Wall-clock timestamps of every /d/ request, in call order."""
+        return list(getattr(self._server, "download_timeline", []))
+
     def stop_server(self):
         if getattr(self, "_server", None) is not None:
             self._server.shutdown()
@@ -154,6 +160,10 @@ class Harness:
             if subtitles.get("extensions") is not None:
                 rendered = ", ".join(json.dumps(ext) for ext in subtitles["extensions"])
                 lines.append(f"    extensions: [{rendered}]")
+            if subtitles.get("download_interval_seconds") is not None:
+                lines.append(f"    download_interval_seconds: {subtitles['download_interval_seconds']}")
+            if subtitles.get("use_http2") is not None:
+                lines.append(f"    use_http2: {'true' if subtitles['use_http2'] else 'false'}")
         if mirror is not None:
             lines.append(f"  mirror: {'true' if mirror else 'false'}")
         lines.append("cleanup:")
@@ -3641,6 +3651,233 @@ def scenario_subtitles_cleanup(h, results):
     observed["presence_clear"] = True
     hh.cleanup()
 
+
+def scenario_subtitle_pacing(h, results):
+    """Real CLI pacing of the subtitle downloader (SUB-2).
+
+    Three subtitle downloads through the normal sync entry must start at least
+    the configured interval apart, for the default 1s, the 0.5s floor and a
+    longer 1.5s interval. An all-present rerun issues no /d/ request at all,
+    so an all-existing round never waits.
+    """
+    observed = {}
+
+    def pacing_run(name, extra):
+        hh = Harness(h.binary, h.workdir / name, fault_binary=h.fault_binary)
+        dirs = {"/Movies": [
+            {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+             "hash_info": {"sha1": "a" * 40}},
+            {"name": "A.srt", "is_dir": False, "size": 40, "hash_info": None},
+            {"name": "B.srt", "is_dir": False, "size": 40, "hash_info": None},
+            {"name": "C.srt", "is_dir": False, "size": 40, "hash_info": None},
+        ]}
+        bodies = {f"/Movies/{n}.srt": f"1\n00:00:01,000 --> 00:00:02,000\n{n}\n"
+                  for n in ("A", "B", "C")}
+        api, _ = hh.server(directories=dirs, files=bodies)
+        root = hh.workdir / "out"
+        db = hh.workdir / "data" / "strmgen.db"
+        cfg = hh.config(name, api, [("/Movies", root)], db, public=api,
+                        cleanup=False, subtitles=extra)
+        return hh, cfg, root, db
+
+    def gaps(timeline):
+        return [b - a for a, b in zip(timeline, timeline[1:])]
+
+    # Default interval 1s: every consecutive gap stays at or above the
+    # interval (minus a small scheduling allowance; an early request is never
+    # tolerated) and below a generous ceiling that would catch an extra fixed
+    # wait per download.
+    hh, cfg, root, db = pacing_run("pacing-default", {"enabled": True})
+    run = hh.run(cfg)
+    check(run.returncode == 0 and "subtitle_downloaded=3" in run.stdout,
+          f"default pacing round: {run.stdout} {run.stderr}")
+    tl = hh.download_timeline()
+    check(len(tl) == 3, f"default timeline = {tl}")
+    for i, gap in enumerate(gaps(tl), 1):
+        check(gap >= 0.9, f"default gap {i} = {gap:.3f}s, want >= ~1s (no early request)")
+        check(gap <= 2.5, f"default gap {i} = {gap:.3f}s, an extra fixed wait would exceed this")
+    observed["default_interval"] = [round(g, 3) for g in gaps(tl)]
+    hh.cleanup()
+
+    # The configured floor 0.5s.
+    hh, cfg, root, db = pacing_run("pacing-half", {"enabled": True, "download_interval_seconds": 0.5})
+    run = hh.run(cfg)
+    check(run.returncode == 0 and "subtitle_downloaded=3" in run.stdout,
+          f"half-second pacing round: {run.stdout} {run.stderr}")
+    tl = hh.download_timeline()
+    check(len(tl) == 3, f"half timeline = {tl}")
+    for i, gap in enumerate(gaps(tl), 1):
+        check(gap >= 0.45, f"half gap {i} = {gap:.3f}s, want >= ~0.5s")
+    observed["half_interval"] = [round(g, 3) for g in gaps(tl)]
+    hh.cleanup()
+
+    # A longer explicit interval.
+    hh, cfg, root, db = pacing_run("pacing-long", {"enabled": True, "download_interval_seconds": 1.5})
+    run = hh.run(cfg)
+    check(run.returncode == 0 and "subtitle_downloaded=3" in run.stdout,
+          f"long pacing round: {run.stdout} {run.stderr}")
+    tl = hh.download_timeline()
+    check(len(tl) == 3, f"long timeline = {tl}")
+    for i, gap in enumerate(gaps(tl), 1):
+        check(gap >= 1.45, f"long gap {i} = {gap:.3f}s, want >= ~1.5s")
+    observed["long_interval"] = [round(g, 3) for g in gaps(tl)]
+
+    # An all-present rerun never issues a content request, so the interval
+    # introduces no wait at all.
+    rerun = hh.run(cfg)
+    check(rerun.returncode == 0 and "subtitle_skipped=3" in rerun.stdout,
+          f"all-present rerun: {rerun.stdout} {rerun.stderr}")
+    check(len(hh.download_timeline()) == 3, "the all-present rerun issued a content request")
+    observed["all_present_no_wait"] = True
+    hh.cleanup()
+    results["subtitle_pacing"] = observed
+
+
+def scenario_notify_classification(h, results):
+    """Telegram classification statistics through the isolated receiver
+    fixture (SUB-7/SUB-8): separated STRM and subtitle sections, one standalone
+    extension filter count over the union of both configured lists, the closed
+    note while the feature is off, and a subtitle-only round that carries no
+    STRM event facts.
+    """
+    receiver = TelegramReceiver()
+    before_dirs = notify_temp_dirs()
+    observed = {}
+    try:
+        # Mixed sample: two videos, a downloadable subtitle, an existing local
+        # subtitle, a failing subtitle, plain non-media files and a subtitle
+        # suffix outside the configured lists. Filter = notes.txt, cover.jpg,
+        # Extra.sub (exactly three; directories never count).
+        hh = Harness(h.binary, h.workdir / "notify-class", fault_binary=h.fault_binary)
+        dirs = {"/Movies": [
+            {"name": "Sample.mkv", "is_dir": False, "size": 10737418240,
+             "hash_info": {"sha1": "a" * 40}},
+            {"name": "Other.mkv", "is_dir": False, "size": 2048, "hash_info": None},
+            {"name": "Movie.zh.srt", "is_dir": False, "size": 60, "hash_info": None},
+            {"name": "Old.srt", "is_dir": False, "size": 40, "hash_info": None},
+            {"name": "Broken.srt", "is_dir": False, "size": 10, "hash_info": None},
+            {"name": "notes.txt", "is_dir": False, "size": 1, "hash_info": None},
+            {"name": "cover.jpg", "is_dir": False, "size": 1, "hash_info": None},
+            {"name": "Extra.sub", "is_dir": False, "size": 1, "hash_info": None},
+        ]}
+        files = {
+            "/Movies/Movie.zh.srt": "1\n00:00:01,000 --> 00:00:02,000\nclassify zh\n",
+            "/Movies/Broken.srt": {"body": '{"code":500}', "content_type": "application/json"},
+        }
+        api, _ = hh.server(directories=dirs, files=files)
+        root = hh.workdir / "out"
+        db = hh.workdir / "data" / "strmgen.db"
+        (root).mkdir(parents=True, exist_ok=True)
+        (root / "Old.srt").write_bytes(b"pre-existing local subtitle\n")
+        cfg = hh.config("notify-class", api, [("/Movies", root)], db, public=api,
+                        cleanup=False, subtitles={"enabled": True},
+                        notifications={"instance_name": "家庭媒体", "policy": "all"})
+        failed = hh.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(failed.returncode == 1, f"the failed subtitle must exit 1: {failed.stdout} {failed.stderr}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"messages = {len(messages)}, want exactly one")
+        body = visible_text(messages[0]["text"])
+        check("❌ STRM 同步失败（全部来源未完成）" in messages[0]["text"], f"failure title missing:\n{body}")
+        # STRM section.
+        check("➕ 新增 2 · ✏️ 更新 0" in body, f"STRM created line:\n{body}")
+        check("🗑️ 实际删除 0 · ♻️ 归属回收 0" in body, f"STRM delete line:\n{body}")
+        check("⏭️ 未变化跳过 0" in body, f"STRM skip line:\n{body}")
+        # Subtitle section: one published download, one existing skip, one
+        # failed download, no deletion.
+        check("🎬 字幕：📥 下载 1 · ⏭️ 已有跳过 1" in body, f"subtitle line:\n{body}")
+        check("❌ 处理失败 1 · 🗑️ 实际删除 0 · ♻️ 归属回收 0" in body, f"subtitle failure line:\n{body}")
+        check("🎬 字幕已关闭" not in body, "an enabled feature must not show the closed note")
+        # One standalone filter count outside both sections.
+        check(body.count("🔎 扩展名过滤 3") == 1, f"filter count missing or duplicated:\n{body}")
+        for secret in ("integration-token", "-10042", api):
+            check(secret not in body, f"summary leaks {secret!r}")
+        observed["failed_round_sections"] = True
+
+        # Remove the failing subtitle: the round completes and the counters
+        # reflect the actual results of this round only.
+        dirs["/Movies"] = [e for e in dirs["/Movies"] if e["name"] != "Broken.srt"]
+        receiver.requests.clear()
+        ok = hh.run(cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(ok.returncode == 0, f"completed round failed: {ok.stdout} {ok.stderr}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"completed messages = {len(messages)}")
+        body = visible_text(messages[0]["text"])
+        check("✅ STRM 同步完成" in messages[0]["text"], f"completed title:\n{body}")
+        check("➕ 新增 0 · ✏️ 更新 0" in body, f"completed STRM line:\n{body}")
+        check("🎬 字幕：📥 下载 0 · ⏭️ 已有跳过 2" in body, f"completed subtitle line:\n{body}")
+        check("❌ 处理失败 0" in body, f"completed failure line:\n{body}")
+        check("🔎 扩展名过滤 3" in body, f"completed filter count:\n{body}")
+        observed["completed_round"] = True
+
+        # Subtitle feature off: the summary shows the fixed closed note and the
+        # shared filter count keeps covering both configured lists.
+        off_cfg = hh.config("notify-class-off", api, [("/Movies", root)], db, public=api,
+                            cleanup=False, subtitles={"enabled": False},
+                            notifications={"policy": "all"})
+        receiver.requests.clear()
+        off = hh.run(off_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(off.returncode == 0, f"disabled round failed: {off.stdout} {off.stderr}")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"disabled messages = {len(messages)}")
+        body = visible_text(messages[0]["text"])
+        check("🎬 字幕已关闭" in body, f"closed note missing:\n{body}")
+        check("📥 下载" not in body, "a disabled feature must not show subtitle counters")
+        check("🔎 扩展名过滤 3" in body, "the shared filter count must survive the switch")
+        check("⏭️ 未变化跳过 2" in body, f"disabled STRM skip line:\n{body}")
+        observed["closed_note"] = True
+        hh.cleanup()
+
+        # A round that only downloads subtitles produces no STRM fact: under
+        # change_or_error it stays silent, and the CLI report still counts it.
+        hh2 = Harness(h.binary, h.workdir / "notify-class-only", fault_binary=h.fault_binary)
+        dirs2 = {"/Movies": [
+            {"name": "Solo.mkv", "is_dir": False, "size": 10737418240,
+             "hash_info": {"sha1": "b" * 40}},
+            {"name": "First.srt", "is_dir": False, "size": 40, "hash_info": None},
+        ]}
+        files2 = {"/Movies/First.srt": "1\n00:00:01,000 --> 00:00:02,000\nfirst\n"}
+        api2, _ = hh2.server(directories=dirs2, files=files2)
+        root2 = hh2.workdir / "out"
+        db2 = hh2.workdir / "data" / "strmgen.db"
+        change_cfg = hh2.config("notify-class-change", api2, [("/Movies", root2)], db2,
+                                public=api2, cleanup=False, subtitles={"enabled": True},
+                                notifications={"policy": "change_or_error"})
+        receiver.requests.clear()
+        seed = hh2.run(change_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(seed.returncode == 0, f"subtitle-only seed failed: {seed.stdout} {seed.stderr}")
+        check(receiver.count() == 1, "the seeding round creates a STRM change and must notify")
+        # The next round only downloads a new subtitle: no STRM event fact, no
+        # notification under change_or_error.
+        dirs2["/Movies"].append({"name": "Second.srt", "is_dir": False, "size": 40,
+                                 "hash_info": None})
+        files2["/Movies/Second.srt"] = "1\n00:00:01,000 --> 00:00:02,000\nsecond\n"
+        receiver.requests.clear()
+        only_sub = hh2.run(change_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary)
+        check(only_sub.returncode == 0 and "subtitle_downloaded=1" in only_sub.stdout,
+              f"subtitle-only round: {only_sub.stdout} {only_sub.stderr}")
+        check(receiver.count() == 0,
+              f"a subtitle-only round carries no STRM fact and must stay silent: {receiver.requests}")
+        # Under policy all the same round sends, and the body scopes the file
+        # events to STRM explicitly.
+        all_cfg = hh2.config("notify-class-all", api2, [("/Movies", root2)], db2,
+                             public=api2, cleanup=False, subtitles={"enabled": True},
+                             notifications={"policy": "all"})
+        receiver.requests.clear()
+        check(hh2.run(all_cfg, extra_env=telegram_env(receiver), binary=h.fault_binary).returncode == 0,
+              "the all-policy round failed")
+        messages = receiver.messages()
+        check(len(messages) == 1, f"all-policy messages = {len(messages)}")
+        body = visible_text(messages[0]["text"])
+        check("文件事件仅记录 STRM 变化：本轮无新增、更新、删除或归属回收事件。" in body,
+              f"STRM scope note missing:\n{body}")
+        check("🎬 字幕：📥 下载 0" in body, f"the skip-only subtitle line:\n{body}")
+        observed["subtitle_only_silent"] = True
+        check(notify_temp_dirs() - before_dirs == set(), "a classification round left temporary files")
+        hh2.cleanup()
+    finally:
+        receiver.close()
+    results["notify_classification"] = observed
+
     results["subtitles_cleanup"] = observed
 
 
@@ -3662,6 +3899,8 @@ SCENARIOS = {
     "notifications_cleanup": scenario_notifications_cleanup,
     "subtitles": scenario_subtitles,
     "subtitles_cleanup": scenario_subtitles_cleanup,
+    "subtitle_pacing": scenario_subtitle_pacing,
+    "notify_classification": scenario_notify_classification,
 }
 
 

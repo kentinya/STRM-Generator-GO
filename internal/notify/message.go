@@ -50,7 +50,8 @@ const (
 
 // Stats mirrors the existing per-round report counters. Each item keeps its
 // established meaning; failure counts, diagnostic counts and staged missing
-// observations are never mixed into these numbers.
+// observations are never mixed into these numbers. Filtered counts the scanned
+// non-directory entries that match neither configured extension list.
 type Stats struct {
 	Created   int
 	Updated   int
@@ -61,6 +62,17 @@ type Stats struct {
 	Retained  int
 	Conflicts int
 	Errors    int
+}
+
+// SubtitleStats carries the per-round subtitle counters for the dedicated
+// subtitle section. The zero value with SubtitlesEnabled false renders as
+// "字幕已关闭" and is never shown as zero activity.
+type SubtitleStats struct {
+	Downloaded int
+	Skipped    int
+	Failed     int
+	Deleted    int
+	Reclaimed  int
 }
 
 // SourceStatus is one bounded per-source line. Notes reuse the existing
@@ -88,7 +100,13 @@ type RunInfo struct {
 	CompletedSources  int
 	IncompleteSources int
 	Stats             Stats
-	StatsAvailable    bool // false: counts are unavailable (initialization failure)
+	// Subtitles carries the subtitle counters and the resolved feature switch
+	// of the same configuration this process started with. The switch decides
+	// between the subtitle section and the fixed closed note; the counters are
+	// the actual results of this round.
+	Subtitles        SubtitleStats
+	SubtitlesEnabled bool
+	StatsAvailable   bool // false: counts are unavailable (initialization failure)
 	// DetailUnavailable records that the detail collection could not be
 	// created this round: file events and missing-count progress are unknown
 	// and must never be reported as complete or zero.
@@ -343,8 +361,19 @@ func headWithInstance(info RunInfo, instance string) string {
 		s := info.Stats
 		fmt.Fprintf(b, "➕ 新增 %d · ✏️ 更新 %d\n", s.Created, s.Updated)
 		fmt.Fprintf(b, "🗑️ 实际删除 %d · ♻️ 归属回收 %d\n", s.Deleted, s.Reclaimed)
-		fmt.Fprintf(b, "⏭️ 未变化跳过 %d · 🔎 扩展名过滤 %d\n", s.Skipped, s.Filtered)
+		fmt.Fprintf(b, "⏭️ 未变化跳过 %d\n", s.Skipped)
 		fmt.Fprintf(b, "🛡️ 安全保留 %d · ⚠️ 冲突 %d · ❌ 处理错误 %d\n", s.Retained, s.Conflicts, s.Errors)
+		// The extension filter count stands alone outside the STRM and subtitle
+		// sections and covers exactly one count per scanned non-directory entry
+		// that matches neither configured list.
+		fmt.Fprintf(b, "🔎 扩展名过滤 %d\n", s.Filtered)
+		if info.SubtitlesEnabled {
+			st := info.Subtitles
+			fmt.Fprintf(b, "🎬 字幕：📥 下载 %d · ⏭️ 已有跳过 %d\n", st.Downloaded, st.Skipped)
+			fmt.Fprintf(b, "❌ 处理失败 %d · 🗑️ 实际删除 %d · ♻️ 归属回收 %d\n", st.Failed, st.Deleted, st.Reclaimed)
+		} else {
+			b.WriteString("🎬 字幕已关闭\n")
+		}
 	}
 	b.WriteString("\n")
 	if info.SourceCount > 0 {
@@ -478,7 +507,7 @@ func buildTail(info RunInfo, c *Collector, shownEvents int, totalEvents int, omi
 	b := &strings.Builder{}
 	b.WriteString("\n")
 	if totalEvents == 0 {
-		b.WriteString("文件事件：本轮无新增、更新、删除或归属回收事件。\n")
+		b.WriteString("文件事件仅记录 STRM 变化：本轮无新增、更新、删除或归属回收事件。\n")
 	} else if totalEvents > shownEvents {
 		fmt.Fprintf(b, "正文预览 %d 条，另有 %d 条未展示。\n", shownEvents, totalEvents-shownEvents)
 	}

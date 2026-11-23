@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -34,7 +36,10 @@ func hijack(w http.ResponseWriter) (net.Conn, *bufio.ReadWriter, bool) {
 }
 
 func newTestDownloader(prefix string) *SubtitleDownloader {
-	return NewSubtitleDownloader(prefix).WithHTTPClient(&http.Client{})
+	// The test client bypasses the production transport on purpose so the
+	// transfer-contract tests exercise the fetch loop alone; the pacing and
+	// protocol tests use the production constructor path instead.
+	return NewSubtitleDownloader(prefix, 0, false).WithHTTPClient(&http.Client{})
 }
 
 func TestSubtitleFetchUsesStableAddressWithoutToken(t *testing.T) {
@@ -534,5 +539,310 @@ func TestSubtitleFetchAcceptsBOMSubtitles(t *testing.T) {
 		if out.String() != string(body) {
 			t.Fatalf("%s bytes changed", name)
 		}
+	}
+}
+
+// fakeClock advances by a fixed step on every call, so the pacer math can be
+// observed without real sleeps; the injected sleep records the computed delay
+// instead of blocking.
+type fakeClock struct {
+	mu   sync.Mutex
+	step time.Duration
+	t    time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{t: time.Unix(1000000, 0)}
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(c.step)
+	return c.t
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+// SUB-2: the first attempt never waits; a fast attempt inside the interval
+// waits exactly the remaining time; an attempt that starts after the interval
+// elapsed never waits again, so idle time never accumulates burst credit.
+func TestSubtitlePacerScheduling(t *testing.T) {
+	clock := newFakeClock()
+	clock.step = 100 * time.Millisecond
+	var sleeps []time.Duration
+	p := &downloadPacer{interval: time.Second, now: clock.Now,
+		sleep: func(ctx context.Context, delay time.Duration) error {
+			sleeps = append(sleeps, delay)
+			clock.advance(delay)
+			return nil
+		}}
+	ctx := context.Background()
+	if err := p.wait(ctx); err != nil {
+		t.Fatalf("first wait: %v", err)
+	}
+	if len(sleeps) != 0 {
+		t.Fatalf("the first attempt must start immediately: %v", sleeps)
+	}
+	first := p.last
+	if err := p.wait(ctx); err != nil {
+		t.Fatalf("second wait: %v", err)
+	}
+	if len(sleeps) != 1 || sleeps[0] != 900*time.Millisecond {
+		t.Fatalf("second wait delay = %v, want 900ms", sleeps)
+	}
+	if !p.last.After(first) {
+		t.Fatal("the recorded start must move to the actual start after the wait")
+	}
+	// A slow attempt whose elapsed time already covers the interval never
+	// waits again and never owes an extra fixed wait.
+	clock.advance(5 * time.Second)
+	if err := p.wait(ctx); err != nil {
+		t.Fatalf("slow attempt wait: %v", err)
+	}
+	if len(sleeps) != 1 {
+		t.Fatalf("slow attempt must not wait: %v", sleeps)
+	}
+	// The attempt right after a zero-wait start still waits only the remaining
+	// part of the interval: no debt, no burst, never more than one interval.
+	if err := p.wait(ctx); err != nil {
+		t.Fatalf("next attempt wait: %v", err)
+	}
+	if len(sleeps) != 2 || sleeps[1] != 900*time.Millisecond {
+		t.Fatalf("next attempt delay = %v, want [900ms 900ms]", sleeps)
+	}
+	// The long idle above never accumulated burst credit: the delay after the
+	// idle stayed the plain remaining interval, never more than one interval.
+	for _, delay := range sleeps {
+		if delay > p.interval {
+			t.Fatalf("delay %v exceeds the interval", delay)
+		}
+	}
+}
+
+// SUB-2: a cancelled wait never records an attempt, so the next successful
+// wait still spaces against the last real attempt.
+func TestSubtitlePacerWaitCancellation(t *testing.T) {
+	clock := newFakeClock()
+	clock.step = time.Second
+	cancelled := errors.New("cancelled")
+	p := &downloadPacer{interval: 5 * time.Second, now: clock.Now,
+		sleep: func(ctx context.Context, delay time.Duration) error { return cancelled }}
+	if err := p.wait(context.Background()); err != nil {
+		t.Fatalf("first wait: %v", err)
+	}
+	first := p.last
+	clock.advance(2 * time.Second)
+	if err := p.wait(context.Background()); err != cancelled {
+		t.Fatalf("cancelled wait error = %v", err)
+	}
+	if !p.last.Equal(first) {
+		t.Fatal("a cancelled wait must not record an attempt")
+	}
+	// A pre-cancelled context never reaches the sleep at all.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.wait(ctx); err == nil {
+		t.Fatal("a pre-cancelled wait must fail")
+	}
+}
+
+// SUB-2: the real production downloader spaces sequential fetches by the
+// configured interval using real request timestamps, with no extra fixed wait
+// after a slow attempt.
+func TestSubtitleDownloaderRequestSpacing(t *testing.T) {
+	var mu sync.Mutex
+	var times []time.Time
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		times = append(times, time.Now())
+		mu.Unlock()
+		w.Write([]byte("1\n00:00:01,000 --> 00:00:02,000\nhi\n"))
+	}))
+	defer ts.Close()
+	d := NewSubtitleDownloader(ts.URL, time.Second, false)
+	for i := 0; i < 3; i++ {
+		var out strings.Builder
+		if err := d.Fetch(context.Background(), fmt.Sprintf("/Movies/Sub%d.srt", i), &out); err != nil {
+			t.Fatalf("fetch %d: %v", i, err)
+		}
+	}
+	if len(times) != 3 {
+		t.Fatalf("request count = %d", len(times))
+	}
+	for i := 1; i < len(times); i++ {
+		gap := times[i].Sub(times[i-1])
+		// The handler runs after the attempt starts; a small scheduling skew
+		// is tolerated, but an early request is never tolerated.
+		if gap < 950*time.Millisecond {
+			t.Fatalf("gap %d = %v, want at least ~1s", i, gap)
+		}
+	}
+}
+
+// SUB-2: one subtitle is in flight at a time by construction; the production
+// constructor keeps the pacer round-shared. A fast sequence still honours the
+// interval across separate Fetch calls on the same downloader.
+func TestSubtitleDownloaderPacerSharedAcrossFetches(t *testing.T) {
+	d := NewSubtitleDownloader("https://openlist.example.invalid", time.Second, false)
+	if d.pacer == nil || d.pacer.interval != time.Second {
+		t.Fatalf("pacer = %+v", d.pacer)
+	}
+	// A cancelled wait must be observable before any request is built.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out strings.Builder
+	if err := d.Fetch(ctx, "/Movies/Sub.srt", &out); err == nil {
+		t.Fatal("a cancelled round must not start the transfer")
+	}
+}
+
+// SUB-3: an HTTPS test server that actually supports HTTP/2 records the
+// negotiated protocol of every request. The production constructor with
+// use_http2 disabled must negotiate HTTP/1.1, and the explicit true control
+// must really negotiate HTTP/2 on the same server, so the assertion cannot
+// pass just because the test server lacks the protocol.
+func newHTTP2RecordingServer(t *testing.T, record func(proto string)) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proto := r.Proto
+		if r.TLS != nil && r.TLS.NegotiatedProtocol != "" {
+			proto = r.TLS.NegotiatedProtocol
+		}
+		record(strings.ToLower(proto))
+		w.Write([]byte("1\n00:00:01,000 --> 00:00:02,000\nhi\n"))
+	}))
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// mustServerPool builds a root pool that trusts one test server's certificate.
+func mustServerPool(t *testing.T, ts *httptest.Server) *x509.CertPool {
+	t.Helper()
+	pool := x509.NewCertPool()
+	pool.AddCert(ts.Certificate())
+	return pool
+}
+
+func TestSubtitleTransportDefaultsToHTTP1OverHTTPS(t *testing.T) {
+	var protos []string
+	var mu sync.Mutex
+	ts := newHTTP2RecordingServer(t, func(proto string) {
+		mu.Lock()
+		protos = append(protos, proto)
+		mu.Unlock()
+	})
+	pool := mustServerPool(t, ts)
+	d := NewSubtitleDownloader(ts.URL, 0, false).WithRootCAs(pool)
+	var out strings.Builder
+	if err := d.Fetch(context.Background(), "/Movies/Movie.zh.srt", &out); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(protos) != 1 {
+		t.Fatalf("request count = %d", len(protos))
+	}
+	if protos[0] != "http/1.1" {
+		t.Fatalf("negotiated protocol = %q, want http/1.1", protos[0])
+	}
+}
+
+func TestSubtitleTransportExplicitHTTP2NegotiatesH2(t *testing.T) {
+	var protos []string
+	var mu sync.Mutex
+	ts := newHTTP2RecordingServer(t, func(proto string) {
+		mu.Lock()
+		protos = append(protos, proto)
+		mu.Unlock()
+	})
+	// The control case: the same server really supports HTTP/2. The control
+	// client only adds the test server's root certificate; everything else is
+	// the shared default transport.
+	control := &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()}
+	control.Transport.(*http.Transport).TLSClientConfig = &tls.Config{RootCAs: mustServerPool(t, ts)}
+	resp, err := control.Get(ts.URL + "/d/Movies/Movie.zh.srt")
+	if err != nil {
+		t.Fatalf("control request: %v", err)
+	}
+	resp.Body.Close()
+	mu.Lock()
+	if len(protos) != 1 || protos[0] != "h2" {
+		have := append([]string(nil), protos...)
+		mu.Unlock()
+		t.Fatalf("control negotiation = %v, the test server must really support h2", have)
+	}
+	mu.Unlock()
+	// The production path with use_http2: true negotiates h2 as well.
+	protos = nil
+	d := NewSubtitleDownloader(ts.URL, 0, true).WithRootCAs(mustServerPool(t, ts))
+	var out strings.Builder
+	if err := d.Fetch(context.Background(), "/Movies/Movie.zh.srt", &out); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(protos) != 1 || protos[0] != "h2" {
+		t.Fatalf("explicit h2 negotiation = %v, want [h2]", protos)
+	}
+}
+
+// SUB-3: the default transport stays isolated: the subtitle client keeps its
+// own transport, never mutates the shared default, and every hop of a
+// cross-domain HTTPS redirect chain uses the same HTTP/1.1-only client.
+func TestSubtitleTransportIsolationAndRedirectChain(t *testing.T) {
+	var protos []string
+	var mu sync.Mutex
+	record := func(proto string) {
+		mu.Lock()
+		protos = append(protos, proto)
+		mu.Unlock()
+	}
+	target := newHTTP2RecordingServer(t, record)
+	origin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proto := r.Proto
+		if r.TLS != nil && r.TLS.NegotiatedProtocol != "" {
+			proto = r.TLS.NegotiatedProtocol
+		}
+		record(strings.ToLower(proto))
+		http.Redirect(w, r, target.URL+"/d/Movies/Movie.zh.srt", http.StatusFound)
+	}))
+	origin.EnableHTTP2 = true
+	origin.StartTLS()
+	t.Cleanup(origin.Close)
+
+	defaultTransport := http.DefaultTransport.(*http.Transport)
+
+	d := NewSubtitleDownloader(origin.URL, 0, false).WithRootCAs(func() *x509.CertPool {
+		pool := x509.NewCertPool()
+		pool.AddCert(target.Certificate())
+		pool.AddCert(origin.Certificate())
+		return pool
+	}())
+	var out strings.Builder
+	if err := d.Fetch(context.Background(), "/Movies/Movie.zh.srt", &out); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(protos) != 2 {
+		t.Fatalf("hops = %d, want 2", len(protos))
+	}
+	for i, proto := range protos {
+		if proto != "http/1.1" {
+			t.Fatalf("hop %d negotiated %q, want http/1.1", i, proto)
+		}
+	}
+	if defaultTransport.Protocols != nil {
+		t.Fatal("the shared default transport protocol set must stay untouched")
+	}
+	if d.transport == defaultTransport {
+		t.Fatal("the subtitle client must not share the default transport")
 	}
 }

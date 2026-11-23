@@ -153,8 +153,11 @@ func runRound(ctx context.Context, deps roundDeps, first bool) (*reconciler.Repo
 		ownership = store
 	}
 	var subtitleFetcher reconciler.SubtitleFetcher
+	var subtitleDownloader *openlist.SubtitleDownloader
 	if deps.resolved.SubtitlesEnabled {
-		subtitleFetcher = openlist.NewSubtitleDownloader(deps.resolved.PublicPrefix)
+		subtitleDownloader = openlist.NewSubtitleDownloader(deps.resolved.PublicPrefix,
+			deps.resolved.SubtitleDownloadInterval, deps.resolved.SubtitleUseHTTP2)
+		subtitleFetcher = subtitleDownloader
 	}
 	syncer := reconciler.New(client, ownership, reconciler.Options{
 		DryRun:               deps.dryRun,
@@ -171,6 +174,11 @@ func runRound(ctx context.Context, deps roundDeps, first bool) (*reconciler.Repo
 	})
 
 	report, runErr := syncer.Run(ctx, sources)
+	// The dedicated subtitle transport is round-scoped: its idle connections
+	// are released here so a long-lived serve process never accumulates them.
+	if subtitleDownloader != nil {
+		subtitleDownloader.CloseIdleConnections()
+	}
 	return report, scheduler.Result{Err: runErr}
 }
 

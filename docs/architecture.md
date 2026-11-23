@@ -33,7 +33,10 @@ Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记�
 
 `internal/config` 以与媒体扩展名相同的原始 YAML 节点机制解析 `sync.subtitles`：
 整段或 `enabled` 省略保持关闭，`extensions` 只能取四项白名单子集，开启时与媒体列表
-查重，错误在准备输出／数据库前以退出码 2 返回脱敏字段名。三个命令入口在
+查重，错误在准备输出／数据库前以退出码 2 返回脱敏字段名。
+`download_interval_seconds` 由专用标量类型解析：只接受有限整数或小数、下限 0.5 秒，
+拒绝 NaN、无穷、字符串、布尔、null、容器和时长溢出；`use_http2` 只接受显式 YAML
+布尔。两个新字段即使字幕关闭也被校验。三个命令入口在
 `config.Load` 后一次构建字幕扩展集并放入 `roundDeps`，运行中的 `serve` 不热加载。
 
 `reconciler` 在每轮 `handleDirectory` 内判定目录资格:本轮至少一个视频 STRM 新建、
@@ -42,7 +45,13 @@ Task 6.1 的独立 B 审查、P2 自复核与 A 最终审查入口见[历史记�
 `pathmap.SubtitleRelative` 用与视频相同的段校验拼接源内相对目录与原名；已归属字幕
 的出现观察独立于目录资格。`internal/openlist.SubtitleDownloader` 以
 `pathmap.StableURL` 构造 `/d/` 地址执行无凭证 GET，实行 30 秒预算、5 次重定向与
-8 MiB 上限，HTML／JSON 错误页与截断响应分类为失败；`LocalFS.PublishSubtitle` 复用
+8 MiB 上限，HTML／JSON 错误页与截断响应分类为失败。FIX-SUB-01 增量：每轮在
+`runRound` 构造一个共享的 `SubtitleDownloader`，其内部下载节流器以单调时间和实际
+开始时间保证相邻字幕下载尝试至少间隔配置秒数（首份立即、慢下载不额外等待、空闲
+不突发、失败也占用间隔），等待可被轮次取消，不计入 30 秒预算；字幕客户端使用独立
+transport，协议集合显式配置，默认仅允许 HTTP/1（TLS ALPN 不提供 h2），显式
+`use_http2: true` 才允许 HTTPS 协商 HTTP/2 并保留 HTTP/1.1 回退；轮次结束后释放
+空闲连接，不触碰共享默认 transport。`LocalFS.PublishSubtitle` 复用
 同目录临时写入、`Link` 无覆盖原子发布与父目录同步顺序，失败清理本次临时文件。
 发布成功后按 `storage.FileSubtitle` 登记归属；下载、本地处理或安全冲突使该来源
 本轮不完整并冻结清理与计数推进，`FactSink` 事实流继续只携带 STRM 事件。
@@ -77,7 +86,7 @@ scheduler -> 单轮互斥 -> reconciler -> openlist (list/get, bounded HTTP)
 | `internal/strm` | V1 解析、序列化与 URL → SHA-1 → Size 比较，保持纯函数 |
 | `internal/storage` | SQLite 最小归属（含文件类型）、精确路径、成功轮次与缺失计数；不保存媒体指纹 |
 | `internal/reconciler` | 有界目录对账、归属／冲突、完整轮提交、清理资格，以及 LocalFS 发布／恢复／删除 |
-| `internal/notify` | 可选通知旁路：事实格式化、单个临时清单与官方 Bot API 传输；不依赖 reconciler／storage |
+| `internal/notify` | 可选通知旁路：事实格式化、STRM／字幕分类统计、单个临时清单与官方 Bot API 传输；不依赖 reconciler／storage |
 | `internal/securepath` | Linux 目录句柄与相对操作，限制输出及数据库路径边界 |
 | `internal/scheduler` | 首轮立即执行、单 timer、busy-skip、失败后继续与取消；复用同一同步入口 |
 
@@ -112,6 +121,11 @@ STRM 是 URL／SHA-1／Size 的比较来源；SQLite 只保存归属和对账事
 在原提交事务窗口内暂存，提交成功后才确认为有效进度，事务失败即丢弃。
 `internal/notify` 按发生顺序流式追加单个 0700 目录／0600 文件的
 临时清单，渲染中文摘要并经官方 HTTPS Bot API 在锁与本地资源释放后串行发送。
+FIX-SUB-01 起 `RunInfo` 同时携带 STRM 计数、字幕计数与解析后的字幕开关：摘要把
+「STRM」与「字幕」统计分别成段，字幕关闭时显示固定闭注；「🔎 扩展名过滤」单独显示
+一次，只统计同时不匹配两份有效配置列表的非目录条目（计数在 `handleDirectory` 按最后
+扩展名不区分大小写完成，与字幕开关和结果无关）；事件流、附件与缺失进度继续只承载
+STRM 事实，正文说明其范围。
 FIX-TG-01 起摘要使用 `parse_mode=HTML`，展示层只生成受控的粗体标题、路径
 `<code>` 与 6 条事件起的单个 `<blockquote expandable>`，固定图标区分结果、统计与
 清理阶段；来源诊断和明细不完整警示留在折叠块外。完整待发送 HTML 连标签和实体
