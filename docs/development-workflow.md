@@ -190,6 +190,7 @@ SLICE／TASK 维护当前状态与追溯入口，路线图汇总已交付能力�
 | FIX-TG-01 原计划、实施报告、B 首次退回及完整真实预览发送记录 | `1afb5aa36fc541cd04e1c31451979253a49767b6` | `TASK.md` |
 | FIX-TG-01 用户最终确认与独立 B 关闭 | `1f193b798744ef96083a788a7deeb37d4e6c5b0c` | `TASK.md` |
 | Slice 7 完整合同、Task 7.1 计划／修正／独立 B 最终审查 | `08c22cb5cd743db71182f523185043c038e05590` | `SLICE.md`、`TASK.md` |
+| FIX-SUB-01 完整计划、实施、B 首次审查与修正交接 | `571ebd8486f8e2806d931466e3e338067a52bb03` | `TASK.md`，最终决定见[关闭记录](../TASK.md#独立-b-最终复评) |
 
 ```bash
 git ls-tree -r --name-only 4d16846722f31aa9615494b90df715cf4b5bb6df -- docs Task
